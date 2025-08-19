@@ -1,7 +1,6 @@
 steps:
 # 1. Dockerイメージをビルドするステップ
 - name: 'gcr.io/cloud-builders/docker'
-  dir: 'k_back'
   args:
     - 'build'
     - '--target=production'
