@@ -1,0 +1,38 @@
+steps:
+# 1. Dockerイメージをビルドするステップ
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+    - 'build'
+    - '--target=production'
+    - '-t'
+    # 修正前: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$COMMIT_SHA'
+    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
+    - '.'
+
+# 2. ビルドしたイメージをArtifact Registryにプッシュするステップ
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+    - 'push'
+    # 修正前: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$COMMIT_SHA'
+    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
+
+# 3. プッシュしたイメージを使ってCloud Runにデプロイするステップ
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+    - 'run'
+    - 'deploy'
+    - 'k-back'
+    - '--image'
+    # 修正前: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$COMMIT_SHA'
+    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
+    - '--region'
+    - 'asia-northeast1'
+    - '--platform'
+    - 'managed'
+    - '--allow-unauthenticated'
+
+# ビルドしたイメージを保存する
+images:
+  # 修正前: - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$COMMIT_SHA'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
