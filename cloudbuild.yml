@@ -1,5 +1,5 @@
 steps:
-# 1. Dockerイメージをビルドするステップ
+# 1. Dockerイメージをビルドするステップa
 - name: 'gcr.io/cloud-builders/docker'
   args:
     - 'build'
