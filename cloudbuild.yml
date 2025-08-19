@@ -6,14 +6,14 @@ steps:
     - 'build'
     - '--target=production'
     - '-t'
-    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
-    - '.'
+    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest'
+    - 'k_back' 
 
 # 2. ビルドしたイメージをArtifact Registryにプッシュするステップ
 - name: 'gcr.io/cloud-builders/docker'
   args:
     - 'push'
-    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
+    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest'
 
 # 3. プッシュしたイメージを使ってCloud Runにデプロイするステップ
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -23,7 +23,7 @@ steps:
     - 'deploy'
     - 'k-back'
     - '--image'
-    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
+    - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest'
     - '--region'
     - 'asia-northeast1'
     - '--platform'
@@ -32,4 +32,4 @@ steps:
 
 # ビルドしたイメージを保存する
 images:
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest' # ★ 修正後
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest'
