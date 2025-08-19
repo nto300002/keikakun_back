@@ -7,6 +7,8 @@ FROM python:3.12-slim-bullseye AS base
 # Pythonのログがバッファリングされず、直接Dockerログに出力されるようにする
 ENV PYTHONUNBUFFERED=1
 
+ENV PYTHONPATH=/app
+
 # アプリケーションの作業ディレクトリを設定
 WORKDIR /app
 
@@ -32,8 +34,7 @@ EXPOSE 8080
 
 # 本番サーバー(gunicorn)を起動するコマンド
 # Cloud Runのベストプラクティスに従い、ポート8080で起動
-# CMD exec gunicorn -w 1 -k uvicorn.workers.UvicornWorker -b "0.0.0.0:${PORT}" app.main:app
-CMD ["ls", "-R", "/app"]
+CMD exec gunicorn -w 1 -k uvicorn.workers.UvicornWorker -b "0.0.0.0:${PORT}" app.main:app
 
 # --- ステージ 3: development ---
 # 目的: ローカル開発用のイメージ。ホットリロードなど開発ツールを含む
