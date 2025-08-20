@@ -6,8 +6,8 @@ starlette==0.40.0
 # DB と ORM
 sqlalchemy==2.0.41
 alembic==1.16.4
-psycopg[binary,pool]>=3.1.8
-asyncpg  
+asyncpg==0.30.0             
+psycopg2-binary            
 
 # データ検証と設定
 pydantic==2.11.7
@@ -25,4 +25,3 @@ Mako==1.3.2
 MarkupSafe==2.1.5
 sniffio==1.3.1
 typing_extensions==4.14.1
-psycopg2-binary
