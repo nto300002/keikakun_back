@@ -28,6 +28,8 @@ steps:
     - '--platform'
     - 'managed'
     - '--allow-unauthenticated'
+    - '--update-env-vars'
+    - 'DATABASE_URL=${_PROD_DATABASE_URL},SECRET_KEY=${_PROD_SECRET_KEY}'
 
 # ビルドしたイメージを保存する
 images:
