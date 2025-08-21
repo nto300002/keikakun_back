@@ -1,6 +1,7 @@
 # Webフレームワーク
 fastapi==0.116.1
 uvicorn==0.29.0
+gunicorn
 starlette==0.40.0
 
 # DB と ORM
