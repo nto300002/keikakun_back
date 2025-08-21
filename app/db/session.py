@@ -1,14 +1,31 @@
 import os
-
 import dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
 dotenv.load_dotenv()
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+# For asynchronous operations
+ASYNC_DATABASE_URL = os.getenv("DATABASE_URL")
+if not ASYNC_DATABASE_URL:
+    raise ValueError("No DATABASE_URL environment variable set for async connection")
 
-engine = create_async_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# For synchronous operations
+SYNC_DATABASE_URL = ASYNC_DATABASE_URL.replace("+asyncpg", "")
+
+async_engine = create_async_engine(ASYNC_DATABASE_URL)
+AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_engine)
+
+sync_engine = create_engine(SYNC_DATABASE_URL)
+SyncSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
 
 Base = declarative_base()
+
+def get_db():
+    db = SyncSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

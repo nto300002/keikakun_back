@@ -16,5 +16,19 @@ async def test_read_root():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Welcome to the Bookstore API!"}
+    assert response.json() == {"message": "Welcome to the Keikakun API!"}
+
+
+@pytest.mark.asyncio
+async def test_create_debug_message():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        test_message = "Hello, test world!"
+        response = await ac.post("/api/v1/debug/hello", json={"message": test_message})
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["message"] == test_message
+    assert "id" in data
+    assert "created_at" in data
 
