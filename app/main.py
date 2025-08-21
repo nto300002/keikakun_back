@@ -11,7 +11,7 @@ app = FastAPI()
 # CORSミドルウェアの設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # フロントエンドのオリジン
+    allow_origins=["http://localhost:3000", "*"],  # フロントエンドのオリジンと、一旦すべてのオリジンを許可
     allow_credentials=True,
     allow_methods=["*"],  # すべてのメソッドを許可
     allow_headers=["*"],  # すべてのヘッダーを許可
