@@ -6,7 +6,7 @@ steps:
     - '--target=production'
     - '-t'
     - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:latest'
-    - 'k_back' 
+    - '.' 
 
 # 2. ビルドしたイメージをArtifact Registryにプッシュするステップ
 - name: 'gcr.io/cloud-builders/docker'
