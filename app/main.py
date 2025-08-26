@@ -4,7 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import uvicorn
 
 from app.db.session import AsyncSessionLocal
-from app.api.v1.endpoints import debug
+from app.api.v1.endpoints import (
+    auths,
+    staffs,
+    offices,
+    # service_recipient, # コメントアウトされたままのものは一旦そのままにします
+    # support_plan,
+    # dashboard,
+)
 
 app = FastAPI()
 
@@ -17,15 +24,26 @@ app.add_middleware(
     allow_headers=["*"],  # すべてのヘッダーを許可
 )
 
-async def get_async_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        yield session
 
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to the Keikakun API!"}
 
-app.include_router(debug.router, prefix="/api/v1/debug", tags=["debug"])
+
+# APIルーターの登録
+app.include_router(auths.router, prefix="/api/v1/auths", tags=["auths"])
+app.include_router(staffs.router, prefix="/api/v1/staffs", tags=["staffs"])
+app.include_router(offices.router, prefix="/api/v1/offices", tags=["offices"])
+# app.include_router(
+#     service_recipient.router,
+#     prefix="/api/v1/service-recipient",
+#     tags=["service-recipient"],
+# )
+# app.include_router(
+#     support_plan.router, prefix="/api/v1/support-plan", tags=["support-plan"]
+# )
+# app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
