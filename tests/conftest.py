@@ -70,7 +70,7 @@ async def service_admin_user_factory(db_session: AsyncSession):
         name: str = "テスト管理者",
         email: str = "admin@example.com",
         password: str = "a-very-secure-password",
-        role: StaffRole = StaffRole.service_administrator,
+        role: StaffRole = StaffRole.owner,
         session: Optional[AsyncSession] = None,
     ) -> Staff:
         active_session = session or db_session
