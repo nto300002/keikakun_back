@@ -12,7 +12,7 @@ from app.core.security import verify_password
 pytestmark = pytest.mark.asyncio
 
 
-# --- Issue #3: サービス責任者(Admin)のサインアップAPIのテスト ---
+# --- Issue サービス責任者(Admin)のサインアップAPIのテスト ---
 
 import uuid
 from app.models.enums import StaffRole
@@ -33,7 +33,7 @@ async def test_register_admin_success(async_client: AsyncClient):
         "id": uuid.uuid4(),
         "name": payload["name"],
         "email": payload["email"],
-        "role": StaffRole.service_administrator,
+        "role": StaffRole.owner,  # Use the new enum value
     }
 
     # 2. 偽のCRUDオブジェクトを定義
@@ -58,7 +58,7 @@ async def test_register_admin_success(async_client: AsyncClient):
     data = response.json()
     assert data["email"] == payload["email"]
     assert data["name"] == payload["name"]
-    assert data["role"] == "service_administrator"
+    assert data["role"] == "owner"  # Assert the new role value
 
     # 後片付け
     del app.dependency_overrides[get_staff_crud]

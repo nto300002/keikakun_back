@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
+from app.models.enums import StaffRole
 from app.schemas.staff import StaffCreate
 
 # Pytestに非同期テストであることを認識させる
@@ -11,7 +12,7 @@ pytestmark = pytest.mark.asyncio
 
 async def test_create_admin_user(db_session: AsyncSession) -> None:
     """
-    Test creating a service_administrator staff user directly via CRUD.
+    Test creating staff user directly via CRUD.
     """
     # Arrange
     # Eメールが一意になるようにランダムな接尾辞を追加
@@ -20,6 +21,7 @@ async def test_create_admin_user(db_session: AsyncSession) -> None:
         email=f"test_crud_{random_suffix}@example.com",
         name="CRUD Test User",
         password="a-secure-password",
+        role=StaffRole.owner
     )
 
     # Act
@@ -30,4 +32,4 @@ async def test_create_admin_user(db_session: AsyncSession) -> None:
     assert created_user is not None
     assert created_user.email == user_in.email
     assert created_user.name == user_in.name
-    assert created_user.role.value == "service_administrator"
+    assert created_user.role.value == "owner"
