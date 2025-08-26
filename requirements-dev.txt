@@ -8,6 +8,7 @@
 # --- テスト ---
 # Pythonのデファクトスタンダードなテストフレームワーク
 pytest
+pytest-dotenv
 
 # pytestで非同期コード(async/await)をテストするために必要
 pytest-asyncio
