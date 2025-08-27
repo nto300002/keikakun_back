@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -8,6 +9,11 @@ from app.schemas.staff import StaffCreate
 
 
 class CRUDStaff:
+    async def get(self, db: AsyncSession, *, id: uuid.UUID) -> Staff | None:
+        query = select(Staff).filter(Staff.id == id)
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+
     async def get_by_email(self, db: AsyncSession, *, email: str) -> Staff | None:
         query = select(Staff).filter(Staff.email == email)
         result = await db.execute(query)
