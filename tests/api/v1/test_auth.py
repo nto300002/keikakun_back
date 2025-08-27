@@ -7,6 +7,8 @@ from sqlalchemy import select
 from app.main import app  # appをインポート
 from app.models.staff import Staff
 from app.core.security import verify_password
+from app import crud
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Pytestに非同期テストであることを認識させる
 pytestmark = pytest.mark.asyncio
@@ -18,37 +20,16 @@ import uuid
 from app.models.enums import StaffRole
 
 
-async def test_register_admin_success(async_client: AsyncClient):
-    """正常系: 有効なデータでサービス責任者として正常に登録できることをテスト (APIレイヤーのモックテスト)"""
+async def test_register_admin_success(async_client: AsyncClient, db_session: AsyncSession):
+    """正常系: 有効なデータでサービス責任者として正常に登録できることをテスト"""
     # Arrange: テスト用のデータを準備
+    email = "admin.success@example.com"
+    password = "Test-password123!"
     payload = {
         "name": "テスト管理者",
-        "email": "admin@example.com",
-        "password": "a-very-secure-password",
+        "email": email,
+        "password": password,
     }
-
-    # --- モッキング ---
-    # 1. 偽の戻り値を定義
-    fake_created_user = {
-        "id": uuid.uuid4(),
-        "name": payload["name"],
-        "email": payload["email"],
-        "role": StaffRole.owner,  # Use the new enum value
-    }
-
-    # 2. 偽のCRUDオブジェクトを定義
-    class FakeCRUD:
-        async def get_by_email(self, *args, **kwargs):
-            return None  # ユーザーは存在しない、と答える
-
-        async def create_admin(self, *args, **kwargs):
-            return fake_created_user  # ユーザーが作成された、と答える
-
-    # 3. DIを偽のCRUDオブジェクトで上書き
-    from app.api.v1.endpoints.auths import get_staff_crud
-
-    app.dependency_overrides[get_staff_crud] = lambda: FakeCRUD()
-    # --- モッキング終了 ---
 
     # Act: APIエンドポイントを呼び出す
     response = await async_client.post("/api/v1/auth/register-admin", json=payload)
@@ -56,20 +37,28 @@ async def test_register_admin_success(async_client: AsyncClient):
     # Assert: レスポンスを検証
     assert response.status_code == 201
     data = response.json()
-    assert data["email"] == payload["email"]
+    assert data["email"] == email
     assert data["name"] == payload["name"]
-    assert data["role"] == "owner"  # Assert the new role value
+    assert data["role"] == "owner"
 
-    # 後片付け
-    del app.dependency_overrides[get_staff_crud]
+    # Assert: DBの状態を検証
+    user = await crud.staff.get_by_email(db_session, email=email)
+    assert user is not None
+    assert user.name == payload["name"]
+    assert verify_password(password, user.hashed_password)
+    assert user.is_email_verified is False # 登録直後は未検証のはず
 
-async def test_register_admin_duplicate_email(async_client: AsyncClient):
+async def test_register_admin_duplicate_email(async_client: AsyncClient, service_admin_user_factory):
     """異常系: 重複したメールアドレスでの登録が失敗することをテスト"""
-    # Arrange: ペイロードを準備。ユーザーはsetup_test_data.pyで作成済み
+    # Arrange: 既存ユーザーをDBに作成
+    random_suffix = uuid.uuid4().hex[:6]
+    existing_user_email = f"duplicate-{random_suffix}@example.com"
+    await service_admin_user_factory(email=existing_user_email, password="Test-password123!")
+
     payload = {
         "name": "別ユーザー",
-        "email": "duplicate@example.com",  # Pre-seeded email
-        "password": "password123",
+        "email": existing_user_email,
+        "password": "Another-password123!",
     }
 
     # Act: 同じメールアドレスで再度登録を試みる
@@ -109,7 +98,7 @@ async def test_register_admin_invalid_data(
 async def test_login_success(async_client: AsyncClient, service_admin_user_factory):
     """正常系: 正しい認証情報でログインし、トークンが発行されることをテスト"""
     # Arrange: テストユーザーを作成
-    password = "a-very-secure-password"
+    password = "Test-password123!"
     user = await service_admin_user_factory(password=password)
     
     # Act: ログインAPIを呼び出す
@@ -128,7 +117,7 @@ async def test_login_failure_wrong_password(async_client: AsyncClient, service_a
     """異常系: 存在するユーザーが間違ったパスワードでログインできないことをテスト"""
     # Arrange: テストユーザーを作成
     user_email = "correct.user@example.com"
-    correct_password = "a-very-secure-password"
+    correct_password = "Test-password123!"
     wrong_password = "this-is-the-wrong-password"
     await service_admin_user_factory(email=user_email, password=correct_password)
 
@@ -173,23 +162,35 @@ async def test_security_sql_injection_on_login(async_client: AsyncClient):
     assert response.status_code in [401, 422] # 認証失敗 or バリデーションエラー
 
 async def test_security_xss_on_signup_and_get(
-    async_client: AsyncClient
+    async_client: AsyncClient, db_session: AsyncSession  # db_sessionを追加
 ):
     """セキュリティ: 登録時のXSSペイロードが、レスポンスで無害化されることをテスト"""
     # Arrange (Part 1): XSSペイロードを含むユーザーを登録
     xss_payload = "<script>alert('XSS')</script>"
+    # Eメールが一意になるようにランダムな接尾辞を追加
+    random_suffix = __import__("uuid").uuid4().hex[:6]
+    email = f"xss-{random_suffix}@example.com"
     user_payload = {
         "name": xss_payload,
-        "email": "xss@example.com",
-        "password": "password123",
+        "email": email,
+        "password": "Test-password123!",
     }
-    await async_client.post("/api/v1/auth/register-admin", json=user_payload)
+    register_response = await async_client.post("/api/v1/auth/register-admin", json=user_payload)
+    assert register_response.status_code == 201  # 登録成功を確認
+
+    # Arrange (Part 2): DBを直接更新してユーザーを「確認済み」にする
+    user = await crud.staff.get_by_email(db_session, email=email)
+    assert user is not None
+    user.is_email_verified = True
+    db_session.add(user)
+    await db_session.flush()
     
-    # Arrange (Part 2): 登録したユーザーとしてログインし、トークンを取得
+    # Arrange (Part 3): 登録したユーザーとしてログインし、トークンを取得
     login_resp = await async_client.post(
         "/api/v1/auth/token",
-        data={"username": "xss@example.com", "password": "password123"},
+        data={"username": email, "password": "Test-password123!"},
     )
+    assert login_resp.status_code == 200  # ログイン成功を確認
     token = login_resp.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -208,7 +209,7 @@ async def test_security_xss_on_signup_and_get(
 async def test_login_returns_refresh_token(async_client: AsyncClient, service_admin_user_factory):
     """正常系: ログイン成功時にリフレッシュトークンが発行されることをテスト"""
     # Arrange: テストユーザーを作成
-    password = "a-very-secure-password"
+    password = "Test-password123!"
     user = await service_admin_user_factory(email="refresh-token-user@example.com", password=password)
     
     # Act: ログインAPIを呼び出す
@@ -228,7 +229,7 @@ async def test_login_returns_refresh_token(async_client: AsyncClient, service_ad
 async def test_refresh_token_success(async_client: AsyncClient, service_admin_user_factory):
     """正常系: 有効なリフレッシュトークンで新しいアクセストークンが取得できることをテスト"""
     # Arrange: ユーザーを作成し、ログインしてトークンを取得
-    password = "a-very-secure-password"
+    password = "Test-password123!"
     user = await service_admin_user_factory(email="refresh-success@example.com", password=password)
     login_response = await async_client.post(
         "/api/v1/auth/token",
@@ -310,7 +311,7 @@ async def test_login_rate_limit(async_client: AsyncClient, service_admin_user_fa
     """異常系: ログインの連続失敗でレートリミットが発動することをテスト"""
     # Arrange: テストユーザーを作成
     user_email = "rate-limit-user@example.com"
-    correct_password = "a-very-secure-password"
+    correct_password = "Test-password123!"
     wrong_password = "wrong-password"
     await service_admin_user_factory(email=user_email, password=correct_password)
 
@@ -344,7 +345,7 @@ async def test_login_unverified_email(async_client: AsyncClient):
     # この時点ではメールは未確認であるべき
     random_suffix = __import__("uuid").uuid4().hex[:6]
     email = f"unverified-{random_suffix}@example.com"
-    password = "a-secure-password"
+    password = "Test-password123!"
     payload = {
         "name": "Unverified User",
         "email": email,

@@ -79,6 +79,7 @@ async def service_admin_user_factory(db_session: AsyncSession):
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
+            is_email_verified=True,  # デフォルトで検証済みユーザーを作成
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -101,3 +102,13 @@ def mock_current_user(request):
     app.dependency_overrides[get_current_user] = override_get_current_user
     yield user
     del app.dependency_overrides[get_current_user]
+
+
+# --- グローバルなテスト設定 ---
+
+from app.core.limiter import limiter
+
+@pytest.fixture(autouse=True)
+def reset_limiter_state():
+    """各テストの実行前にレートリミッターの状態をリセットする"""
+    limiter.reset()
