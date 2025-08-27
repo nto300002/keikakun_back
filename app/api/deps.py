@@ -1,3 +1,4 @@
+import uuid
 from typing import AsyncGenerator
 
 from fastapi import Depends, HTTPException, status
@@ -45,7 +46,7 @@ async def get_current_user(
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        # ペイロードの'sub'（subject）にユーザーのemailが含まれていることを期待します。
+        # ペイロードの'sub'（subject）にユーザーのIDが含まれていることを期待します。
         token_data = TokenData(sub=payload.get("sub"))
     except (JWTError, ValidationError):
         # トークンの形式が不正、またはデコードに失敗した場合
@@ -54,8 +55,13 @@ async def get_current_user(
     if token_data.sub is None:
         raise credentials_exception
 
-    # emailを元に、crud層を経由してユーザーをデータベースから検索します。
-    user = await crud.staff.get_by_email(db, email=token_data.sub)
+    # IDを元に、crud層を経由してユーザーをデータベースから検索します。
+    try:
+        user_id = uuid.UUID(token_data.sub)
+    except ValueError:
+        raise credentials_exception
+
+    user = await crud.staff.get(db, id=user_id)
     if not user:
         raise credentials_exception
     return user
