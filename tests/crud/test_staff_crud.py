@@ -20,7 +20,7 @@ async def test_create_admin_user(db_session: AsyncSession) -> None:
     user_in = StaffCreate(
         email=f"test_crud_{random_suffix}@example.com",
         name="CRUD Test User",
-        password="a-secure-password",
+        password="Test-password123!",
         role=StaffRole.owner
     )
 
