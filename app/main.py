@@ -32,7 +32,7 @@ async def read_root():
 
 # APIルーターの登録
 app.include_router(auths.router, prefix="/api/v1/auth", tags=["auth"])
-app.include_router(staffs.router, prefix="/api/v1/staff", tags=["staff"])
+app.include_router(staffs.router, prefix="/api/v1/staffs", tags=["staffs"])
 app.include_router(offices.router, prefix="/api/v1/offices", tags=["offices"])
 
 
