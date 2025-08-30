@@ -15,17 +15,20 @@ if not ASYNC_DATABASE_URL:
 # For synchronous operations
 SYNC_DATABASE_URL = ASYNC_DATABASE_URL.replace("+psycopg", "").replace("+asyncpg", "")
 
-async_engine = create_async_engine(ASYNC_DATABASE_URL)
+async_engine = create_async_engine(
+    ASYNC_DATABASE_URL,
+    pool_pre_ping=True
+)
 AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_engine)
 
-sync_engine = create_engine(SYNC_DATABASE_URL)
+sync_engine = create_engine(
+    SYNC_DATABASE_URL,
+    pool_pre_ping=True
+)
 SyncSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
 
 Base = declarative_base()
 
-def get_db():
-    db = SyncSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
