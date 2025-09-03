@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     MAIL_SERVER: Optional[str] = None
     MAIL_STARTTLS: bool = False
     MAIL_SSL_TLS: bool = False
-    MAIL_DEBUG: bool = True
+    MAIL_DEBUG: int = 1  # 0=False, 1=True
 
     # --- フロントエンド設定 ---
     FRONTEND_URL: str
