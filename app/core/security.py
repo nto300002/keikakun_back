@@ -10,6 +10,26 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7  # リフレッシュトークンの有効期限（7日間）
+EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS = 24 # メール確認トークンの有効期限（24時間）
+
+
+def create_email_verification_token(email: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS)
+    to_encode = {"exp": expire, "sub": email, "scope": "email_verification"}
+    secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
+    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def verify_email_verification_token(token: str) -> str | None:
+    try:
+        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
+        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+        if payload.get("scope") == "email_verification":
+            return payload.get("sub")
+        return None
+    except jwt.JWTError:
+        return None
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
