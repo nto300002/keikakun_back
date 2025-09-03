@@ -18,7 +18,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORSミドルウェアの設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://keikakun-front.vercel.app/"],  # フロントエンドのオリジンと、一旦すべてのオリジンを許可
+    allow_origins=["http://localhost:3000", "https://keikakun-front.vercel.app/", "https://www.keikakun.com/"],  # フロントエンドのオリジンと、一旦すべてのオリジンを許可
     allow_credentials=True,
     allow_methods=["*"],  # すべてのメソッドを許可
     allow_headers=["*"],  # すべてのヘッダーを許可
