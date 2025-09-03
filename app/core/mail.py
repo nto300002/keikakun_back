@@ -18,7 +18,7 @@ conf = ConnectionConfig(
     VALIDATE_CERTS=True,
     TEMPLATE_FOLDER=Path(__file__).parent.parent / 'templates' / 'email',
     # 開発中はメールをコンソールに出力する (ローカルテスト用のprint文の代替)
-    SUPPRESS_SEND=int(settings.MAIL_DEBUG),
+    SUPPRESS_SEND=settings.MAIL_DEBUG,
 )
 
 # --- メインのメール送信関数 ---
