@@ -48,6 +48,32 @@ async def test_register_admin_success(async_client: AsyncClient, db_session: Asy
     assert verify_password(password, user.hashed_password)
     assert user.is_email_verified is False # 登録直後は未検証のはず
 
+
+async def test_register_admin_sends_verification_email(async_client: AsyncClient, mocker):
+    """正常系: ユーザー登録時に確認メール送信処理が呼び出されることをテスト"""
+    # Arrange: メール送信関数をモック化
+    mock_send_email = mocker.patch("app.api.v1.endpoints.auths.send_verification_email", new_callable=mocker.AsyncMock)
+    
+    email = "send.email.test@example.com"
+    payload = {
+        "name": "メール送信テスト",
+        "email": email,
+        "password": "Test-password123!",
+    }
+
+    # Act
+    response = await async_client.post("/api/v1/auth/register-admin", json=payload)
+
+    # Assert
+    assert response.status_code == 201
+    # メール送信関数が1回呼び出されたことを確認
+    mock_send_email.assert_called_once()
+    # 呼び出し時のキーワード引数が正しいことを確認
+    call_args = mock_send_email.call_args
+    assert call_args.kwargs['recipient_email'] == email
+    assert 'token' in call_args.kwargs
+
+
 async def test_register_admin_duplicate_email(async_client: AsyncClient, service_admin_user_factory):
     """異常系: 重複したメールアドレスでの登録が失敗することをテスト"""
     # Arrange: 既存ユーザーをDBに作成
@@ -346,13 +372,10 @@ async def test_verify_email_success(async_client: AsyncClient, db_session: Async
     # Arrange: is_email_verified=False のユーザーを作成
     user = await service_admin_user_factory(email="verify.success@example.com", is_email_verified=False)
     
-    # このトークン生成ロジックは、バックエンド実装と合わせる必要があります
-    # ここでは仮に、メールアドレスを元にした単純なトークンとします
     from app.core.security import create_email_verification_token
     token = create_email_verification_token(user.email)
 
     # Act: メール確認エンドポイントを叩く
-    # このエンドポイントはまだ存在しないため、404エラーになるはず
     response = await async_client.get(f"/api/v1/auth/verify-email?token={token}")
 
     # Assert
@@ -378,10 +401,9 @@ async def test_verify_email_invalid_token(async_client: AsyncClient):
 
 
 
-async def test_login_unverified_email(async_client: AsyncClient):
+async def test_login_unverified_email(async_client: AsyncClient, db_session: AsyncSession):
     """異常系: メールアドレスが未確認のユーザーはログインできないことをテスト"""
-    # Arrange: 新しいユーザーを登録する
-    # この時点ではメールは未確認であるべき
+    # Arrange: 新しいユーザーを登録するが、メール確認は行わない
     random_suffix = __import__("uuid").uuid4().hex[:6]
     email = f"unverified-{random_suffix}@example.com"
     password = "Test-password123!"
@@ -390,16 +412,15 @@ async def test_login_unverified_email(async_client: AsyncClient):
         "email": email,
         "password": password,
     }
-    # 依存関係を上書きせず、実際のDBに書き込む
     register_response = await async_client.post("/api/v1/auth/register-admin", json=payload)
-    assert register_response.status_code == 201 # まず登録は成功する
+    assert register_response.status_code == 201
 
-    # Act: 登録したばかりのユーザーでログインを試みる
+    # Act: 登録したばかりの（未確認の）ユーザーでログインを試みる
     login_response = await async_client.post(
         "/api/v1/auth/token",
         data={"username": email, "password": password},
     )
 
-    # Assert: メールが未確認のため、ログインが失敗することを確認
-    # メール確認フローが実装されるまでは200が返り、このアサーションは失敗する
-    assert login_response.status_code == 401 # or 403, depending on implementation
+    # Assert: メールが未確認のため、ログインが失敗(401 Unauthorized)することを確認
+    assert login_response.status_code == 401
+    assert "Email not verified" in login_response.json()["detail"]
