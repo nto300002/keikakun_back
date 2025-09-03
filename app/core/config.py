@@ -1,6 +1,7 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from pydantic import SecretStr
 
 ENV_FILE = os.getenv("ENV_FILE", ".env")
 
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
 
     # --- メール設定 ---
     MAIL_USERNAME: Optional[str] = None
-    MAIL_PASSWORD: Optional[str] = None
+    MAIL_PASSWORD: Optional[SecretStr] = None
     MAIL_FROM: Optional[str] = None
     MAIL_PORT: int = 587
     MAIL_SERVER: Optional[str] = None
