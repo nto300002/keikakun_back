@@ -5,11 +5,25 @@ from slowapi.errors import RateLimitExceeded
 import uvicorn
 
 from app.core.limiter import limiter  # 新しいファイルからインポート
+from app.core.config import settings # settingsをインポート
 from app.api.v1.endpoints import (
     auths,
     staffs,
     offices,
 )
+
+# --- ▼▼▼ 一時的なデバッグコード ▼▼▼ ---
+print("--- DEBUG: Loaded Environment Variables ---")
+print(f"MAIL_USERNAME: {settings.MAIL_USERNAME}")
+if settings.MAIL_PASSWORD:
+    password = settings.MAIL_PASSWORD.get_secret_value()
+    print(f"MAIL_PASSWORD length: {len(password)}")
+    print(f"MAIL_PASSWORD first 4 chars: {password[:4]}")
+else:
+    print("MAIL_PASSWORD: Not set")
+print("-----------------------------------------")
+# --- ▲▲▲ 一時的なデバッグコード ▲▲▲ ---
+
 
 app = FastAPI()
 app.state.limiter = limiter
