@@ -45,3 +45,6 @@ bcrypt==3.2.0
 
 # フォーム解析
 python-multipart
+
+# メール認証
+fastapi-mail

@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     # Alembicやアプリケーション本体が使用する本番/開発用DBのURL
     DATABASE_URL: str
 
+    # --- メール設定 ---
+    MAIL_USERNAME: Optional[str] = None
+    MAIL_PASSWORD: Optional[str] = None
+    MAIL_FROM: Optional[str] = None
+    MAIL_PORT: int = 587
+    MAIL_SERVER: Optional[str] = None
+    MAIL_STARTTLS: bool = False
+    MAIL_SSL_TLS: bool = False
+    MAIL_DEBUG: bool = True
+
+    # --- フロントエンド設定 ---
+    FRONTEND_URL: str
+
 
 # 設定クラスのインスタンスを作成し、他のモジュールからインポートして使用できるようにします。
 settings = Settings()

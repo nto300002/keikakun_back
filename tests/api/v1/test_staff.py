@@ -25,7 +25,7 @@ async def test_get_me_success(async_client: AsyncClient, mock_current_user):
     headers = {"Authorization": "Bearer fake-token"}
 
     # Act
-    response = await async_client.get("/api/v1/staff/me", headers=headers)
+    response = await async_client.get("/api/v1/staffs/me", headers=headers)
 
     # Assert
     assert response.status_code == 200
@@ -37,7 +37,7 @@ async def test_get_me_success(async_client: AsyncClient, mock_current_user):
 async def test_get_me_no_token(async_client: AsyncClient):
     """異常系: トークンなしで保護されたルートにアクセスできないことをテスト"""
     # Act
-    response = await async_client.get("/api/v1/staff/me")
+    response = await async_client.get("/api/v1/staffs/me")
     
     # Assert
     assert response.status_code == 401 # Unauthorized
@@ -48,7 +48,7 @@ async def test_get_me_invalid_token(async_client: AsyncClient):
     headers = {"Authorization": "Bearer invalid-token"}
     
     # Act
-    response = await async_client.get("/api/v1/staff/me", headers=headers)
+    response = await async_client.get("/api/v1/staffs/me", headers=headers)
 
     # Assert
     assert response.status_code == 401 # Unauthorized

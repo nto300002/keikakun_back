@@ -71,6 +71,7 @@ async def service_admin_user_factory(db_session: AsyncSession):
         email: str = "admin@example.com",
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.owner,
+        is_email_verified: bool = True,  # この行を追加
         session: Optional[AsyncSession] = None,
     ) -> Staff:
         active_session = session or db_session
@@ -79,7 +80,7 @@ async def service_admin_user_factory(db_session: AsyncSession):
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
-            is_email_verified=True,  # デフォルトで検証済みユーザーを作成
+            is_email_verified=is_email_verified,  # 引数を使用するように変更
         )
         active_session.add(new_user)
         await active_session.flush()

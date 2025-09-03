@@ -12,6 +12,12 @@ from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM
 )
 
+from app.core.security import (
+    verify_password, create_access_token, create_refresh_token, ALGORITHM, 
+    create_email_verification_token, verify_email_verification_token
+)
+from app.core.mail import send_verification_email
+
 # DIするためのヘルパー関数
 async def get_staff_crud():
     return crud.staff
@@ -31,7 +37,7 @@ async def register_admin(
     staff_crud=Depends(get_staff_crud),
 ):
     """
-    サービス責任者ロールを持つ新しいスタッフを作成します。
+    サービス責任者ロールを持つ新しいスタッフを作成し、確認メールを送信します。
     """
     user = await staff_crud.get_by_email(db, email=staff_in.email)
     if user:
@@ -41,7 +47,52 @@ async def register_admin(
         )
 
     user = await staff_crud.create_admin(db=db, obj_in=staff_in)
+
+    # コミットするとuserオブジェクトが期限切れになり、user.emailにアクセスできなくなるため
+    # 先にメールアドレスを変数に格納しておく
+    user_email = user.email
+    await db.commit()
+    await db.refresh(user) # DBから最新の状態を読み込み、オブジェクトを「新鮮」な状態にする
+    
+    # メール確認トークンを生成して送信
+    token = create_email_verification_token(email=user_email)
+    await send_verification_email(recipient_email=user_email, token=token)
+    
     return user
+
+
+@router.get("/verify-email")
+async def verify_email(
+    token: str,
+    db: AsyncSession = Depends(deps.get_db),
+    staff_crud=Depends(get_staff_crud),
+):
+    """
+    メール確認トークンを検証し、ユーザーを有効化します。
+    """
+    email = verify_email_verification_token(token)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired token",
+        )
+    
+    user = await staff_crud.get_by_email(db, email=email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    
+    if user.is_email_verified:
+        return {"message": "Email already verified"}
+
+    user.is_email_verified = True
+    db.add(user)
+    await db.commit()
+
+    return {"message": "Email verified successfully"}
+
 
 
 @router.post("/token", response_model=schemas.Token)
