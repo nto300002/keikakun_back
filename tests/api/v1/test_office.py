@@ -23,24 +23,10 @@ async def owner_user_without_office(service_admin_user_factory):
     return await service_admin_user_factory(email=f"owner.no.office.{uuid.uuid4().hex[:6]}@example.com", name="Owner Without Office")
 
 @pytest_asyncio.fixture
-async def office_factory(db_session: AsyncSession):
-    """テスト用の事務所を作成するファクトリ"""
-    created_offices = []
-    async def _create_office(name: str, created_by: uuid.UUID, office_type: OfficeType = OfficeType.type_A_office):
-        office = Office(name=name, type=office_type, created_by=created_by, last_modified_by=created_by)
-        db_session.add(office)
-        await db_session.commit()
-        await db_session.refresh(office)
-        created_offices.append(office)
-        return office
-    yield _create_office
-    # テスト終了後にクリーンアップは不要（トランザクションロールバックのため）
-
-@pytest_asyncio.fixture
 async def owner_user_with_office(db_session: AsyncSession, service_admin_user_factory, office_factory):
     """既に事務所に所属しているownerユーザーを作成するフィクスチャ"""
     user = await service_admin_user_factory(email=f"owner.with.office.{uuid.uuid4().hex[:6]}@example.com", name="Owner With Office")
-    office = await office_factory(name=f"Existing Office {uuid.uuid4().hex[:6]}", created_by=user.id)
+    office = await office_factory(creator=user, name=f"Existing Office {uuid.uuid4().hex[:6]}")
     
     # ユーザーと事務所を紐付け
     association = OfficeStaff(staff_id=user.id, office_id=office.id, is_primary=True)
@@ -141,7 +127,7 @@ class TestSetupOffice:
         """異常系: 既に存在する事務所名で登録しようとすると失敗する (409 Conflict)"""
         # Arrange
         existing_office_name = f"既存の事務所_{uuid.uuid4().hex[:6]}"
-        await office_factory(name=existing_office_name, created_by=owner_user_without_office.id)
+        await office_factory(creator=owner_user_without_office, name=existing_office_name)
         
         payload = {"name": existing_office_name, "office_type": "type_A_office"}
         headers = {"Authorization": "Bearer fake-token"}
@@ -189,6 +175,44 @@ class TestSetupOffice:
 
         # Act
         response = await async_client.post("/api/v1/offices/setup", json=payload)
+
+        # Assert
+        assert response.status_code == 401
+
+
+# --- 事務所一覧取得API (/offices/) のテスト ---
+
+class TestGetOffices:
+    """
+    GET /api/v1/offices/
+    """
+
+    @pytest.mark.parametrize("mock_current_user", ["employee_user"], indirect=True)
+    async def test_get_all_offices_success(self, async_client: AsyncClient, db_session: AsyncSession, office_factory, owner_user_with_office, mock_current_user: Staff):
+        """正常系: 認証済みユーザーが全ての事業所一覧を取得できる"""
+        # Arrange
+        # 事前に複数の事業所を作成
+        await office_factory(name="事業所A", creator=owner_user_with_office)
+        await office_factory(name="事業所B", creator=owner_user_with_office)
+        
+        headers = {"Authorization": "Bearer fake-token"}
+
+        # Act
+        response = await async_client.get("/api/v1/offices/", headers=headers)
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 2
+        office_names = [office["name"] for office in data]
+        assert "事業所A" in office_names
+        assert "事業所B" in office_names
+
+    async def test_get_all_offices_unauthorized(self, async_client: AsyncClient):
+        """異常系: 認証なしで事業所一覧を取得できない (401 Unauthorized)"""
+        # Arrange
+        # Act
+        response = await async_client.get("/api/v1/offices/")
 
         # Assert
         assert response.status_code == 401
