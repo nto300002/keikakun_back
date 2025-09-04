@@ -33,7 +33,7 @@ router = APIRouter()
 async def register_admin(
     *,
     db: AsyncSession = Depends(deps.get_db),
-    staff_in: schemas.staff.StaffCreate,
+    staff_in: schemas.staff.AdminCreate,
     staff_crud=Depends(get_staff_crud),
 ):
     """
@@ -55,6 +55,41 @@ async def register_admin(
     await db.refresh(user) # DBから最新の状態を読み込み、オブジェクトを「新鮮」な状態にする
     
     # メール確認トークンを生成して送信
+    token = create_email_verification_token(email=user_email)
+    await send_verification_email(recipient_email=user_email, token=token)
+    
+    return user
+
+
+@router.post(
+    "/register",
+    response_model=schemas.staff.Staff,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_staff(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    staff_in: schemas.staff.StaffCreate,
+    staff_crud=Depends(get_staff_crud),
+):
+    """
+    一般スタッフ（employee/manager）として新しいスタッフを作成し、確認メールを送信します。
+    """
+    user = await staff_crud.get_by_email(db, email=staff_in.email)
+    if user:
+        raise HTTPException(
+            status_code=409,  # Conflict
+            detail="The user with this email already exists in the system.",
+        )
+
+    # staff_in.role は StaffCreate スキーマのバリデーターによって
+    # `owner` でないことが保証されている
+    user = await staff_crud.create_staff(db=db, obj_in=staff_in)
+
+    user_email = user.email
+    await db.commit()
+    await db.refresh(user)
+    
     token = create_email_verification_token(email=user_email)
     await send_verification_email(recipient_email=user_email, token=token)
     
@@ -85,13 +120,15 @@ async def verify_email(
         )
     
     if user.is_email_verified:
-        return {"message": "Email already verified"}
+        return {"message": "Email already verified", "role": user.role}
 
+    # commit前にroleを保存
+    user_role = user.role
     user.is_email_verified = True
     db.add(user)
     await db.commit()
 
-    return {"message": "Email verified successfully"}
+    return {"message": "Email verified successfully", "role": user_role}
 
 
 
