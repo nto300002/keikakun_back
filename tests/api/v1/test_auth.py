@@ -94,6 +94,56 @@ async def test_register_admin_duplicate_email(async_client: AsyncClient, service
     assert response.status_code == 409
     assert "already exists" in response.json()["detail"]
 
+
+# --- Staff (employee/manager) Registration Tests ---
+
+@pytest.mark.parametrize("role", [StaffRole.employee, StaffRole.manager])
+async def test_register_staff_success(async_client: AsyncClient, db_session: AsyncSession, role: StaffRole):
+    """正常系: 有効なデータでemployeeとmanagerが正常に登録できることをテスト"""
+    # Arrange
+    email = f"{role.value}.success@example.com"
+    password = "Test-password123!"
+    payload = {
+        "name": f"テスト{role.value}",
+        "email": email,
+        "password": password,
+        "role": role.value,
+    }
+
+    # Act
+    response = await async_client.post("/api/v1/auth/register", json=payload)
+
+    # Assert: Response
+    assert response.status_code == 201
+    data = response.json()
+    assert data["email"] == email
+    assert data["name"] == payload["name"]
+    assert data["role"] == role.value
+
+    # Assert: DB
+    user = await crud.staff.get_by_email(db_session, email=email)
+    assert user is not None
+    assert user.role == role
+    assert verify_password(password, user.hashed_password)
+
+
+async def test_register_staff_failure_as_owner(async_client: AsyncClient):
+    """異常系: /register エンドポイントで owner として登録しようとすると失敗することをテスト"""
+    # Arrange
+    payload = {
+        "name": "不正なオーナー",
+        "email": "invalid.owner@example.com",
+        "password": "Test-password123!",
+        "role": StaffRole.owner.value,
+    }
+
+    # Act
+    response = await async_client.post("/api/v1/auth/register", json=payload)
+
+    # Assert: 422 Unprocessable Entity (pydantic validation error)
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize(
     "payload_diff, expected_status",
     [
@@ -138,6 +188,45 @@ async def test_login_success(async_client: AsyncClient, service_admin_user_facto
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+
+
+async def test_login_success_for_employee(async_client: AsyncClient, employee_user_factory):
+    """正常系: employeeロールのユーザーが正しい認証情報でログインできることをテスト"""
+    # Arrange: テストユーザーを作成
+    password = "Test-password123!"
+    user = await employee_user_factory(password=password, email="employee.login@example.com")
+    
+    # Act: ログインAPIを呼び出す
+    response = await async_client.post(
+        "/api/v1/auth/token",
+        data={"username": user.email, "password": password},
+    )
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
+
+async def test_login_success_for_manager(async_client: AsyncClient, manager_user_factory):
+    """正常系: managerロールのユーザーが正しい認証情報でログインできることをテスト"""
+    # Arrange: テストユーザーを作成
+    password = "Test-password123!"
+    user = await manager_user_factory(password=password, email="manager.login@example.com")
+    
+    # Act: ログインAPIを呼び出す
+    response = await async_client.post(
+        "/api/v1/auth/token",
+        data={"username": user.email, "password": password},
+    )
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
 
 async def test_login_failure_wrong_password(async_client: AsyncClient, service_admin_user_factory):
     """異常系: 存在するユーザーが間違ったパスワードでログインできないことをテスト"""

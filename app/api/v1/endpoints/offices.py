@@ -12,6 +12,19 @@ from app.api import deps
 router = APIRouter()
 
 
+@router.get("/", response_model=list[schemas.OfficeResponse])
+async def read_offices(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+) -> Any:
+    """
+    すべての事業所の一覧を取得する（employee/managerが選択するため）
+    """
+    offices = await crud.office.get_multi(db)
+    return offices
+
+
 @router.get("/me", response_model=schemas.OfficeResponse)
 async def read_my_office(
     *,

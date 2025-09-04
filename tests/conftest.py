@@ -20,7 +20,8 @@ from app.core.security import get_password_hash
 from app.main import app
 from app.api.deps import get_db as get_async_db, get_current_user
 from app.models.staff import Staff
-from app.models.enums import StaffRole
+from app.models.office import Office, OfficeStaff
+from app.models.enums import StaffRole, OfficeType
 
 
 # --- データベースフィクスチャ ---
@@ -92,6 +93,81 @@ async def service_admin_user_factory(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def test_admin_user(service_admin_user_factory):
     return await service_admin_user_factory(email="me@example.com", name="MySelf")
+
+
+@pytest_asyncio.fixture
+async def employee_user_factory(db_session: AsyncSession):
+    """従業員ロールのユーザーを作成するFactory"""
+    async def _create_user(
+        name: str = "テスト従業員",
+        email: str = "employee@example.com",
+        password: str = "a-very-secure-password",
+        role: StaffRole = StaffRole.employee,
+        is_email_verified: bool = True,
+        session: Optional[AsyncSession] = None,
+    ) -> Staff:
+        active_session = session or db_session
+        new_user = Staff(
+            name=name,
+            email=email,
+            hashed_password=get_password_hash(password),
+            role=role,
+            is_email_verified=is_email_verified,
+        )
+        active_session.add(new_user)
+        await active_session.flush()
+        await active_session.refresh(new_user)
+        return new_user
+    yield _create_user
+
+
+@pytest_asyncio.fixture
+async def manager_user_factory(db_session: AsyncSession):
+    """マネージャーロールのユーザーを作成するFactory"""
+    async def _create_user(
+        name: str = "テストマネージャー",
+        email: str = "manager@example.com",
+        password: str = "a-very-secure-password",
+        role: StaffRole = StaffRole.manager,
+        is_email_verified: bool = True,
+        session: Optional[AsyncSession] = None,
+    ) -> Staff:
+        active_session = session or db_session
+        new_user = Staff(
+            name=name,
+            email=email,
+            hashed_password=get_password_hash(password),
+            role=role,
+            is_email_verified=is_email_verified,
+        )
+        active_session.add(new_user)
+        await active_session.flush()
+        await active_session.refresh(new_user)
+        return new_user
+    yield _create_user
+
+
+@pytest_asyncio.fixture
+async def office_factory(db_session: AsyncSession):
+    """事業所を作成するFactory"""
+    async def _create_office(
+        creator: Staff, # 作成者を追加
+        name: str = "テスト事業所",
+        type: OfficeType = OfficeType.type_A_office,
+        session: Optional[AsyncSession] = None,
+    ) -> Office:
+        active_session = session or db_session
+        new_office = Office(
+            name=name,
+            type=type,
+            created_by=creator.id, # created_by を設定
+            last_modified_by=creator.id, # last_modified_by を設定
+        )
+        active_session.add(new_office)
+        await active_session.flush()
+        await active_session.refresh(new_office)
+        return new_office
+    yield _create_office
 
 
 @pytest.fixture

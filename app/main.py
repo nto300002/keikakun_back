@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     auths,
     staffs,
     offices,
+    office_staff,
 )
 
 # --- ▼▼▼ 一時的なデバッグコード ▼▼▼ ---
@@ -48,6 +49,7 @@ async def read_root():
 app.include_router(auths.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(staffs.router, prefix="/api/v1/staffs", tags=["staffs"])
 app.include_router(offices.router, prefix="/api/v1/offices", tags=["offices"])
+app.include_router(office_staff.router, prefix="/api/v1/staff", tags=["staff-office"])
 
 
 if __name__ == "__main__":
