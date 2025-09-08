@@ -18,3 +18,8 @@ class RefreshToken(BaseModel):
 class AccessToken(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class MFARequiredResponse(BaseModel):
+    requires_mfa_verification: bool = True
+    temporary_token: str
