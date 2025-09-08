@@ -28,7 +28,7 @@ from app.models.enums import StaffRole, OfficeType
 
 @pytest_asyncio.fixture(scope="session")
 async def engine() -> AsyncGenerator[AsyncEngine, None]:
-    DATABASE_URL = os.getenv("DATABASE_URL")
+    DATABASE_URL = os.getenv("TEST_DATABASE_URL")
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set for tests")
 
@@ -72,7 +72,8 @@ async def service_admin_user_factory(db_session: AsyncSession):
         email: str = "admin@example.com",
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.owner,
-        is_email_verified: bool = True,  # この行を追加
+        is_email_verified: bool = True,
+        is_mfa_enabled: bool = False,
         session: Optional[AsyncSession] = None,
     ) -> Staff:
         active_session = session or db_session
@@ -81,7 +82,8 @@ async def service_admin_user_factory(db_session: AsyncSession):
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
-            is_email_verified=is_email_verified,  # 引数を使用するように変更
+            is_email_verified=is_email_verified,
+            is_mfa_enabled=is_mfa_enabled,
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -104,6 +106,7 @@ async def employee_user_factory(db_session: AsyncSession):
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.employee,
         is_email_verified: bool = True,
+        is_mfa_enabled: bool = False,
         session: Optional[AsyncSession] = None,
     ) -> Staff:
         active_session = session or db_session
@@ -113,6 +116,7 @@ async def employee_user_factory(db_session: AsyncSession):
             hashed_password=get_password_hash(password),
             role=role,
             is_email_verified=is_email_verified,
+            is_mfa_enabled=is_mfa_enabled,
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -130,6 +134,7 @@ async def manager_user_factory(db_session: AsyncSession):
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.manager,
         is_email_verified: bool = True,
+        is_mfa_enabled: bool = False,
         session: Optional[AsyncSession] = None,
     ) -> Staff:
         active_session = session or db_session
@@ -139,6 +144,7 @@ async def manager_user_factory(db_session: AsyncSession):
             hashed_password=get_password_hash(password),
             role=role,
             is_email_verified=is_email_verified,
+            is_mfa_enabled=is_mfa_enabled,
         )
         active_session.add(new_user)
         await active_session.flush()
