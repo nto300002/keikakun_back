@@ -75,6 +75,7 @@ class OfficeInStaffRead(BaseModel):
 class Staff(StaffBase):
     id: uuid.UUID
     role: StaffRole
+    is_mfa_enabled: bool
     office: Optional[OfficeInStaffRead] = None # office情報を追加
 
     model_config = ConfigDict(from_attributes=True)
