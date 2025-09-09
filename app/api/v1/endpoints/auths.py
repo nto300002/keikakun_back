@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from jose import jwt, JWTError
 from pydantic import ValidationError
 
-from app import crud, schemas
+from app import crud, schemas, models
 from app.api import deps
+from app.api.deps import get_current_user
 from app.core.limiter import limiter
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM
@@ -14,9 +15,16 @@ from app.core.security import (
 
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM, 
-    create_email_verification_token, verify_email_verification_token
+    create_email_verification_token, verify_email_verification_token,
+    create_temporary_token, verify_temporary_token, verify_totp
 )
 from app.core.mail import send_verification_email
+from pydantic import BaseModel
+
+class MFAVerifyRequest(BaseModel):
+    temporary_token: str
+    totp_code: str = None
+    recovery_code: str = None
 
 # DIするためのヘルパー関数
 async def get_staff_crud():
@@ -132,7 +140,7 @@ async def verify_email(
 
 
 
-@router.post("/token", response_model=schemas.Token)
+@router.post("/token") # response_modelを削除
 @limiter.limit("5/minute")
 async def login_for_access_token(
     *,
@@ -158,6 +166,14 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if user.is_mfa_enabled:
+        temporary_token = create_temporary_token(user_id=str(user.id), token_type="mfa_verify")
+        return {
+            "requires_mfa_verification": True,
+            "temporary_token": temporary_token,
+            "token_type": "bearer", # token_typeはMFA検証フローでも必要に応じて含める
+        }
+    
     access_token = create_access_token(subject=str(user.id))
     refresh_token = create_refresh_token(subject=str(user.id))
     return {
@@ -190,3 +206,64 @@ async def refresh_access_token(refresh_token_data: schemas.RefreshToken):
     # トークンが有効であればユーザーは存在するとみなし、新しいアクセストークンを発行する
     new_access_token = create_access_token(subject=token_data.sub)
     return {"access_token": new_access_token, "token_type": "bearer"}
+
+
+@router.post("/token/verify-mfa", response_model=schemas.Token)
+async def verify_mfa_for_login(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    mfa_data: MFAVerifyRequest,
+    staff_crud=Depends(get_staff_crud),
+):
+    user_id = verify_temporary_token(mfa_data.temporary_token, expected_type="mfa_verify")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired temporary token",
+        )
+
+    user = await staff_crud.get(db, id=user_id)
+    if not user or not user.is_mfa_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA not properly configured"
+        )
+
+    # Verify either TOTP code or recovery code
+    verification_successful = False
+    
+    if mfa_data.totp_code:
+        if user.mfa_secret and verify_totp(secret=user.mfa_secret, token=mfa_data.totp_code):
+            verification_successful = True
+    
+    if mfa_data.recovery_code and not verification_successful:
+        from app.core.security import verify_recovery_code
+        if verify_recovery_code(user, mfa_data.recovery_code):
+            verification_successful = True
+    
+    if not verification_successful:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid TOTP code or recovery code"
+        )
+
+    access_token = create_access_token(subject=str(user.id))
+    refresh_token = create_refresh_token(subject=str(user.id))
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+async def logout(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(get_current_user),
+):
+    """
+    ユーザーをログアウトします。
+    クライアント側でトークンを無効化するためのエンドポイントです。
+    サーバー側での追加のアクションは現在ありません。
+    """
+    # 今後のためにcurrent_userとdbは引数として残しておく
+    return {"message": "Logout successful"}
