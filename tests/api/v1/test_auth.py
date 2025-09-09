@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.main import app  # appをインポート
 from app.models.staff import Staff
-from app.core.security import verify_password
+from app.core.security import verify_password, generate_totp_secret
 from app import crud
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -513,3 +513,60 @@ async def test_login_unverified_email(async_client: AsyncClient, db_session: Asy
     # Assert: メールが未確認のため、ログインが失敗(401 Unauthorized)することを確認
     assert login_response.status_code == 401
     assert "Email not verified" in login_response.json()["detail"]
+
+# --- Logout Test ---
+from tests.utils import create_random_staff
+from app.core.security import create_access_token
+
+class TestLogout:
+    @pytest.mark.asyncio
+    async def test_logout_with_mfa_enabled(self, async_client: AsyncClient, db_session: AsyncSession):
+        """正常系: MFA有効ユーザーのログアウト後もMFA設定が維持されることをテスト"""
+        # Arrange
+        staff = await create_random_staff(db_session, is_mfa_enabled=True)
+        staff.mfa_secret = generate_totp_secret()
+        await db_session.commit()
+        
+        token = create_access_token(subject=str(staff.id))
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Act
+        response = await async_client.post("/api/v1/auth/logout", headers=headers)
+
+        # Assert
+        assert response.status_code == 200
+        assert response.json()["message"] == "Logout successful"
+
+        # ログアウト後もMFA設定が変更されていないことを確認
+        await db_session.refresh(staff)
+        assert staff.is_mfa_enabled is True
+        assert staff.mfa_secret is not None
+
+    @pytest.mark.asyncio
+    async def test_logout_with_mfa_disabled(self, async_client: AsyncClient, db_session: AsyncSession):
+        """正常系: MFA無効ユーザーがログアウトしてもエラーにならない"""
+        # Arrange
+        staff = await create_random_staff(db_session, is_mfa_enabled=False)
+        await db_session.commit()
+        
+        token = create_access_token(subject=str(staff.id))
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Act
+        response = await async_client.post("/api/v1/auth/logout", headers=headers)
+
+        # Assert
+        assert response.status_code == 200
+        assert response.json()["message"] == "Logout successful"
+
+        await db_session.refresh(staff)
+        assert staff.is_mfa_enabled is False
+
+    @pytest.mark.asyncio
+    async def test_logout_unauthorized(self, async_client: AsyncClient):
+        """異常系: 認証なしでログアウトしようとすると401エラー"""
+        # Act
+        response = await async_client.post("/api/v1/auth/logout")
+
+        # Assert
+        assert response.status_code == 401

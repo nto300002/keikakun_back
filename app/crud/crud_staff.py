@@ -14,7 +14,8 @@ class CRUDStaff:
     async def get(self, db: AsyncSession, *, id: uuid.UUID) -> Staff | None:
         query = select(Staff).filter(Staff.id == id).options(
             # 文字列ではなく、クラス属性を直接指定する
-            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office),
+            selectinload(Staff.mfa_backup_codes)
         )
         result = await db.execute(query)
         staff = result.scalar_one_or_none()
