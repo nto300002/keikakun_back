@@ -19,10 +19,11 @@ class CRUDStaff:
         )
         result = await db.execute(query)
         staff = result.scalar_one_or_none()
-        if staff and staff.office_associations:
-            staff.office = staff.office_associations[0].office
-        else:
-            staff.office = None
+        if staff:
+            if staff.office_associations:
+                staff.office = staff.office_associations[0].office
+            else:
+                staff.office = None
         return staff
 
     async def get_by_email(self, db: AsyncSession, *, email: str) -> Staff | None:
