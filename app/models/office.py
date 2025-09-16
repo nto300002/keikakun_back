@@ -1,12 +1,16 @@
 import uuid
 import datetime
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.enums import OfficeType, BillingStatus
+
+if TYPE_CHECKING:
+    from .staff import Staff
+    from .welfare_recipient import OfficeWelfareRecipient
 
 class Office(Base):
     """事業所"""
@@ -30,7 +34,7 @@ class Office(Base):
     staff_associations: Mapped[List["OfficeStaff"]] = relationship(back_populates="office")
     
     # Office -> office_welfare_recipients (one-to-many)
-    # recipient_associations: Mapped[List["OfficeWelfareRecipient"]] = relationship(back_populates="office")
+    recipient_associations: Mapped[List["OfficeWelfareRecipient"]] = relationship(back_populates="office")
 
 class OfficeStaff(Base):
     """スタッフと事業所の中間テーブル"""
@@ -38,7 +42,7 @@ class OfficeStaff(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     staff_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id', ondelete="CASCADE"))
     office_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('offices.id', ondelete="CASCADE"))
-    is_primary: Mapped[bool] = mapped_column(Boolean, default=False) # メインの所属か
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True) # メインの所属か
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
