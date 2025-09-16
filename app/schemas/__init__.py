@@ -1,4 +1,4 @@
-from . import staff
+from . import staff, dashboard
 from .token import Token, TokenData, RefreshToken, AccessToken
 from .office import OfficeCreate, OfficeResponse
 from .office_staff import StaffOfficeAssociationCreate
