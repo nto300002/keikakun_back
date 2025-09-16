@@ -35,8 +35,12 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
     if "?sslmode" in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.split("?")[0]
 
-    # poolclass=StaticPool を削除し、デフォルトのプールを使用
-    async_engine = create_async_engine(DATABASE_URL)
+    # execution_options を追加してバルクインサートを無効化
+    execution_options = {"insertmanyvalues_page_size": 1}
+    async_engine = create_async_engine(
+        DATABASE_URL,
+        execution_options=execution_options
+    )
     yield async_engine
     await async_engine.dispose()
 
@@ -57,11 +61,23 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture(scope="function")
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Create a new FastAPI TestClient that uses the `db_session` fixture to override
+    the `get_async_db` dependency that is injected into routes.
+    """
+
     def override_get_async_db() -> Generator:
         yield db_session
+
     app.dependency_overrides[get_async_db] = override_get_async_db
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+
+    # Use https scheme to avoid HTTPSRedirectMiddleware causing 307 redirects in tests
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://test"
+    ) as client:
         yield client
+
+    # Clean up dependency overrides
     del app.dependency_overrides[get_async_db]
 
 
