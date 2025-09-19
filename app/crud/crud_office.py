@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +7,7 @@ from sqlalchemy.future import select
 from app.crud.base import CRUDBase
 from app.models.office import Office, OfficeStaff
 from app.models.staff import Staff
+from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.schemas.office import OfficeCreate, OfficeUpdate
 
 
@@ -40,6 +41,18 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
     async def get_by_name(self, db: AsyncSession, *, name: str) -> Optional[Office]:
         result = await db.execute(select(Office).filter(Office.name == name))
         return result.scalars().first()
+
+    async def get_recipients_by_office_id(self, db: AsyncSession, *, office_id: UUID) -> List[WelfareRecipient]:
+        """
+        事業所IDに基づいて、その事業所に所属するすべての利用者を取得します。
+        """
+        query = (
+            select(WelfareRecipient)
+            .join(OfficeWelfareRecipient, WelfareRecipient.id == OfficeWelfareRecipient.welfare_recipient_id)
+            .where(OfficeWelfareRecipient.office_id == office_id)
+        )
+        result = await db.execute(query)
+        return result.scalars().all()
 
 
 crud_office = CRUDOffice(Office)
