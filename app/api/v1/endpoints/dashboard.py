@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional, List
 
-from app import schemas
+from app import schemas, crud, models
 from app.api import deps
-from app.models.staff import Staff
 from app.services.dashboard_service import DashboardService
 
 router = APIRouter()
@@ -11,20 +11,70 @@ router = APIRouter()
 
 @router.get("/", response_model=schemas.dashboard.DashboardData)
 async def get_dashboard(
-    current_user: Staff = Depends(deps.get_current_user),
     db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+    search_term: Optional[str] = None,
+    sort_by: str = 'name_phonetic',
+    sort_order: str = 'asc',
+    is_overdue: Optional[bool] = None,
+    is_upcoming: Optional[bool] = None,
+    status: Optional[str] = None,
+    cycle_number: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 100,
 ) -> schemas.dashboard.DashboardData:
     """
-    ダッシュボード情報を取得
-    ログインユーザーが所属する事業所の情報と利用者一覧を取得します。
+    ダッシュボード情報を取得します。
+    クエリパラメータを指定することで、利用者リストの検索・フィルタリングが可能です。
     """
     service = DashboardService(db)
-    dashboard_data = await service.get_dashboard_data(current_user.id)
+
+    # 1. ログインユーザーの事業所情報を取得
+    staff_office_info = await crud.staff.get_staff_with_primary_office(db=db, staff_id=current_user.id)
+    if not staff_office_info:
+        raise HTTPException(status_code=404, detail="事業所情報が見つかりません")
+    staff, office = staff_office_info
+
+    # 2. 事業所に所属する全利用者数を取得
+    # この処理は重い可能性があるので、将来的には専用のcountメソッドをcrudに作ることを検討
+    all_recipients = await crud.office.get_recipients_by_office_id(db=db, office_id=office.id)
+    current_user_count = len(all_recipients)
+
+    # 3. クエリパラメータに基づいてフィルター辞書を作成
+    filters = {}
+    if is_overdue is not None: filters["is_overdue"] = is_overdue
+    if is_upcoming is not None: filters["is_upcoming"] = is_upcoming
+    if status: filters["status"] = status
+    if cycle_number is not None: filters["cycle_number"] = cycle_number
     
-    if not dashboard_data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="事業所情報が見つかりません"
-        )
+    # 4. フィルタリングされた利用者リストのモデルを取得
+    filtered_recipients_models = await crud.dashboard.get_filtered_summaries(
+        db=db,
+        office_ids=[office.id],
+        sort_by=sort_by,
+        sort_order=sort_order,
+        filters=filters,
+        search_term=search_term,
+        skip=skip,
+        limit=limit
+    )
+
+    # 5. DashboardSummaryスキーマに変換
+    recipient_summaries = []
+    for r in filtered_recipients_models:
+        summary = await service._create_recipient_summary(r)
+        recipient_summaries.append(summary)
+
+    # 6. 最終的なDashboardDataを構築
+    max_user_count = service._get_max_user_count(office.billing_status)
     
-    return dashboard_data
+    return schemas.dashboard.DashboardData(
+        staff_name=staff.name,
+        staff_role=staff.role,
+        office_id=office.id,
+        office_name=office.name,
+        current_user_count=current_user_count,
+        max_user_count=max_user_count,
+        billing_status=office.billing_status,
+        recipients=recipient_summaries
+    )
