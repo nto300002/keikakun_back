@@ -1,8 +1,9 @@
 import datetime
 import uuid
+import uuid
 from typing import List, TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Enum as SQLAlchemyEnum
@@ -19,10 +20,11 @@ if TYPE_CHECKING:
 class WelfareRecipient(Base):
     """受給者"""
     __tablename__ = 'welfare_recipients'
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     first_name: Mapped[str] = mapped_column(String(255))
     last_name: Mapped[str] = mapped_column(String(255))
-    furigana: Mapped[str] = mapped_column(String(255))
+    first_name_furigana: Mapped[str] = mapped_column(String(255))
+    last_name_furigana: Mapped[str] = mapped_column(String(255))
     birth_day: Mapped[datetime.date]
     gender: Mapped[GenderType] = mapped_column(SQLAlchemyEnum(GenderType))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -37,7 +39,7 @@ class WelfareRecipient(Base):
 class OfficeWelfareRecipient(Base):
     """事業所と受給者の中間テーブル"""
     __tablename__ = 'office_welfare_recipients'
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     welfare_recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('welfare_recipients.id'))
     office_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('offices.id'))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

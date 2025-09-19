@@ -29,7 +29,14 @@ async def dashboard_fixtures(db_session: AsyncSession, service_admin_user_factor
     
     recipients = []
     for i in range(3):
-        recipient = WelfareRecipient(first_name=f"太郎{i+1}", last_name="田中", furigana=f"たなか たろう{i+1}", birth_day=date(1990, 1, 1), gender=GenderType.male)
+        recipient = WelfareRecipient(
+            first_name=f"太郎{i+1}", 
+            last_name="田中", 
+            first_name_furigana=f"たろう{i+1}",
+            last_name_furigana="たなか",
+            birth_day=date(1990, 1, 1), 
+            gender=GenderType.male
+        )
         db_session.add(recipient)
         await db_session.flush()
         office_recipient = OfficeWelfareRecipient(welfare_recipient_id=recipient.id, office_id=office.id)

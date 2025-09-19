@@ -7,7 +7,7 @@ from app import crud
 from app.models.enums import BillingStatus, SupportPlanStep
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle
-from app.schemas.dashboard import DashboardData, DashboardRecipient
+from app.schemas.dashboard import DashboardData, DashboardSummary
 
 
 class DashboardService:
@@ -17,13 +17,13 @@ class DashboardService:
 
     async def get_dashboard_data(self, staff_id: uuid.UUID) -> Optional[DashboardData]:
         """ダッシュボード情報を取得"""
-        staff_office_result = await self.crud.dashboard.get_staff_office(db=self.db, staff_id=staff_id)
+        staff_office_result = await self.crud.staff.get_staff_with_primary_office(db=self.db, staff_id=staff_id)
         if not staff_office_result:
             return None
 
         staff, office = staff_office_result
 
-        recipients = await self.crud.dashboard.get_office_recipients(db=self.db, office_id=office.id)
+        recipients = await self.crud.office.get_recipients_by_office_id(db=self.db, office_id=office.id)
         current_user_count = len(recipients)
         max_user_count = self._get_max_user_count(office.billing_status)
 
@@ -43,7 +43,7 @@ class DashboardService:
             recipients=recipient_summaries
         )
 
-    async def _create_recipient_summary(self, recipient: WelfareRecipient) -> DashboardRecipient:
+    async def _create_recipient_summary(self, recipient: WelfareRecipient) -> DashboardSummary:
         """ダッシュボード:利用者情報"""
         full_name = f"{recipient.last_name} {recipient.first_name}"
         cycle_number = await self._get_cycle_number(recipient.id)
@@ -58,10 +58,12 @@ class DashboardService:
             next_renewal_deadline = latest_cycle.next_renewal_deadline
             monitoring_due_date = self._calculate_monitoring_due_date(latest_cycle)
 
-        return DashboardRecipient(
+        full_furigana = f"{recipient.last_name_furigana} {recipient.first_name_furigana}"
+
+        return DashboardSummary(
             id=str(recipient.id),
             full_name=full_name,
-            furigana=recipient.furigana,
+            furigana=full_furigana,
             current_cycle_number=cycle_number,
             latest_step=latest_step,
             next_renewal_deadline=next_renewal_deadline,

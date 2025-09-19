@@ -35,12 +35,7 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
     if "?sslmode" in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.split("?")[0]
 
-    # execution_options を追加してバルクインサートを無効化
-    execution_options = {"insertmanyvalues_page_size": 1}
-    async_engine = create_async_engine(
-        DATABASE_URL,
-        execution_options=execution_options
-    )
+    async_engine = create_async_engine(DATABASE_URL)
     yield async_engine
     await async_engine.dispose()
 

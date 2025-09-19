@@ -7,7 +7,7 @@ import uuid
 
 from app.schemas.dashboard import (
     DashboardData,
-    DashboardRecipient,
+    DashboardSummary,
     DashboardBase,
     DashboardDataCreate
 )
@@ -17,11 +17,11 @@ from app.models.enums import StaffRole, BillingStatus, SupportPlanStep
 pytestmark = pytest.mark.asyncio
 
 
-class TestDashboardRecipientSchema:
-    """DashboardRecipientスキーマのテスト"""
+class TestDashboardSummarySchema:
+    """DashboardSummaryスキーマのテスト"""
     
     def test_dashboard_recipient_valid_data(self):
-        """正常系: 有効なデータでDashboardRecipientが作成される"""
+        """正常系: 有効なデータでDashboardSummaryが作成される"""
         valid_data = {
             "id": str(uuid.uuid4()),
             "full_name": "田中 太郎",
@@ -33,7 +33,7 @@ class TestDashboardRecipientSchema:
         }
         
         # テスト実行
-        recipient = DashboardRecipient(**valid_data)
+        recipient = DashboardSummary(**valid_data)
         
         # 検証
         assert recipient.id == valid_data["id"]
@@ -45,7 +45,7 @@ class TestDashboardRecipientSchema:
         assert recipient.monitoring_due_date == date(2024, 2, 28)
     
     def test_dashboard_recipient_minimal_data(self):
-        """正常系: 必須フィールドのみでDashboardRecipientが作成される"""
+        """正常系: 必須フィールドのみでDashboardSummaryが作成される"""
         minimal_data = {
             "id": str(uuid.uuid4()),
             "full_name": "山田 花子",
@@ -57,7 +57,7 @@ class TestDashboardRecipientSchema:
         }
         
         # テスト実行
-        recipient = DashboardRecipient(**minimal_data)
+        recipient = DashboardSummary(**minimal_data)
         
         # 検証
         assert str(recipient.id) == minimal_data["id"]
@@ -82,7 +82,7 @@ class TestDashboardRecipientSchema:
         
         # テスト実行・検証
         with pytest.raises(ValidationError) as exc_info:
-            DashboardRecipient(**invalid_data)
+            DashboardSummary(**invalid_data)
         
         # エラー詳細確認
         errors = exc_info.value.errors()
@@ -102,7 +102,7 @@ class TestDashboardRecipientSchema:
         
         # テスト実行・検証
         with pytest.raises(ValidationError) as exc_info:
-            DashboardRecipient(**invalid_data)
+            DashboardSummary(**invalid_data)
         
         # エラー詳細確認
         errors = exc_info.value.errors()
@@ -122,7 +122,7 @@ class TestDashboardRecipientSchema:
         
         # テスト実行・検証
         with pytest.raises(ValidationError) as exc_info:
-            DashboardRecipient(**invalid_data)
+            DashboardSummary(**invalid_data)
         
         # エラー詳細確認
         errors = exc_info.value.errors()
@@ -142,7 +142,7 @@ class TestDashboardRecipientSchema:
         
         # テスト実行・検証
         with pytest.raises(ValidationError) as exc_info:
-            DashboardRecipient(**invalid_data)
+            DashboardSummary(**invalid_data)
         
         # エラー詳細確認
         errors = exc_info.value.errors()
@@ -162,7 +162,7 @@ class TestDashboardRecipientSchema:
         
         # テスト実行・検証
         with pytest.raises(ValidationError) as exc_info:
-            DashboardRecipient(**invalid_data)
+            DashboardSummary(**invalid_data)
         
         # エラー詳細確認
         errors = exc_info.value.errors()
@@ -218,7 +218,7 @@ class TestDashboardDataSchema:
         assert dashboard.max_user_count == 10
         assert dashboard.billing_status == BillingStatus.free
         assert len(dashboard.recipients) == 2
-        assert isinstance(dashboard.recipients[0], DashboardRecipient)
+        assert isinstance(dashboard.recipients[0], DashboardSummary)
     
     def test_dashboard_data_empty_recipients(self):
         """正常系: 利用者が0人のDashboardData"""
@@ -387,7 +387,7 @@ class TestDashboardSchemaEdgeCases:
         }
         
         # テスト実行
-        recipient = DashboardRecipient(**valid_data)
+        recipient = DashboardSummary(**valid_data)
         
         # 検証: 長い名前も受け入れられる
         assert recipient.full_name == long_name
@@ -426,7 +426,7 @@ class TestDashboardSchemaEdgeCases:
         # 検証
         assert len(dashboard.recipients) == 1000
         assert dashboard.current_user_count == 1000
-        assert all(isinstance(recipient, DashboardRecipient) for recipient in dashboard.recipients)
+        assert all(isinstance(recipient, DashboardSummary) for recipient in dashboard.recipients)
     
     def test_dashboard_recipient_special_characters(self):
         """エッジケース: 特殊文字を含む名前"""
@@ -441,7 +441,7 @@ class TestDashboardSchemaEdgeCases:
         }
         
         # テスト実行
-        recipient = DashboardRecipient(**special_data)
+        recipient = DashboardSummary(**special_data)
         
         # 検証: 特殊文字も受け入れられる
         assert recipient.full_name == "田中♪ 太郎★"
@@ -483,7 +483,7 @@ class TestDashboardSchemaEdgeCases:
         }
         
         # テスト実行
-        recipient = DashboardRecipient(**boundary_data)
+        recipient = DashboardSummary(**boundary_data)
         
         # 検証: 境界値の日付も正しく処理される
         assert recipient.next_renewal_deadline == far_future
@@ -505,7 +505,7 @@ class TestDashboardSchemaValidation:
         
         # テスト実行・検証
         with pytest.raises(ValidationError) as exc_info:
-            DashboardRecipient(**incomplete_data)
+            DashboardSummary(**incomplete_data)
         
         # エラー詳細確認
         errors = exc_info.value.errors()
@@ -546,7 +546,7 @@ class TestDashboardSchemaValidation:
         }
         
         # テスト実行
-        recipient = DashboardRecipient(**data_with_extra)
+        recipient = DashboardSummary(**data_with_extra)
         
         # 検証: 余分なフィールドは無視され、正常に作成される
         assert recipient.full_name == "テスト 太郎"

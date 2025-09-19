@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.core.security import get_password_hash
 from app.models.enums import StaffRole
 from app.models.staff import Staff
-from app.models.office import OfficeStaff # OfficeStaffをインポート
+from app.models.office import Office, OfficeStaff # OfficeStaffをインポート
 from app.schemas.staff import AdminCreate, StaffCreate
 
 
@@ -54,6 +54,19 @@ class CRUDStaff:
         await db.flush()  # トランザクションはテスト側で管理するためcommitはしない
         await db.refresh(db_obj)
         return db_obj
+
+    async def get_staff_with_primary_office(self, db: AsyncSession, *, staff_id: uuid.UUID) -> tuple[Staff, Office] | None:
+        """
+        スタッフIDに基づいて、スタッフとそのプライマリ事業所を取得します。
+        """
+        query = (
+            select(Staff, Office)
+            .join(OfficeStaff, Staff.id == OfficeStaff.staff_id)
+            .join(Office, OfficeStaff.office_id == Office.id)
+            .where(Staff.id == staff_id, OfficeStaff.is_primary == True)
+        )
+        result = await db.execute(query)
+        return result.one_or_none()
 
 
 staff = CRUDStaff()

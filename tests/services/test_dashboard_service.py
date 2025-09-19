@@ -12,7 +12,7 @@ from app.models.office import Office
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 from app.models.enums import StaffRole, OfficeType, GenderType, SupportPlanStep, BillingStatus
-from app.schemas.dashboard import DashboardData, DashboardRecipient
+from app.schemas.dashboard import DashboardData, DashboardSummary
 from app.core.exceptions import OfficeNotFoundError, DatabaseError
 
 # Pytestに非同期テストであることを認識させる
@@ -67,7 +67,8 @@ def sample_recipients():
             id=uuid.uuid4(),
             first_name=f"太郎{i+1}",
             last_name="田中",
-            furigana=f"たなか たろう{i+1}",
+            first_name_furigana=f"たろう{i+1}",
+            last_name_furigana="たなか",
             birth_day=date(1990, 1, 1),
             gender=GenderType.male
         )
@@ -81,16 +82,20 @@ class TestDashboardServiceCore:
     async def test_get_dashboard_data_success(self, dashboard_service, sample_staff, sample_office, sample_recipients):
         """正常系: ダッシュボードデータの取得が成功する"""
         # 各CRUDメソッドをAsyncMockで個別にパッチ
-        with patch.object(dashboard_service.crud.dashboard, 'get_staff_office', new_callable=AsyncMock, return_value=(sample_staff, sample_office)) as mock_get_office, \
-             patch.object(dashboard_service.crud.dashboard, 'get_office_recipients', new_callable=AsyncMock, return_value=sample_recipients) as mock_get_recipients, \
+        with patch.object(dashboard_service.crud.staff, 'get_staff_with_primary_office', new_callable=AsyncMock, return_value=(sample_staff, sample_office)) as mock_get_office, \
+             patch.object(dashboard_service.crud.office, 'get_recipients_by_office_id', new_callable=AsyncMock, return_value=sample_recipients) as mock_get_recipients, \
              patch.object(dashboard_service, '_create_recipient_summary', new_callable=AsyncMock) as mock_create_summary:
 
             # _create_recipient_summary の戻り値を設定
             mock_summaries = [
-                DashboardRecipient(
-                    id=str(r.id), full_name=f"{r.last_name} {r.first_name}", furigana=r.furigana, 
-                    current_cycle_number=1, latest_step=SupportPlanStep.assessment, 
-                    next_renewal_deadline=date.today(), monitoring_due_date=None
+                DashboardSummary(
+                    id=str(r.id), 
+                    full_name=f"{r.last_name} {r.first_name}", 
+                    furigana=f"{r.last_name_furigana} {r.first_name_furigana}", 
+                    current_cycle_number=1, 
+                    latest_step=SupportPlanStep.assessment, 
+                    next_renewal_deadline=date.today(), 
+                    monitoring_due_date=None
                 ) for r in sample_recipients
             ]
             mock_create_summary.side_effect = mock_summaries
@@ -109,15 +114,15 @@ class TestDashboardServiceCore:
 
     async def test_get_dashboard_data_no_office(self, dashboard_service, sample_staff):
         """異常系: スタッフが事業所に所属していない場合"""
-        with patch.object(dashboard_service.crud.dashboard, 'get_staff_office', new_callable=AsyncMock, return_value=None) as mock_get_office:
+        with patch.object(dashboard_service.crud.staff, 'get_staff_with_primary_office', new_callable=AsyncMock, return_value=None) as mock_get_office:
             result = await dashboard_service.get_dashboard_data(sample_staff.id)
             assert result is None
             mock_get_office.assert_awaited_once_with(db=dashboard_service.db, staff_id=sample_staff.id)
 
     async def test_get_dashboard_data_empty_recipients(self, dashboard_service, sample_staff, sample_office):
         """正常系: 利用者が0人の場合"""
-        with patch.object(dashboard_service.crud.dashboard, 'get_staff_office', new_callable=AsyncMock, return_value=(sample_staff, sample_office)) as mock_get_office, \
-             patch.object(dashboard_service.crud.dashboard, 'get_office_recipients', new_callable=AsyncMock, return_value=[]) as mock_get_recipients:
+        with patch.object(dashboard_service.crud.staff, 'get_staff_with_primary_office', new_callable=AsyncMock, return_value=(sample_staff, sample_office)) as mock_get_office, \
+             patch.object(dashboard_service.crud.office, 'get_recipients_by_office_id', new_callable=AsyncMock, return_value=[]) as mock_get_recipients:
             
             result = await dashboard_service.get_dashboard_data(sample_staff.id)
 
@@ -132,7 +137,15 @@ class TestDashboardServicePrivateMethods:
 
     async def test_create_recipient_summary_with_cycle(self, dashboard_service):
         """利用者サマリー作成テスト（サイクルあり）"""
-        recipient = WelfareRecipient(id=uuid.uuid4(), last_name="田中", first_name="太郎", furigana="たなか たろう")
+        recipient = WelfareRecipient(
+            id=uuid.uuid4(), 
+            last_name="田中", 
+            first_name="太郎", 
+            last_name_furigana="たなか", 
+            first_name_furigana="たろう",
+            birth_day=date(1990, 1, 1),
+            gender=GenderType.male
+        )
         cycle = SupportPlanCycle(id=1, statuses=[], next_renewal_deadline=date.today() + timedelta(days=150))
         
         # AsyncMockを使用して非同期メソッドをモック
@@ -150,7 +163,15 @@ class TestDashboardServicePrivateMethods:
 
     async def test_create_recipient_summary_no_cycle(self, dashboard_service):
         """利用者サマリー作成テスト（サイクルなし）"""
-        recipient = WelfareRecipient(id=uuid.uuid4(), last_name="山田", first_name="花子", furigana="やまだ はなこ")
+        recipient = WelfareRecipient(
+            id=uuid.uuid4(), 
+            last_name="山田", 
+            first_name="花子", 
+            last_name_furigana="やまだ", 
+            first_name_furigana="はなこ",
+            birth_day=date(2000, 1, 1),
+            gender=GenderType.female
+        )
         
         with patch.object(dashboard_service.crud.dashboard, 'get_latest_cycle', new_callable=AsyncMock) as mock_get_latest_cycle, \
              patch.object(dashboard_service.crud.dashboard, 'get_cycle_count_for_recipient', new_callable=AsyncMock) as mock_count_cycles:

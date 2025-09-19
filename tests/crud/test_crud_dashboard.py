@@ -6,8 +6,7 @@ from sqlalchemy import select, func
 from datetime import datetime, date, timedelta
 import uuid
 
-# 修正: dashboard_crudインスタンスを直接インポート
-from app.crud.crud_dashboard import dashboard_crud
+from app.crud.crud_dashboard import crud_dashboard
 from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
 from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
@@ -43,7 +42,8 @@ async def crud_dashboard_fixtures(
         recipient = WelfareRecipient(
             first_name=f"CRUD{i+1}",
             last_name="テスト",
-            furigana=f"てすと crud{i+1}",
+            first_name_furigana=f"crud{i+1}",
+            last_name_furigana="てすと",
             birth_day=date(1985 + i, 1, 1),
             gender=GenderType.male if i % 2 == 0 else GenderType.female
         )
@@ -77,9 +77,9 @@ async def crud_dashboard_fixtures(
     
     await db_session.commit()
     
-    # Ensure module-level dashboard_crud has the test db_session available
-    # so tests that call dashboard_crud.get_*(...) without passing db= can work.
-    dashboard_crud.db = db_session
+    # Ensure module-level crud_dashboard has the test db_session available
+    # so tests that call crud_dashboard.get_*(...) without passing db= can work.
+    crud_dashboard.db = db_session
 
     return {
         'staff': staff,
@@ -95,7 +95,7 @@ class TestCRUDDashboardCore:
     async def test_get_staff_office_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
         staff = crud_dashboard_fixtures['staff']
         office = crud_dashboard_fixtures['office']
-        result = await dashboard_crud.get_staff_office(db=db_session, staff_id=staff.id)
+        result = await crud_dashboard.get_staff_office(db=db_session, staff_id=staff.id)
         assert result is not None
         staff_result, office_result = result
         assert office_result.id == office.id
@@ -103,30 +103,30 @@ class TestCRUDDashboardCore:
     async def test_get_office_recipients_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
         office = crud_dashboard_fixtures['office']
         expected_recipients = crud_dashboard_fixtures['recipients']
-        result = await dashboard_crud.get_office_recipients(db=db_session, office_id=office.id)
+        result = await crud_dashboard.get_office_recipients(db=db_session, office_id=office.id)
         assert len(result) == 5
         assert {r.id for r in result} == {r.id for r in expected_recipients}
 
     async def test_get_latest_cycle_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
         recipient = crud_dashboard_fixtures['recipients'][0]
-        result = await dashboard_crud.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
+        result = await crud_dashboard.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
         assert result is not None
         assert result.welfare_recipient_id == recipient.id
         assert result.is_latest_cycle is True
 
     async def test_get_latest_cycle_not_found(self, db_session: AsyncSession, crud_dashboard_fixtures):
         recipient = crud_dashboard_fixtures['recipients'][3]
-        result = await dashboard_crud.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
+        result = await crud_dashboard.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
         assert result is None
 
     async def test_count_office_recipients_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
         office = crud_dashboard_fixtures['office']
-        result = await dashboard_crud.count_office_recipients(db=db_session, office_id=office.id)
+        result = await crud_dashboard.count_office_recipients(db=db_session, office_id=office.id)
         assert result == 5
 
     async def test_get_cycle_count_for_recipient_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
         recipient = crud_dashboard_fixtures['recipients'][0]
-        result = await dashboard_crud.get_cycle_count_for_recipient(db=db_session, welfare_recipient_id=recipient.id)
+        result = await crud_dashboard.get_cycle_count_for_recipient(db=db_session, welfare_recipient_id=recipient.id)
         assert result == 2
 
 class TestCRUDDashboardDataConsistency:
@@ -134,11 +134,11 @@ class TestCRUDDashboardDataConsistency:
 
     async def test_recipient_cycle_relationship_consistency(self, db_session: AsyncSession, crud_dashboard_fixtures):
         recipient = crud_dashboard_fixtures['recipients'][0]
-        latest_cycle = await dashboard_crud.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
+        latest_cycle = await crud_dashboard.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
         assert latest_cycle is not None
         assert latest_cycle.welfare_recipient_id == recipient.id
         
-        cycle_count = await dashboard_crud.get_cycle_count_for_recipient(db=db_session, welfare_recipient_id=recipient.id)
+        cycle_count = await crud_dashboard.get_cycle_count_for_recipient(db=db_session, welfare_recipient_id=recipient.id)
         assert cycle_count == 2
         
         query = select(func.count()).select_from(SupportPlanCycle).filter(
