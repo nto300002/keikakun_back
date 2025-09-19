@@ -59,26 +59,27 @@ async def search_sort_filter_fixtures(db_session: AsyncSession, service_admin_us
 
     # 3. 支援計画サイクルとステータスの作成
     # 佐藤 愛 (期限切れ)
-    cycle_sato = SupportPlanCycle(welfare_recipient_id=sato.id, cycle_number=1, is_latest_cycle=True, next_renewal_deadline=date.today() - timedelta(days=10))
+    cycle_sato = SupportPlanCycle(welfare_recipient_id=sato.id, plan_cycle_start_date=date.today() - timedelta(days=375), cycle_number=1, is_latest_cycle=True, next_renewal_deadline=date.today() - timedelta(days=10))
     db_session.add(cycle_sato)
     await db_session.flush()
     db_session.add(SupportPlanStatus(plan_cycle_id=cycle_sato.id, step_type=SupportPlanStep.assessment, completed=False))
 
     # 鈴木 次郎 (更新間近)
-    cycle_suzuki = SupportPlanCycle(welfare_recipient_id=suzuki.id, cycle_number=1, is_latest_cycle=True, next_renewal_deadline=date.today() + timedelta(days=15))
+    cycle_suzuki = SupportPlanCycle(welfare_recipient_id=suzuki.id, plan_cycle_start_date=date.today() - timedelta(days=350), cycle_number=1, is_latest_cycle=True, next_renewal_deadline=date.today() + timedelta(days=15))
     db_session.add(cycle_suzuki)
     await db_session.flush()
     db_session.add(SupportPlanStatus(plan_cycle_id=cycle_suzuki.id, step_type=SupportPlanStep.monitoring, completed=False))
 
     # 高橋 学 (通常)
-    cycle_takahashi = SupportPlanCycle(welfare_recipient_id=takahashi.id, cycle_number=1, is_latest_cycle=True, next_renewal_deadline=date.today() + timedelta(days=90))
+    cycle_takahashi = SupportPlanCycle(welfare_recipient_id=takahashi.id, plan_cycle_start_date=date.today() - timedelta(days=275), cycle_number=1, is_latest_cycle=True, next_renewal_deadline=date.today() + timedelta(days=90))
     db_session.add(cycle_takahashi)
     await db_session.flush()
     db_session.add(SupportPlanStatus(plan_cycle_id=cycle_takahashi.id, step_type=SupportPlanStep.monitoring, completed=False))
 
     # 田中 太郎 (通常)
-    cycle_tanaka_old = SupportPlanCycle(welfare_recipient_id=tanaka.id, cycle_number=1, is_latest_cycle=False)
-    cycle_tanaka_new = SupportPlanCycle(welfare_recipient_id=tanaka.id, cycle_number=2, is_latest_cycle=True, next_renewal_deadline=date.today() + timedelta(days=60))
+    new_plan_start_date = date.today() - timedelta(days=305)
+    cycle_tanaka_old = SupportPlanCycle(welfare_recipient_id=tanaka.id, plan_cycle_start_date=new_plan_start_date - timedelta(days=365), cycle_number=1, is_latest_cycle=False)
+    cycle_tanaka_new = SupportPlanCycle(welfare_recipient_id=tanaka.id, plan_cycle_start_date=new_plan_start_date, cycle_number=2, is_latest_cycle=True, next_renewal_deadline=date.today() + timedelta(days=60))
     db_session.add_all([cycle_tanaka_old, cycle_tanaka_new])
     await db_session.flush()
     db_session.add(SupportPlanStatus(plan_cycle_id=cycle_tanaka_new.id, step_type=SupportPlanStep.draft_plan, completed=False))
