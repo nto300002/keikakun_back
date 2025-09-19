@@ -19,7 +19,7 @@ class DashboardBase(BaseModel):
 
 
 # --- レスポンスモデル ---
-class DashboardRecipient(BaseModel):
+class DashboardSummary(BaseModel):
     """ダッシュボード:利用者情報"""
     # Use str so tests (and JSON output) compare IDs as strings.
     id: str
@@ -49,7 +49,7 @@ class DashboardRecipient(BaseModel):
 
 class DashboardData(DashboardBase):
     """ダッシュボード情報（レスポンス）"""
-    recipients: List[DashboardRecipient]
+    recipients: List[DashboardSummary]
 
     model_config = ConfigDict(from_attributes=True)
 
