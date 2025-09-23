@@ -1,9 +1,10 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import jwt, JWTError
 from pydantic import ValidationError
+from typing import Optional
 
 from app import crud, schemas, models
 from app.api import deps
@@ -14,9 +15,9 @@ from app.core.security import (
 )
 
 from app.core.security import (
-    verify_password, create_access_token, create_refresh_token, ALGORITHM, 
+    verify_password, create_access_token, create_refresh_token, ALGORITHM,
     create_email_verification_token, verify_email_verification_token,
-    create_temporary_token, verify_temporary_token, verify_totp
+    create_temporary_token, verify_temporary_token, verify_temporary_token_with_session, verify_totp
 )
 from app.core.mail import send_verification_email
 from pydantic import BaseModel
@@ -146,14 +147,16 @@ async def login_for_access_token(
     *,
     request: Request,  # limiterがIPアドレスを取得するために必要
     db: AsyncSession = Depends(deps.get_db),
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    username: str = Form(...),
+    password: str = Form(...),
+    rememberMe: Optional[bool] = Form(False),
     staff_crud=Depends(get_staff_crud),
 ):
     """
     OAuth2 compatible token login, get an access token for future requests
     """
-    user = await staff_crud.get_by_email(db, email=form_data.username)
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    user = await staff_crud.get_by_email(db, email=username)
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -166,20 +169,41 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # セッション期間を設定（デフォルト1時間、rememberMe=Trueで8時間）
+    session_duration = 28800 if rememberMe else 3600  # 8時間 or 1時間（秒）
+    session_type = "extended" if rememberMe else "standard"
+
     if user.is_mfa_enabled:
-        temporary_token = create_temporary_token(user_id=str(user.id), token_type="mfa_verify")
+        temporary_token = create_temporary_token(
+            user_id=str(user.id),
+            token_type="mfa_verify",
+            session_duration=session_duration,
+            session_type=session_type
+        )
         return {
             "requires_mfa_verification": True,
             "temporary_token": temporary_token,
-            "token_type": "bearer", # token_typeはMFA検証フローでも必要に応じて含める
+            "token_type": "bearer",
+            "session_duration": session_duration,
+            "session_type": session_type,
         }
-    
-    access_token = create_access_token(subject=str(user.id))
-    refresh_token = create_refresh_token(subject=str(user.id))
+
+    access_token = create_access_token(
+        subject=str(user.id),
+        expires_delta_seconds=session_duration,
+        session_type=session_type
+    )
+    refresh_token = create_refresh_token(
+        subject=str(user.id),
+        session_duration=session_duration,
+        session_type=session_type
+    )
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
+        "session_duration": session_duration,
+        "session_type": session_type,
     }
 
 
@@ -193,19 +217,38 @@ async def refresh_access_token(refresh_token_data: schemas.RefreshToken):
         payload = jwt.decode(
             refresh_token_data.refresh_token, secret_key, algorithms=[ALGORITHM]
         )
-        # ここでtoken_typeの検証などを追加することも可能
-        token_data = schemas.TokenData(**payload)
+
+        # セッション情報を取得
+        user_id = payload.get("sub")
+        session_duration = payload.get("session_duration", 3600)  # デフォルト1時間
+        session_type = payload.get("session_type", "standard")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     except (JWTError, ValidationError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # ここでユーザーの存在をDBで再確認することも可能だが、
-    # トークンが有効であればユーザーは存在するとみなし、新しいアクセストークンを発行する
-    new_access_token = create_access_token(subject=token_data.sub)
-    return {"access_token": new_access_token, "token_type": "bearer"}
+
+    # 元のセッション種別を維持して新しいアクセストークンを発行
+    new_access_token = create_access_token(
+        subject=user_id,
+        expires_delta_seconds=session_duration,
+        session_type=session_type
+    )
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "session_duration": session_duration,
+        "session_type": session_type
+    }
 
 
 @router.post("/token/verify-mfa", response_model=schemas.Token)
@@ -215,12 +258,16 @@ async def verify_mfa_for_login(
     mfa_data: MFAVerifyRequest,
     staff_crud=Depends(get_staff_crud),
 ):
-    user_id = verify_temporary_token(mfa_data.temporary_token, expected_type="mfa_verify")
-    if not user_id:
+    token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
+    if not token_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired temporary token",
         )
+
+    user_id = token_data["user_id"]
+    session_duration = token_data["session_duration"]
+    session_type = token_data["session_type"]
 
     user = await staff_crud.get(db, id=user_id)
     if not user or not user.is_mfa_enabled:
@@ -246,12 +293,22 @@ async def verify_mfa_for_login(
             detail="Invalid TOTP code or recovery code"
         )
 
-    access_token = create_access_token(subject=str(user.id))
-    refresh_token = create_refresh_token(subject=str(user.id))
+    access_token = create_access_token(
+        subject=str(user.id),
+        expires_delta_seconds=session_duration,
+        session_type=session_type
+    )
+    refresh_token = create_refresh_token(
+        subject=str(user.id),
+        session_duration=session_duration,
+        session_type=session_type
+    )
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
+        "session_duration": session_duration,
+        "session_type": session_type,
     }
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
