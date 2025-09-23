@@ -3,12 +3,11 @@ from typing import AsyncGenerator
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
-from app.core.config import settings
+from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal
 from app.models.staff import Staff
 from app.schemas.token import TokenData
@@ -40,16 +39,15 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise credentials_exception
+
     try:
-        # トークンをデコードしてペイロードを取得します。
-        # SECRET_KEYとアルゴリズムは設定ファイルから読み込みます。
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        # ペイロードの'sub'（subject）にユーザーのIDが含まれていることを期待します。
         token_data = TokenData(sub=payload.get("sub"))
-    except (JWTError, ValidationError):
-        # トークンの形式が不正、またはデコードに失敗した場合
+    except ValidationError:
         raise credentials_exception
 
     if token_data.sub is None:
