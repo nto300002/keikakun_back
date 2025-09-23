@@ -22,6 +22,7 @@ python-multipart
 pyotp>=2.8.0
 qrcode[pil]>=7.4.0
 cryptography>=3.4.8
+jwt
 
 # テスト用
 httpx
