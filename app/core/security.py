@@ -12,6 +12,8 @@ import pyotp
 import qrcode
 from cryptography.fernet import Fernet
 
+from app.core.config import settings
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
@@ -50,20 +52,47 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None) -> str:
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+def create_access_token(
+    subject: Union[str, Any],
+    expires_delta: timedelta = None,
+    expires_delta_seconds: int = None,
+    session_type: str = "standard"
+) -> str:
+    now = datetime.now(timezone.utc)
+
+    if expires_delta_seconds:
+        expire = now + timedelta(seconds=expires_delta_seconds)
+    elif expires_delta:
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode = {"exp": expire, "sub": str(subject)}
+        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    # セッション期間を秒で計算
+    session_duration = int((expire - now).total_seconds())
+
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "iat": now,
+        "session_type": session_type,
+        "session_duration": session_duration
+    }
     secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
     encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(subject: Union[str, Any]) -> str:
+def create_refresh_token(
+    subject: Union[str, Any],
+    session_duration: int = 3600,
+    session_type: str = "standard"
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {"exp": expire, "sub": str(subject)}
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "session_duration": session_duration,
+        "session_type": session_type
+    }
     secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
     encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
     return encoded_jwt
@@ -215,7 +244,13 @@ def is_recovery_code_format(code: str) -> bool:
     return True
 
 
-def create_temporary_token(user_id: str, token_type: str, expires_minutes: int = TEMPORARY_TOKEN_EXPIRE_MINUTES) -> str:
+def create_temporary_token(
+    user_id: str,
+    token_type: str,
+    expires_minutes: int = TEMPORARY_TOKEN_EXPIRE_MINUTES,
+    session_duration: int = None,
+    session_type: str = "standard"
+) -> str:
     """一時トークンを生成"""
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     to_encode = {
@@ -224,24 +259,51 @@ def create_temporary_token(user_id: str, token_type: str, expires_minutes: int =
         "type": token_type,
         "scope": "temporary"
     }
+
+    # セッション情報を追加（MFA検証時に元のセッション設定を保持するため）
+    if session_duration is not None:
+        to_encode["session_duration"] = session_duration
+        to_encode["session_type"] = session_type
+
     secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
     encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
     return encoded_jwt
 
 
 def verify_temporary_token(token: str, expected_type: str) -> Optional[str]:
-    """一時トークンを検証してユーザーIDを返す"""
+    """一時トークンを検証してユーザーIDを返す（後方互換性のため）"""
     try:
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
-        
+
         # スコープとタイプをチェック
         if payload.get("scope") != "temporary":
             return None
         if payload.get("type") != expected_type:
             return None
-        
+
         return payload.get("sub")
+    except jwt.JWTError:
+        return None
+
+
+def verify_temporary_token_with_session(token: str, expected_type: str) -> Optional[dict]:
+    """一時トークンを検証してユーザーIDとセッション情報を返す"""
+    try:
+        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
+        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+
+        # スコープとタイプをチェック
+        if payload.get("scope") != "temporary":
+            return None
+        if payload.get("type") != expected_type:
+            return None
+
+        return {
+            "user_id": payload.get("sub"),
+            "session_duration": payload.get("session_duration", 3600),  # デフォルト1時間
+            "session_type": payload.get("session_type", "standard")
+        }
     except jwt.JWTError:
         return None
 
@@ -266,3 +328,10 @@ def get_mfa_backup_info(recovery_codes: List[str]) -> dict:
         "codes_remaining": len(recovery_codes),
         "last_used": None
     }
+def decode_access_token(token: str) -> Optional[dict]:
+    """アクセストークンをデコードしてペイロードを返す。無効な場合は None を返す。"""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.JWTError:
+        return None
