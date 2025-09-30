@@ -6,11 +6,13 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
+from datetime import timedelta
 
 from app.models.office import Office, OfficeStaff
 from app.models.staff import Staff
 from app.models.enums import StaffRole, OfficeType
 from app import crud
+from app.core.security import create_access_token
 
 # Pytestに非同期テストであることを認識させる
 pytestmark = pytest.mark.asyncio
@@ -57,7 +59,8 @@ class TestSetupOffice:
         """正常系: ownerが正常に事務所を登録できる"""
         # Arrange
         payload = {"name": "新しい訪問看護ステーション", "office_type": "type_A_office"}
-        headers = {"Authorization": "Bearer fake-token"}
+        access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Act
         # この時点ではエンドポイントが存在しないため404が返るが、実装後は200になることを期待
@@ -99,7 +102,8 @@ class TestSetupOffice:
         """異常系: employeeロールでは事務所登録ができない (403 Forbidden)"""
         # Arrange
         payload = {"name": "従業員が作ろうとする事務所", "office_type": "type_A_office"}
-        headers = {"Authorization": "Bearer fake-token"}
+        access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Act
         response = await async_client.post("/api/v1/offices/setup", json=payload, headers=headers)
@@ -113,7 +117,8 @@ class TestSetupOffice:
         """異常系: 既に事務所に所属しているownerは新しい事務所を登録できない (400 Bad Request)"""
         # Arrange
         payload = {"name": "二つ目の事務所", "office_type": "type_A_office"}
-        headers = {"Authorization": "Bearer fake-token"}
+        access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Act
         response = await async_client.post("/api/v1/offices/setup", json=payload, headers=headers)
@@ -130,7 +135,8 @@ class TestSetupOffice:
         await office_factory(creator=owner_user_without_office, name=existing_office_name)
         
         payload = {"name": existing_office_name, "office_type": "type_A_office"}
-        headers = {"Authorization": "Bearer fake-token"}
+        access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Act
         response = await async_client.post("/api/v1/offices/setup", json=payload, headers=headers)
@@ -159,7 +165,8 @@ class TestSetupOffice:
         if not invalid_payload:
              del temp_payload["name"]
 
-        headers = {"Authorization": "Bearer fake-token"}
+        access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Act
         response = await async_client.post("/api/v1/offices/setup", json=temp_payload, headers=headers)
@@ -194,8 +201,9 @@ class TestGetOffices:
         # 事前に複数の事業所を作成
         await office_factory(name="事業所A", creator=owner_user_with_office)
         await office_factory(name="事業所B", creator=owner_user_with_office)
-        
-        headers = {"Authorization": "Bearer fake-token"}
+
+        access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Act
         response = await async_client.get("/api/v1/offices/", headers=headers)
