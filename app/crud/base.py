@@ -70,5 +70,5 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             # SQLAlchemy AsyncSessionでは、deleteメソッドにawaitは不要
             db.delete(obj)
             await db.commit()
-        else:
             return obj
+        return None
