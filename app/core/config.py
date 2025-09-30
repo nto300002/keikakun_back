@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     MAIL_SSL_TLS: bool = False
     MAIL_DEBUG: int = 1  # 0=False, 1=True
 
+    # --- API設定 ---
+    API_V1_STR: str = "/api/v1"
+
     # --- フロントエンド設定 ---
     FRONTEND_URL: str
 
