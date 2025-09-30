@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, timedelta, datetime, timezone
 import uuid
+import re
 
 from app.crud.crud_dashboard import CRUDDashboard
 from app.models import (
@@ -86,7 +87,7 @@ async def search_sort_filter_fixtures(db_session: AsyncSession, service_admin_us
 
     # 伊藤 健太 (サイクルなし)
 
-    await db_session.commit()
+    await db_session.flush()
     
     return {"office_id": office.id, "recipients": {r.last_name: r for r in recipients}}
 
@@ -106,7 +107,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         
         assert len(results) == 5
         # デフォルトはフリガナ昇順
-        assert [r.last_name for r in results] == ["伊藤", "佐藤", "鈴木", "高橋", "田中"]
+        assert [r[0].last_name for r in results] == ["伊藤", "佐藤", "鈴木", "高橋", "田中"]
 
     # --- 検索機能のテスト ---
     async def test_search_by_last_name(self, db_session: AsyncSession, search_sort_filter_fixtures):
@@ -120,7 +121,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "田中"
+        assert results[0][0].last_name == "田中"
 
     async def test_search_by_full_name(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """検索: フルネームでの検索"""
@@ -133,7 +134,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "鈴木"
+        assert results[0][0].last_name == "鈴木"
 
     async def test_search_by_furigana(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """検索: フリガナでの検索"""
@@ -146,7 +147,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "佐藤"
+        assert results[0][0].last_name == "佐藤"
 
     async def test_search_no_results(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """検索: 該当なしの場合"""
@@ -172,7 +173,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 5
-        assert [r.last_name for r in results] == ["伊藤", "高橋", "田中", "鈴木", "佐藤"]
+        assert [r[0].last_name for r in results] == ["伊藤", "高橋", "田中", "鈴木", "佐藤"]
 
     async def test_sort_by_next_renewal_deadline_asc(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """ソート: 次回更新日の昇順（サイクルがない利用者は含まれない）"""
@@ -186,7 +187,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         
         # サイクルを持つ4人のみ
         assert len(results) == 4
-        assert [r.last_name for r in results] == ["佐藤", "鈴木", "田中", "高橋"]
+        assert [r[0].last_name for r in results] == ["佐藤", "鈴木", "田中", "高橋"]
 
     # --- フィルター機能のテスト ---
     async def test_filter_is_overdue(self, db_session: AsyncSession, search_sort_filter_fixtures):
@@ -200,7 +201,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "佐藤"
+        assert results[0][0].last_name == "佐藤"
 
     async def test_filter_is_upcoming(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """フィルター: 更新間近"""
@@ -213,7 +214,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "鈴木"
+        assert results[0][0].last_name == "鈴木"
 
     async def test_filter_by_status(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """フィルター: ステータス"""
@@ -226,7 +227,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "田中"
+        assert results[0][0].last_name == "田中"
 
     async def test_filter_by_cycle_number(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """フィルター: サイクル番号"""
@@ -239,7 +240,7 @@ class TestCRUDDashboardGetFilteredSummaries:
         )
         
         assert len(results) == 1
-        assert results[0].last_name == "田中"
+        assert results[0][0].last_name == "田中"
 
     # --- 複合条件のテスト ---
     async def test_search_with_overdue_filter(self, db_session: AsyncSession, search_sort_filter_fixtures):
@@ -257,7 +258,7 @@ class TestCRUDDashboardGetFilteredSummaries:
             limit=50
         )
         assert len(results) == 1
-        assert results[0].last_name == "佐藤"
+        assert results[0][0].last_name == "佐藤"
 
     async def test_contradictory_filters(self, db_session: AsyncSession, search_sort_filter_fixtures):
         """複合: 矛盾するフィルター条件 (期限切れ AND 更新間近)"""
@@ -298,4 +299,19 @@ class TestCRUDDashboardGetFilteredSummaries:
             limit=50
         )
         assert len(results) == 1
-        assert results[0].last_name == "鈴木"
+        assert results[0][0].last_name == "鈴木"
+
+
+class TestCRUDDashboardGetSummaryCounts:
+    """crud.dashboard.get_summary_counts のテスト"""
+
+    async def test_get_summary_counts_correctly(self, db_session: AsyncSession, search_sort_filter_fixtures):
+        """サマリーカウントが正しく集計されることをテスト"""
+        office_id = search_sort_filter_fixtures["office_id"]
+        
+        counts = await crud_dashboard.get_summary_counts(db=db_session, office_ids=[office_id])
+        
+        assert counts["total_recipients"] == 5
+        assert counts["overdue_count"] == 1  # 佐藤 愛
+        assert counts["upcoming_count"] == 1  # 鈴木 次郎
+        assert counts["no_cycle_count"] == 1  # 伊藤 健太
