@@ -39,8 +39,8 @@ class SupportPlanCycle(Base):
 
     # Relationships
     welfare_recipient: Mapped["WelfareRecipient"] = relationship(back_populates="support_plan_cycles")
-    statuses: Mapped[List["SupportPlanStatus"]] = relationship(back_populates="plan_cycle")
-    deliverables: Mapped[List["PlanDeliverable"]] = relationship(back_populates="plan_cycle")
+    statuses: Mapped[List["SupportPlanStatus"]] = relationship(back_populates="plan_cycle", cascade="all, delete-orphan")
+    deliverables: Mapped[List["PlanDeliverable"]] = relationship(back_populates="plan_cycle", cascade="all, delete-orphan")
 
 class SupportPlanStatus(Base):
     """計画サイクル内の各ステップの進捗"""
