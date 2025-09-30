@@ -2,7 +2,7 @@ import uuid
 import datetime
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Integer, select
+from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Integer, select, delete
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -66,9 +66,11 @@ class Staff(Base):
         self.is_mfa_enabled = False
         self.mfa_secret = None
         self.mfa_backup_codes_used = 0
-        
-        # バックアップコードも削除 (リレーションシップ経由で)
-        self.mfa_backup_codes.clear()
+
+        # バックアップコードを削除（明示的なDELETEクエリ）
+        from app.models.mfa import MFABackupCode
+        stmt = delete(MFABackupCode).where(MFABackupCode.staff_id == self.id)
+        await db.execute(stmt)
     
     async def get_backup_codes(self, db: AsyncSession) -> List["MFABackupCode"]:
         """全てのバックアップコードを取得"""

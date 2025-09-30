@@ -1,45 +1,17 @@
-from datetime import date, timedelta
-import uuid
-from typing import List, Optional
-import re
-from sqlalchemy import select, or_, and_, func, asc, desc, true
+from typing import Optional, List, Dict
+from datetime import datetime, timedelta, date
+from sqlalchemy import select, func, and_, or_, true
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
-# import logging
-
+import re
 from app.crud.base import CRUDBase
-from app.models import WelfareRecipient, OfficeWelfareRecipient, SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff
+from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient
 from app.schemas.dashboard import DashboardSummary
 from app.models.enums import SupportPlanStep
+import uuid
 
 
 class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummary]):
-    async def get_cycle_count_for_recipient(self, db: AsyncSession, *, welfare_recipient_id: uuid.UUID) -> int:
-        """
-        特定の利用者の支援計画サイクルの総数を取得します。
-        """
-        query = (
-            select(func.count())
-            .select_from(SupportPlanCycle)
-            .where(SupportPlanCycle.welfare_recipient_id == welfare_recipient_id)
-        )
-        result = await db.execute(query)
-        return result.scalar_one()
-
-    async def get_latest_cycle(self, db: AsyncSession, *, welfare_recipient_id: uuid.UUID) -> Optional[SupportPlanCycle]:
-        """
-        特定の利用者の最新の支援計画サイクル（関連ステータスも含む）を取得します。
-        """
-        query = (
-            select(SupportPlanCycle)
-            .where(
-                SupportPlanCycle.welfare_recipient_id == welfare_recipient_id,
-                SupportPlanCycle.is_latest_cycle == True
-            )
-            .options(selectinload(SupportPlanCycle.statuses))
-        )
-        result = await db.execute(query)
-        return result.scalar_one_or_none()
 
     async def get_staff_office(self, db: AsyncSession, *, staff_id: uuid.UUID) -> Optional[tuple[Staff, Office]]:
         """
@@ -87,131 +59,158 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         self,
         db: AsyncSession,
         *,
-        office_ids: List[str],
+        office_ids: List[uuid.UUID],
         sort_by: str,
         sort_order: str,
         filters: dict,
         search_term: Optional[str],
         skip: int,
         limit: int,
-    ) -> List[WelfareRecipient]:
-        print(
-            "get_filtered_summaries called: office_ids=%s sort_by=%s sort_order=%s filters=%s search_term=%s skip=%s limit=%s",
-            office_ids, sort_by, sort_order, filters, search_term, skip, limit
+    ) -> list:
+        # 1. サイクル総数をカウントするサブクエリ
+        cycle_count_sq = (
+            select(
+                SupportPlanCycle.welfare_recipient_id,
+                func.count(SupportPlanCycle.id).label("cycle_count"),
+            )
+            .group_by(SupportPlanCycle.welfare_recipient_id)
+            .subquery("cycle_count_sq")
         )
-        stmt = (
-            select(WelfareRecipient)
-            .join(OfficeWelfareRecipient)
-            .where(OfficeWelfareRecipient.office_id.in_(office_ids))
+
+        # 2. 最新サイクルIDを取得するためのサブクエリ
+        latest_cycle_id_sq = (
+            select(
+                SupportPlanCycle.welfare_recipient_id,
+                func.max(SupportPlanCycle.id).label("latest_cycle_id"),
+            )
+            .where(SupportPlanCycle.is_latest_cycle == true())
+            .group_by(SupportPlanCycle.welfare_recipient_id)
+            .subquery("latest_cycle_id_sq")
         )
+
+        # 3. メインクエリの構築
+        stmt = select(
+            WelfareRecipient,
+            func.coalesce(cycle_count_sq.c.cycle_count, 0).label("cycle_count"),
+            SupportPlanCycle,
+        ).join(OfficeWelfareRecipient).where(OfficeWelfareRecipient.office_id.in_(office_ids))
+
+        # --- JOINs ---
+        stmt = stmt.outerjoin(cycle_count_sq, WelfareRecipient.id == cycle_count_sq.c.welfare_recipient_id)
+
+        if sort_by == "next_renewal_deadline":
+            stmt = stmt.join(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
+            stmt = stmt.join(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
+        else:
+            stmt = stmt.outerjoin(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
+            stmt = stmt.outerjoin(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
+
+        stmt = stmt.options(selectinload(SupportPlanCycle.statuses))
 
         # --- 検索 ---
         if search_term:
             search_words = re.split(r'[\s　]+', search_term.strip())
-            conditions = []
-            for word in search_words:
-                if not word:
-                    continue
-                name_conditions = or_(
-                    WelfareRecipient.last_name.ilike(f"%{word}%"),
-                    WelfareRecipient.first_name.ilike(f"%{word}%"),
-                    WelfareRecipient.last_name_furigana.ilike(f"%{word}%"),
-                    WelfareRecipient.first_name_furigana.ilike(f"%{word}%"),
-                )
-                conditions.append(name_conditions)
+            conditions = [or_(
+                WelfareRecipient.last_name.ilike(f"%{word}%"),
+                WelfareRecipient.first_name.ilike(f"%{word}%"),
+                WelfareRecipient.last_name_furigana.ilike(f"%{word}%"),
+                WelfareRecipient.first_name_furigana.ilike(f"%{word}%"),
+            ) for word in search_words if word]
             if conditions:
                 stmt = stmt.where(and_(*conditions))
-
-        # --- JOINの決定と実行 ---
-        needs_cycle_outer_join = any(k in filters for k in ["is_overdue", "is_upcoming", "status", "cycle_number"])
-        needs_cycle_inner_join = sort_by == "next_renewal_deadline"
-
-        if needs_cycle_inner_join:
-            stmt = stmt.join(
-                SupportPlanCycle,
-                and_(
-                    WelfareRecipient.id == SupportPlanCycle.welfare_recipient_id,
-                    SupportPlanCycle.is_latest_cycle == true(),
-                ),
-            )
-        elif needs_cycle_outer_join:
-            stmt = stmt.outerjoin(
-                SupportPlanCycle,
-                and_(
-                    WelfareRecipient.id == SupportPlanCycle.welfare_recipient_id,
-                    SupportPlanCycle.is_latest_cycle == True,
-                ),
-            )
 
         # --- フィルター ---
         if filters:
             if filters.get("is_overdue"):
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
             if filters.get("is_upcoming"):
-                stmt = stmt.where(
-                    SupportPlanCycle.next_renewal_deadline.between(
-                        date.today(), date.today() + timedelta(days=30)
-                    )
-                )
-            if filters.get("status"):
-                latest_status_subq = (
-                    select(
-                        SupportPlanStatus.plan_cycle_id,
-                        SupportPlanStatus.step_type,
-                        func.row_number().over(
-                            partition_by=SupportPlanStatus.plan_cycle_id,
-                            order_by=SupportPlanStatus.created_at.desc()
-                        ).label("rn")
-                    )
-                    .join(SupportPlanCycle, SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id)
-                    .where(SupportPlanCycle.is_latest_cycle == True)
-                    .subquery("latest_status_subq")
-                )
-                # The join to SupportPlanCycle is already done above, so we join the subquery
-                stmt = stmt.join(
-                    latest_status_subq,
-                    latest_status_subq.c.plan_cycle_id == SupportPlanCycle.id
-                ).where(
-                    and_(
-                        latest_status_subq.c.rn == 1,
-                        latest_status_subq.c.step_type == filters["status"]
-                    )
-                )
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
             if filters.get("cycle_number"):
-                stmt = stmt.where(SupportPlanCycle.cycle_number == filters["cycle_number"])
+                stmt = stmt.where(func.coalesce(cycle_count_sq.c.cycle_count, 0) == filters["cycle_number"])
+            if filters.get("status"):
+                # 最新のステータスを取得するサブクエリ
+                latest_status_subq = select(
+                    SupportPlanStatus.plan_cycle_id,
+                    func.first_value(SupportPlanStatus.step_type).over(
+                        partition_by=SupportPlanStatus.plan_cycle_id, 
+                        order_by=SupportPlanStatus.created_at.desc()
+                    ).label("latest_step")
+                ).distinct().subquery()
+                
+                stmt = stmt.join(latest_status_subq, SupportPlanCycle.id == latest_status_subq.c.plan_cycle_id)
+                stmt = stmt.where(latest_status_subq.c.latest_step == filters["status"])
 
         # --- ソート ---
+        order_func = None
         if sort_by == "name_phonetic":
             sort_column = func.concat(WelfareRecipient.last_name_furigana, WelfareRecipient.first_name_furigana)
-            order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullsfirst()
-            stmt = stmt.order_by(order_func)
+            order_func = sort_column.desc() if sort_order == "desc" else sort_column.asc()
         elif sort_by == "created_at":
             sort_column = WelfareRecipient.created_at
-            order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullsfirst()
-            stmt = stmt.order_by(order_func)
+            order_func = sort_column.desc() if sort_order == "desc" else sort_column.asc()
         elif sort_by == "next_renewal_deadline":
             sort_column = SupportPlanCycle.next_renewal_deadline
             order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullsfirst()
+        
+        if order_func is not None:
             stmt = stmt.order_by(order_func)
-        else: # Default sort
+        else:
             default_sort_col = func.concat(WelfareRecipient.last_name_furigana, WelfareRecipient.first_name_furigana)
-            stmt = stmt.order_by(default_sort_col.asc().nullsfirst())
+            stmt = stmt.order_by(default_sort_col.asc())
 
-        # --- イージアローディング、ページネーション、および実行 ---
-        stmt = stmt.options(
-            selectinload(WelfareRecipient.support_plan_cycles).selectinload(
-                SupportPlanCycle.statuses
-            )
-        ).offset(skip).limit(limit)
-
-        try:
-            print("Compiled stmt: %s", str(stmt))
-        except Exception:
-            print("Could not stringify stmt")
-
+        # --- ページネーションと実行 ---
+        stmt = stmt.offset(skip).limit(limit)
         result = await db.execute(stmt)
-        rows = list(result.scalars().all())
-        print("get_filtered_summaries result count: %d", len(rows))
-        return rows
+        return result.all()
+
+    async def get_summary_counts(
+        self,
+        db: AsyncSession,
+        office_ids: List[uuid.UUID],
+    ) -> Dict[str, int]:
+        """
+        ダッシュボード用のサマリー件数を集計します。
+        - 全利用者数
+        - 期限切れ (Overdue)
+        - 更新間近 (Upcoming)
+        - サイクル未作成 (No Cycle)
+        """
+        today = date.today()
+        upcoming_deadline = today + timedelta(days=30)
+
+        # ベースクエリ: 対象事業所の利用者
+        base_query = (
+            select(WelfareRecipient.id)
+            .join(OfficeWelfareRecipient)
+            .where(OfficeWelfareRecipient.office_id.in_(office_ids))
+        )
+        
+        total_res = await db.execute(select(func.count()).select_from(base_query.subquery()))
+        total_recipients = total_res.scalar_one()
+
+        # 最新サイクルをJOINしたクエリ
+        query_with_cycle = (
+            base_query
+            .outerjoin(SupportPlanCycle, and_(
+                WelfareRecipient.id == SupportPlanCycle.welfare_recipient_id,
+                SupportPlanCycle.is_latest_cycle == True
+            ))
+        )
+
+        # 各カウントを集計
+        overdue_stmt = select(func.count()).select_from(query_with_cycle.where(SupportPlanCycle.next_renewal_deadline < today).subquery())
+        upcoming_stmt = select(func.count()).select_from(query_with_cycle.where(SupportPlanCycle.next_renewal_deadline.between(today, upcoming_deadline)).subquery())
+        no_cycle_stmt = select(func.count()).select_from(query_with_cycle.where(SupportPlanCycle.id == None).subquery())
+
+        overdue_res = await db.execute(overdue_stmt)
+        upcoming_res = await db.execute(upcoming_stmt)
+        no_cycle_res = await db.execute(no_cycle_stmt)
+
+        return {
+            "total_recipients": total_recipients,
+            "overdue_count": overdue_res.scalar_one(),
+            "upcoming_count": upcoming_res.scalar_one(),
+            "no_cycle_count": no_cycle_res.scalar_one(),
+        }
 
 crud_dashboard = CRUDDashboard(WelfareRecipient)

@@ -3,20 +3,25 @@ import asyncio
 import os
 import sys
 from typing import AsyncGenerator, Generator, Optional
+import uuid
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     create_async_engine,
 )
+from sqlalchemy.orm import sessionmaker
 
 # --- パスの設定 ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, create_access_token
+from app.core.config import settings
 from app.main import app
 from app.api.deps import get_db as get_async_db, get_current_user
 from app.models.staff import Staff
@@ -41,38 +46,45 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
-    # engine.connect() を使うことで、トランザクション管理をより明示的に行う
+    """
+    テスト用のDBセッションフィクスチャ。
+    ネストされたトランザクション（セーブポイント）を利用して、テスト終了時に
+    全ての変更がロールバックされることを保証する。
+    """
     async with engine.connect() as connection:
-        # トランザクションを開始
-        async with connection.begin() as transaction:
-            # セッションを作成
-            session = AsyncSession(bind=connection, expire_on_commit=False)
-            yield session
-            # テスト終了後、必ずロールバックする
-            await transaction.rollback()
+        await connection.begin()
+        await connection.begin_nested()
+        
+        async_session_factory = sessionmaker(
+            bind=connection,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+        session = async_session_factory()
+
+        @event.listens_for(session.sync_session, "after_transaction_end")
+        def end_savepoint(session, transaction):
+            if session.is_active and not session.in_nested_transaction():
+                session.begin_nested()
+
+        yield session
+
+        await session.close()
+        await connection.rollback()
 
 
 # --- APIクライアントとファクトリ ---
 
 @pytest_asyncio.fixture(scope="function")
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """
-    Create a new FastAPI TestClient that uses the `db_session` fixture to override
-    the `get_async_db` dependency that is injected into routes.
-    """
-
     def override_get_async_db() -> Generator:
         yield db_session
 
     app.dependency_overrides[get_async_db] = override_get_async_db
-
-    # Use https scheme to avoid HTTPSRedirectMiddleware causing 307 redirects in tests
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="https://test"
     ) as client:
         yield client
-
-    # Clean up dependency overrides
     del app.dependency_overrides[get_async_db]
 
 
@@ -80,7 +92,7 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 async def service_admin_user_factory(db_session: AsyncSession):
     async def _create_user(
         name: str = "テスト管理者",
-        email: str = "admin@example.com",
+        email: str = f"admin_{uuid.uuid4().hex}@example.com",
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.owner,
         is_email_verified: bool = True,
@@ -105,20 +117,22 @@ async def service_admin_user_factory(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def test_admin_user(service_admin_user_factory):
-    return await service_admin_user_factory(email="me@example.com", name="MySelf")
+    return await service_admin_user_factory()
 
 
 @pytest_asyncio.fixture
-async def employee_user_factory(db_session: AsyncSession):
-    """従業員ロールのユーザーを作成するFactory"""
+async def employee_user_factory(db_session: AsyncSession, office_factory):
+    """従業員ロールのユーザーを作成するFactory（事業所に関連付け）"""
     async def _create_user(
         name: str = "テスト従業員",
-        email: str = "employee@example.com",
+        email: str = f"employee_{uuid.uuid4().hex}@example.com",
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.employee,
         is_email_verified: bool = True,
         is_mfa_enabled: bool = False,
         session: Optional[AsyncSession] = None,
+        office: Optional[Office] = None,  # 事業所を外部から受け取れるようにする
+        with_office: bool = True,
     ) -> Staff:
         active_session = session or db_session
         new_user = Staff(
@@ -131,22 +145,40 @@ async def employee_user_factory(db_session: AsyncSession):
         )
         active_session.add(new_user)
         await active_session.flush()
+
+        # 事業所に関連付け
+        if with_office:
+            target_office = office
+            if not target_office:
+                target_office = await office_factory(creator=new_user, session=active_session)
+            
+            from app.models.office import OfficeStaff
+            association = OfficeStaff(
+                staff_id=new_user.id,
+                office_id=target_office.id,
+                is_primary=True
+            )
+            active_session.add(association)
+            await active_session.flush()
+
         await active_session.refresh(new_user)
         return new_user
     yield _create_user
 
 
 @pytest_asyncio.fixture
-async def manager_user_factory(db_session: AsyncSession):
-    """マネージャーロールのユーザーを作成するFactory"""
+async def manager_user_factory(db_session: AsyncSession, office_factory):
+    """マネージャーロールのユーザーを作成するFactory（事業所に関連付け）"""
     async def _create_user(
         name: str = "テストマネージャー",
-        email: str = "manager@example.com",
+        email: str = f"manager_{uuid.uuid4().hex}@example.com",
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.manager,
         is_email_verified: bool = True,
         is_mfa_enabled: bool = False,
         session: Optional[AsyncSession] = None,
+        office: Optional[Office] = None,  # 事業所を外部から受け取れるようにする
+        with_office: bool = True,
     ) -> Staff:
         active_session = session or db_session
         new_user = Staff(
@@ -159,6 +191,22 @@ async def manager_user_factory(db_session: AsyncSession):
         )
         active_session.add(new_user)
         await active_session.flush()
+
+        # 事業所に関連付け
+        if with_office:
+            target_office = office
+            if not target_office:
+                target_office = await office_factory(creator=new_user, session=active_session)
+
+            from app.models.office import OfficeStaff
+            association = OfficeStaff(
+                staff_id=new_user.id,
+                office_id=target_office.id,
+                is_primary=True
+            )
+            active_session.add(association)
+            await active_session.flush()
+
         await active_session.refresh(new_user)
         return new_user
     yield _create_user
@@ -168,7 +216,7 @@ async def manager_user_factory(db_session: AsyncSession):
 async def office_factory(db_session: AsyncSession):
     """事業所を作成するFactory"""
     async def _create_office(
-        creator: Staff, # 作成者を追加
+        creator: Staff,
         name: str = "テスト事業所",
         type: OfficeType = OfficeType.type_A_office,
         session: Optional[AsyncSession] = None,
@@ -177,8 +225,8 @@ async def office_factory(db_session: AsyncSession):
         new_office = Office(
             name=name,
             type=type,
-            created_by=creator.id, # created_by を設定
-            last_modified_by=creator.id, # last_modified_by を設定
+            created_by=creator.id,
+            last_modified_by=creator.id,
         )
         active_session.add(new_office)
         await active_session.flush()
@@ -187,15 +235,22 @@ async def office_factory(db_session: AsyncSession):
     yield _create_office
 
 
-@pytest.fixture
-def mock_current_user(request):
-    user_fixture_name = request.param
-    user = request.getfixturevalue(user_fixture_name)
-    def override_get_current_user():
-        return user
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    yield user
-    del app.dependency_overrides[get_current_user]
+@pytest_asyncio.fixture
+async def normal_user_token_headers(employee_user_factory) -> dict[str, str]:
+    employee = await employee_user_factory()
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
+    access_token = create_access_token(str(employee.id), access_token_expires)
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest_asyncio.fixture
+async def manager_user_token_headers(manager_user_factory) -> dict[str, str]:
+    manager = await manager_user_factory()
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
+    access_token = create_access_token(str(manager.id), access_token_expires)
+    return {"Authorization": f"Bearer {access_token}"}
 
 
 # --- グローバルなテスト設定 ---
@@ -206,3 +261,39 @@ from app.core.limiter import limiter
 def reset_limiter_state():
     """各テストの実行前にレートリミッターの状態をリセットする"""
     limiter.reset()
+
+
+# --- mock_current_user フィクスチャ ---
+@pytest.fixture
+def mock_current_user(request):
+    """
+    現在のユーザーをモックするフィクスチャ。
+    parametrizeでフィクスチャ名を指定することで、そのフィクスチャの結果を返す。
+
+    使用例:
+    @pytest.mark.parametrize("mock_current_user", ["owner_user_without_office"], indirect=True)
+    async def test_something(mock_current_user: Staff):
+        # mock_current_userはowner_user_without_officeの値になる
+    """
+    if hasattr(request, 'param'):
+        # parametrizeで指定されたフィクスチャの名前を取得
+        fixture_name = request.param
+        # そのフィクスチャの値を取得して返す
+        user = request.getfixturevalue(fixture_name)
+
+        # deps.get_current_userをモックするため、appのdependency_overridesを使う
+        from app.main import app
+
+        async def override_get_current_user():
+            return user
+
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        # テスト終了後にクリーンアップ
+        def cleanup():
+            if get_current_user in app.dependency_overrides:
+                del app.dependency_overrides[get_current_user]
+
+        request.addfinalizer(cleanup)
+        return user
+    return None

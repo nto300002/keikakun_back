@@ -25,8 +25,13 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.model = model
 
     async def get(self, db: AsyncSession, id: Any) -> Optional[ModelType]:
-        result = await db.execute(select(self.model).filter(self.model.id == id))
-        return result.scalars().first()
+        try:
+            stmt = select(self.model).filter(self.model.id == id)
+            result = await db.execute(stmt)
+            obj = result.scalars().first()
+            return obj
+        except Exception as e:
+            raise
 
     async def get_multi(
         self, db: AsyncSession, *, skip: int = 0, limit: int = 100
@@ -62,6 +67,8 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         result = await db.execute(select(self.model).filter(self.model.id == id))
         obj = result.scalars().first()
         if obj:
-            await db.delete(obj)
+            # SQLAlchemy AsyncSessionでは、deleteメソッドにawaitは不要
+            db.delete(obj)
             await db.commit()
-        return obj
+            return obj
+        return None

@@ -59,7 +59,16 @@ async def get_current_user(
     except ValueError:
         raise credentials_exception
 
-    user = await crud.staff.get(db, id=user_id)
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+    from app.models.office import OfficeStaff
+
+    stmt = select(Staff).where(Staff.id == user_id).options(
+        selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+    )
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
     if not user:
         raise credentials_exception
     return user

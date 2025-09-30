@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.core.security import get_password_hash
 from app.models.enums import StaffRole
 from app.models.staff import Staff
-from app.models.office import Office, OfficeStaff # OfficeStaffをインポート
+from app.models.office import Office, OfficeStaff 
 from app.schemas.staff import AdminCreate, StaffCreate
 
 
@@ -21,7 +21,17 @@ class CRUDStaff:
         staff = result.scalar_one_or_none()
         if staff:
             if staff.office_associations:
-                staff.office = staff.office_associations[0].office
+                # is_primary=Trueのものを優先、なければ最初のものを使用
+                primary_assoc = None
+                for assoc in staff.office_associations:
+                    if assoc.is_primary:
+                        primary_assoc = assoc
+                        break
+
+                if primary_assoc:
+                    staff.office = primary_assoc.office
+                else:
+                    staff.office = staff.office_associations[0].office
             else:
                 staff.office = None
         return staff

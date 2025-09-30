@@ -1,10 +1,11 @@
 import pytest
 import uuid
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
 from app.models.enums import StaffRole
-from app.schemas.staff import AdminCreate # StaffCreateの代わりにAdminCreateをインポート
+from app.schemas.staff import AdminCreate 
 
 # Pytestに非同期テストであることを認識させる
 pytestmark = pytest.mark.asyncio
@@ -39,12 +40,13 @@ async def test_get_staff_with_office(db_session: AsyncSession, employee_user_fac
     """正常系: 事業所に所属するスタッフを取得した際、事業所情報も読み込まれることをテスト"""
     # Arrange
     # 1. テスト用のスタッフと、そのスタッフが作成者となる事業所を作成
-    test_staff = await employee_user_factory(email="relation_test@example.com")
+    test_staff = await employee_user_factory(email="relation_test@example.com", with_office=False)
+
     test_office = await office_factory(name="リレーションテスト事業所", creator=test_staff)
 
     # 2. スタッフと事業所を紐付ける
     from app.models.office import OfficeStaff
-    association = OfficeStaff(staff_id=test_staff.id, office_id=test_office.id)
+    association = OfficeStaff(staff_id=test_staff.id, office_id=test_office.id, is_primary=True)
     db_session.add(association)
     await db_session.flush()
 
@@ -63,7 +65,7 @@ async def test_get_staff_without_office(db_session: AsyncSession, employee_user_
     """正常系: 事業所に所属しないスタッフを取得した際、事業所情報がNoneであることをテスト"""
     # Arrange
     # 事業所に紐付けないスタッフを作成
-    test_staff = await employee_user_factory(email="no_office@example.com")
+    test_staff = await employee_user_factory(email="no_office@example.com", with_office=False)
 
     # Act
     retrieved_staff = await crud.staff.get(db=db_session, id=test_staff.id)

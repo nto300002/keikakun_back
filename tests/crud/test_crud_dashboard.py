@@ -74,8 +74,7 @@ async def crud_dashboard_fixtures(
         elif i == 1:
             status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False, monitoring_deadline=7)
             db_session.add(status)
-    
-    await db_session.commit()
+    await db_session.flush()
     
     # Ensure module-level crud_dashboard has the test db_session available
     # so tests that call crud_dashboard.get_*(...) without passing db= can work.
@@ -107,43 +106,84 @@ class TestCRUDDashboardCore:
         assert len(result) == 5
         assert {r.id for r in result} == {r.id for r in expected_recipients}
 
-    async def test_get_latest_cycle_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
-        recipient = crud_dashboard_fixtures['recipients'][0]
-        result = await crud_dashboard.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
-        assert result is not None
-        assert result.welfare_recipient_id == recipient.id
-        assert result.is_latest_cycle is True
-
-    async def test_get_latest_cycle_not_found(self, db_session: AsyncSession, crud_dashboard_fixtures):
-        recipient = crud_dashboard_fixtures['recipients'][3]
-        result = await crud_dashboard.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
-        assert result is None
-
     async def test_count_office_recipients_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
         office = crud_dashboard_fixtures['office']
         result = await crud_dashboard.count_office_recipients(db=db_session, office_id=office.id)
         assert result == 5
 
-    async def test_get_cycle_count_for_recipient_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
-        recipient = crud_dashboard_fixtures['recipients'][0]
-        result = await crud_dashboard.get_cycle_count_for_recipient(db=db_session, welfare_recipient_id=recipient.id)
-        assert result == 2
 
-class TestCRUDDashboardDataConsistency:
-    """CRUDDashboardのデータ整合性テスト"""
 
-    async def test_recipient_cycle_relationship_consistency(self, db_session: AsyncSession, crud_dashboard_fixtures):
-        recipient = crud_dashboard_fixtures['recipients'][0]
-        latest_cycle = await crud_dashboard.get_latest_cycle(db=db_session, welfare_recipient_id=recipient.id)
-        assert latest_cycle is not None
-        assert latest_cycle.welfare_recipient_id == recipient.id
-        
-        cycle_count = await crud_dashboard.get_cycle_count_for_recipient(db=db_session, welfare_recipient_id=recipient.id)
-        assert cycle_count == 2
-        
-        query = select(func.count()).select_from(SupportPlanCycle).filter(
-            SupportPlanCycle.welfare_recipient_id == recipient.id,
-            SupportPlanCycle.is_latest_cycle == True
+
+class TestCRUDDashboardEdgeCases:
+    """CRUDDashboardのエッジケース（データが存在しない場合など）のテスト"""
+
+    async def test_no_recipients_in_office(self, db_session: AsyncSession, office_factory, service_admin_user_factory):
+        """利用者が一人もいない事業所のテスト"""
+        staff = await service_admin_user_factory(email="edgecase@example.com")
+        office = await office_factory(creator=staff, name="利用者ゼロ事業所")
+        db_session.add(OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True))
+        await db_session.commit()
+
+        # 利用者数カウントが0であること
+        count = await crud_dashboard.count_office_recipients(db=db_session, office_id=office.id)
+        assert count == 0
+
+        # 利用者リストが空であること
+        recipients = await crud_dashboard.get_office_recipients(db=db_session, office_id=office.id)
+        assert recipients == []
+
+        # サマリー取得で空の結果が返ること
+        summaries = await crud_dashboard.get_filtered_summaries(
+            db=db_session, office_ids=[office.id],
+            sort_by="name_phonetic", sort_order="asc",
+            filters={}, search_term=None, skip=0, limit=10
         )
-        result = await db_session.execute(query)
-        assert result.scalar() == 1
+        assert summaries == []
+
+        # サマリーカウントがすべて0であること
+        summary_counts = await crud_dashboard.get_summary_counts(db=db_session, office_ids=[office.id])
+        assert summary_counts["total_recipients"] == 0
+        assert summary_counts["overdue_count"] == 0
+        assert summary_counts["upcoming_count"] == 0
+        assert summary_counts["no_cycle_count"] == 0
+
+
+class TestGetFilteredSummaries:
+    """get_filtered_summaries の包括的なテスト"""
+
+    async def test_get_filtered_summaries_success(self, db_session: AsyncSession, crud_dashboard_fixtures):
+        """正常系: データが正しく取得できることを確認"""
+        office = crud_dashboard_fixtures['office']
+        
+        results = await crud_dashboard.get_filtered_summaries(
+            db=db_session,
+            office_ids=[office.id],
+            sort_by="name_phonetic",
+            sort_order="asc",
+            filters={},
+            search_term=None,
+            skip=0,
+            limit=10
+        )
+        
+        assert len(results) == 5
+        
+        # 結果を検証しやすいように辞書に変換
+        result_map = {row[0].id: row for row in results} # row = (WelfareRecipient, cycle_count, SupportPlanCycle)
+        
+        # サイクルを持つ利用者 (recipients[0]) の検証
+        recipient_with_cycle = crud_dashboard_fixtures['recipients'][0]
+        res_with_cycle = result_map[recipient_with_cycle.id]
+        
+        assert res_with_cycle[0].id == recipient_with_cycle.id
+        assert res_with_cycle[1] == 2  # cycle_count
+        assert res_with_cycle[2] is not None # latest_cycle
+        assert res_with_cycle[2].is_latest_cycle is True
+
+        # サイクルを持たない利用者 (recipients[3]) の検証
+        recipient_no_cycle = crud_dashboard_fixtures['recipients'][3]
+        res_no_cycle = result_map[recipient_no_cycle.id]
+
+        assert res_no_cycle[0].id == recipient_no_cycle.id
+        assert res_no_cycle[1] == 0 # cycle_count
+        assert res_no_cycle[2] is None # latest_cycle
