@@ -47,8 +47,8 @@ async def get_dashboard(
     if status: filters["status"] = status
     if cycle_number is not None: filters["cycle_number"] = cycle_number
     
-    # 4. フィルタリングされた利用者リストのモデルを取得
-    filtered_recipients_models = await crud.dashboard.get_filtered_summaries(
+    # 4. フィルタリングされた利用者リストの情報を一括取得
+    filtered_results = await crud.dashboard.get_filtered_summaries(
         db=db,
         office_ids=[office.id],
         sort_by=sort_by,
@@ -59,10 +59,21 @@ async def get_dashboard(
         limit=limit
     )
 
-    # 5. DashboardSummaryスキーマに変換
+    # 5. DashboardSummaryスキーマに変換 (DBアクセスなし)
     recipient_summaries = []
-    for r in filtered_recipients_models:
-        summary = await service._create_recipient_summary(r)
+    for recipient, cycle_count, latest_cycle in filtered_results:
+        latest_step = service._get_latest_step(latest_cycle) if latest_cycle else None
+        monitoring_due_date = service._calculate_monitoring_due_date(latest_cycle) if latest_cycle else None
+        
+        summary = schemas.dashboard.DashboardSummary(
+            id=str(recipient.id),
+            full_name=f"{recipient.last_name} {recipient.first_name}",
+            furigana=f"{recipient.last_name_furigana} {recipient.first_name_furigana}",
+            current_cycle_number=cycle_count or 0,
+            latest_step=latest_step,
+            next_renewal_deadline=latest_cycle.next_renewal_deadline if latest_cycle else None,
+            monitoring_due_date=monitoring_due_date
+        )
         recipient_summaries.append(summary)
 
     # 6. 最終的なDashboardDataを構築
