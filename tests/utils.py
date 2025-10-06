@@ -7,7 +7,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud
 from app.core.security import get_password_hash
 from app.models.staff import Staff
-from app.models.enums import StaffRole
+from app.models.enums import StaffRole, GenderType
+from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
+from datetime import date
+
+
+async def create_welfare_recipient(db: AsyncSession, office_id: uuid.UUID, first_name: str = "テスト", last_name: str = "利用者") -> WelfareRecipient:
+    """テスト用の利用者を作成し、指定された事業所に関連付けて返す"""
+    recipient = WelfareRecipient(
+        first_name=first_name,
+        last_name=last_name,
+        first_name_furigana="てすと",
+        last_name_furigana="りようしゃ",
+        birth_day=date(1980, 1, 1),
+        gender=GenderType.male
+    )
+    db.add(recipient)
+    await db.flush()
+
+    association = OfficeWelfareRecipient(office_id=office_id, welfare_recipient_id=recipient.id)
+    db.add(association)
+
+    await db.commit()
+    await db.refresh(recipient)
+    return recipient
 
 
 def random_email() -> str:
