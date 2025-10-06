@@ -1,0 +1,66 @@
+from pydantic import BaseModel
+from uuid import UUID
+from typing import Optional, List
+from datetime import date, datetime
+
+from app.models.enums import DeliverableType, SupportPlanStep
+
+class PlanDeliverableCreate(BaseModel):
+    plan_cycle_id: int
+    deliverable_type: DeliverableType
+    file_path: str
+    original_filename: str
+    # uploaded_by は認証情報から取得するため、APIの入力スキーマには含めないのが一般的
+
+class PlanDeliverableRead(BaseModel):
+    id: int
+    plan_cycle_id: int
+    deliverable_type: DeliverableType
+    file_path: str
+    original_filename: str
+    uploaded_by: UUID
+
+    class Config:
+        from_attributes = True
+
+# Alias for backward compatibility
+PlanDeliverable = PlanDeliverableRead
+
+
+class PlanDeliverableDownloadResponse(BaseModel):
+    presigned_url: str
+
+
+class SupportPlanStatusUpdate(BaseModel):
+    monitoring_deadline: int
+
+
+class SupportPlanStatusResponse(BaseModel):
+    id: int
+    plan_cycle_id: int
+    step_type: SupportPlanStep
+    is_latest_status: bool
+    completed: bool
+    completed_at: Optional[datetime]
+    monitoring_deadline: Optional[int]
+    due_date: Optional[date]
+    pdf_url: Optional[str] = None  # 署名付きPDF URL（フロントエンド用）
+
+    class Config:
+        from_attributes = True
+
+class SupportPlanCycleRead(BaseModel):
+    id: int
+    welfare_recipient_id: UUID
+    plan_cycle_start_date: Optional[date]
+    final_plan_signed_date: Optional[date]
+    next_renewal_deadline: Optional[date]
+    is_latest_cycle: bool
+    cycle_number: int
+    statuses: List[SupportPlanStatusResponse] = []
+
+    class Config:
+        from_attributes = True
+
+class SupportPlanCyclesResponse(BaseModel):
+    cycles: List[SupportPlanCycleRead]
