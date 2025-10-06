@@ -56,40 +56,52 @@ async def get_support_plan_cycles(
     # 3. サイクル一覧を取得
     cycles = await crud.support_plan.get_cycles_by_recipient(db=db, recipient_id=recipient_id)
 
-    # 4. 完了したステータスにPDF署名付きURLを生成（Pydanticモデルに変換）
-    from app.core.config import settings
+    if not cycles:
+        return schemas.support_plan.SupportPlanCyclesResponse(cycles=[])
 
+    # 4. 【パフォーマンス最適化】全サイクルのdeliverableを一括取得（N+1問題を解決）
+    from app.core.config import settings
+    from app.models.enums import SupportPlanStep
+
+    cycle_ids = [cycle.id for cycle in cycles]
+
+    # 全サイクルのdeliverableを一度に取得
+    deliverables_stmt = (
+        select(PlanDeliverable)
+        .where(PlanDeliverable.plan_cycle_id.in_(cycle_ids))
+    )
+    deliverables_result = await db.execute(deliverables_stmt)
+    all_deliverables = deliverables_result.scalars().all()
+
+    # deliverableをマッピング: (cycle_id, deliverable_type) -> deliverable
+    deliverables_map = {
+        (d.plan_cycle_id, d.deliverable_type): d
+        for d in all_deliverables
+    }
+
+    # step_typeをdeliverable_typeにマッピング
+    step_to_deliverable_map = {
+        SupportPlanStep.assessment: DeliverableType.assessment_sheet,
+        SupportPlanStep.monitoring: DeliverableType.monitoring_report_pdf,
+        SupportPlanStep.draft_plan: DeliverableType.draft_plan_pdf,
+        SupportPlanStep.staff_meeting: DeliverableType.staff_meeting_minutes,
+        SupportPlanStep.final_plan_signed: DeliverableType.final_plan_signed_pdf,
+    }
+
+    # 5. 各サイクルとステータスにPDF情報を付与
     cycles_response = []
     for cycle in cycles:
-        # ステータスごとにpdf_urlを生成
         statuses_with_url = []
         for status in cycle.statuses:
             pdf_url = None
+            pdf_filename = None
+
             if status.completed:
-                # step_typeをdeliverable_typeにマッピング
-                from app.models.enums import SupportPlanStep
-
-                step_to_deliverable_map = {
-                    SupportPlanStep.assessment: DeliverableType.assessment_sheet,
-                    SupportPlanStep.monitoring: DeliverableType.monitoring_report_pdf,
-                    SupportPlanStep.draft_plan: DeliverableType.draft_plan_pdf,
-                    SupportPlanStep.staff_meeting: DeliverableType.staff_meeting_minutes,
-                    SupportPlanStep.final_plan_signed: DeliverableType.final_plan_signed_pdf,
-                }
-
                 deliverable_type_value = step_to_deliverable_map.get(status.step_type)
 
                 if deliverable_type_value:
-                    # 完了したステータスに対応するdeliverableを検索
-                    deliverable_stmt = (
-                        select(PlanDeliverable)
-                        .where(
-                            PlanDeliverable.plan_cycle_id == cycle.id,
-                            PlanDeliverable.deliverable_type == deliverable_type_value
-                        )
-                    )
-                    deliverable_result = await db.execute(deliverable_stmt)
-                    deliverable = deliverable_result.scalar_one_or_none()
+                    # マッピングからdeliverableを取得（DBクエリなし）
+                    deliverable = deliverables_map.get((cycle.id, deliverable_type_value))
 
                     if deliverable and deliverable.file_path:
                         # S3パスから署名付きURLを生成
@@ -99,8 +111,9 @@ async def get_support_plan_cycles(
                             expiration=3600,
                             inline=True
                         )
+                        pdf_filename = deliverable.original_filename
 
-            # Pydanticモデルに変換してpdf_urlを含める
+            # Pydanticモデルに変換してpdf_urlとpdf_filenameを含める
             status_response = schemas.support_plan.SupportPlanStatusResponse(
                 id=status.id,
                 plan_cycle_id=status.plan_cycle_id,
@@ -110,7 +123,8 @@ async def get_support_plan_cycles(
                 completed_at=status.completed_at,
                 monitoring_deadline=status.monitoring_deadline,
                 due_date=status.due_date,
-                pdf_url=pdf_url
+                pdf_url=pdf_url,
+                pdf_filename=pdf_filename
             )
             statuses_with_url.append(status_response)
 
