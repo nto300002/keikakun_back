@@ -23,6 +23,18 @@ from app.schemas.welfare_recipient import (
 
 class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, WelfareRecipientUpdate]):
 
+    async def get_with_office_associations(self, db: AsyncSession, recipient_id: UUID) -> Optional[WelfareRecipient]:
+        """Get welfare recipient with only office associations (lightweight for delete/permission checks)"""
+        stmt = (
+            select(WelfareRecipient)
+            .where(WelfareRecipient.id == recipient_id)
+            .options(
+                selectinload(WelfareRecipient.office_associations)
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalars().first()
+
     async def get_with_details(self, db: AsyncSession, recipient_id: UUID) -> Optional[WelfareRecipient]:
         """Get welfare recipient with all related details"""
         stmt = (
@@ -176,21 +188,20 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         return await self.get_with_details(db, recipient_id)
 
     async def delete_with_cascade(self, db: AsyncSession, recipient_id: UUID) -> bool:
-        """Delete welfare recipient and all related data"""
-
-        welfare_recipient = await self.get(db, recipient_id)
-
-        if not welfare_recipient:
-            return False
+        """Delete welfare recipient and all related data (optimized - uses direct SQL delete)"""
+        from sqlalchemy import delete as sql_delete
 
         try:
-            await db.delete(welfare_recipient)
+            # 直接DELETEステートメントを実行（カスケード削除はDB側で処理）
+            stmt = sql_delete(WelfareRecipient).where(WelfareRecipient.id == recipient_id)
+            result = await db.execute(stmt)
 
             await db.commit()
 
-            return True
+            # 削除された行数が0の場合はFalse
+            return result.rowcount > 0
+
         except Exception as e:
-            import traceback
             await db.rollback()
             raise e
 
