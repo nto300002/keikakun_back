@@ -16,39 +16,42 @@ class DashboardService:
         self.crud = crud
 
     def _get_latest_step(self, cycle: Optional[SupportPlanCycle]) -> Optional[SupportPlanStep]:
-        """最新のステップを取得"""
+        """最新のステップを取得
+
+        is_latest_status == True の status を基準に現在のステップを決定する。
+        フォールバック: is_latest_status が存在しない場合は assessment を返す。
+        """
         if not cycle or not hasattr(cycle, 'statuses') or not cycle.statuses:
             return None
 
-        step_order = [
-            SupportPlanStep.assessment,
-            SupportPlanStep.draft_plan,
-            SupportPlanStep.staff_meeting,
-            SupportPlanStep.final_plan_signed,
-            SupportPlanStep.monitoring,
-        ]
-        completed_steps = {status.step_type for status in cycle.statuses if status.completed}
+        # is_latest_status == True のステータスを優先
+        latest_status = next((s for s in cycle.statuses if s.is_latest_status), None)
+        if latest_status:
+            return latest_status.step_type
 
-        for step in step_order:
-            if step not in completed_steps:
-                return step
-        return SupportPlanStep.monitoring
+        # フォールバック: is_latest_status が存在しない場合は assessment
+        return SupportPlanStep.assessment
 
     def _calculate_monitoring_due_date(self, cycle: Optional[SupportPlanCycle]) -> Optional[date]:
-        """モニタリング期限を計算"""
+        """モニタリング期限を取得
+
+        is_latest_status == True かつ step_type == monitoring のステータスから due_date を取得する。
+        due_date が設定されていない場合は None を返す。
+        """
         if not cycle or not hasattr(cycle, 'statuses') or not cycle.statuses:
             return None
 
-        monitoring_status = next((s for s in cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
-        if not monitoring_status or monitoring_status.completed:
+        # is_latest_status == True かつ step_type == monitoring のステータスを探す
+        latest_monitoring_status = next(
+            (s for s in cycle.statuses if s.is_latest_status and s.step_type == SupportPlanStep.monitoring),
+            None
+        )
+
+        if not latest_monitoring_status:
             return None
 
-        final_plan_signed_status = next((s for s in cycle.statuses if s.step_type == SupportPlanStep.final_plan_signed and s.completed), None)
-        if not final_plan_signed_status or not final_plan_signed_status.completed_at:
-            return None
-
-        deadline_days = monitoring_status.monitoring_deadline or 7
-        return (final_plan_signed_status.completed_at + timedelta(days=deadline_days)).date()
+        # due_date が設定されていればそれを返す
+        return latest_monitoring_status.due_date
 
     def _get_max_user_count(self, billing_status: BillingStatus) -> int:
         """最大利用者数を取得"""
