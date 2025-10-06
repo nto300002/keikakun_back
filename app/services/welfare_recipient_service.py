@@ -142,11 +142,12 @@ class WelfareRecipientService:
                 SupportPlanStep.final_plan_signed
             ]
 
-        for step in initial_steps:
+        for i, step in enumerate(initial_steps):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
                 step_type=step,
-                completed=False
+                completed=False,
+                is_latest_status=(i == 0)  # 最初のステップを最新にする
             )
             db.add(status)
 
@@ -187,11 +188,12 @@ class WelfareRecipientService:
                 SupportPlanStep.final_plan_signed
             ]
 
-        for step in initial_steps:
+        for i, step in enumerate(initial_steps):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
                 step_type=step,
-                completed=False
+                completed=False,
+                is_latest_status=(i == 0)  # 最初のステップを最新にする
             )
             db.add(status)
 
