@@ -81,11 +81,13 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
         yield db_session
 
     app.dependency_overrides[get_async_db] = override_get_async_db
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="https://test"
-    ) as client:
-        yield client
-    del app.dependency_overrides[get_async_db]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
+        try:
+            yield client
+        finally:
+            # tolerate either override key (avoid KeyError when function object differs)
+            app.dependency_overrides.pop(get_async_db, None)
+            #app.dependency_overrides.pop(get_db, None)
 
 
 @pytest_asyncio.fixture
@@ -236,20 +238,46 @@ async def office_factory(db_session: AsyncSession):
 
 
 @pytest_asyncio.fixture
-async def normal_user_token_headers(employee_user_factory) -> dict[str, str]:
+async def normal_user_token_headers(employee_user_factory, db_session: AsyncSession) -> dict[str, str]:
     employee = await employee_user_factory()
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
     access_token = create_access_token(str(employee.id), access_token_expires)
+
+    # get_current_userをオーバーライドして、作成したユーザーを返す
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    async def override_get_current_user():
+        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        return user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
     return {"Authorization": f"Bearer {access_token}"}
 
 
 @pytest_asyncio.fixture
-async def manager_user_token_headers(manager_user_factory) -> dict[str, str]:
+async def manager_user_token_headers(manager_user_factory, db_session: AsyncSession) -> dict[str, str]:
     manager = await manager_user_factory()
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
     access_token = create_access_token(str(manager.id), access_token_expires)
+
+    # get_current_userをオーバーライドして、作成したユーザーを返す
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    async def override_get_current_user():
+        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        return user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
     return {"Authorization": f"Bearer {access_token}"}
 
 
