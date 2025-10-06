@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 from typing import Optional, List
 from datetime import date, datetime
@@ -20,8 +20,7 @@ class PlanDeliverableRead(BaseModel):
     original_filename: str
     uploaded_by: UUID
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # Alias for backward compatibility
 PlanDeliverable = PlanDeliverableRead
@@ -45,9 +44,9 @@ class SupportPlanStatusResponse(BaseModel):
     monitoring_deadline: Optional[int]
     due_date: Optional[date]
     pdf_url: Optional[str] = None  # 署名付きPDF URL（フロントエンド用）
+    pdf_filename: Optional[str] = None  # PDF元ファイル名（フロントエンド用）
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SupportPlanCycleRead(BaseModel):
     id: int
@@ -59,8 +58,7 @@ class SupportPlanCycleRead(BaseModel):
     cycle_number: int
     statuses: List[SupportPlanStatusResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SupportPlanCyclesResponse(BaseModel):
     cycles: List[SupportPlanCycleRead]
