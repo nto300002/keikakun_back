@@ -31,6 +31,7 @@ class SupportPlanCycle(Base):
     next_renewal_deadline: Mapped[Optional[datetime.date]]
     is_latest_cycle: Mapped[bool] = mapped_column(Boolean, default=True)
     cycle_number: Mapped[int] = mapped_column(Integer, default=1)  # 1, 2, 3, ...
+    monitoring_deadline: Mapped[Optional[int]] = mapped_column(Integer) # default = 7
     google_calendar_id: Mapped[Optional[str]] = mapped_column(Text)
     google_event_id: Mapped[Optional[str]] = mapped_column(Text)
     google_event_url: Mapped[Optional[str]] = mapped_column(Text)
@@ -52,7 +53,6 @@ class SupportPlanStatus(Base):
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True))
     completed_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey('staffs.id'))
-    monitoring_deadline: Mapped[Optional[int]] = mapped_column(Integer) # default = 7
     due_date: Mapped[Optional[datetime.date]]
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
