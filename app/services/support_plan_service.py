@@ -107,18 +107,17 @@ class SupportPlanService:
         ]
         for i, step_type in enumerate(new_steps):
             due_date = None
-            monitoring_deadline = None
 
             if step_type == SupportPlanStep.monitoring and i == 0:
                 # モニタリング期限のデフォルトは7日
                 monitoring_deadline = 7
+                new_cycle.monitoring_deadline = monitoring_deadline
                 due_date = (final_plan_completed_at + datetime.timedelta(days=monitoring_deadline)).date()
 
             new_status = SupportPlanStatus(
                 plan_cycle_id=new_cycle.id,
                 step_type=step_type,
                 is_latest_status=(i == 0),  # 最初のステップ(monitoring)を最新にする
-                monitoring_deadline=monitoring_deadline,
                 due_date=due_date
             )
             db.add(new_status)

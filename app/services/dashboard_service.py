@@ -76,6 +76,7 @@ class DashboardService:
             'current_cycle_number': latest_cycle.cycle_number if latest_cycle else 0,
             'latest_step': self._get_latest_step(latest_cycle),
             'monitoring_due_date': self._calculate_monitoring_due_date(latest_cycle),
+            'monitoring_deadline': latest_cycle.monitoring_deadline if latest_cycle else None,
             'next_renewal_deadline': None,
         }
 
