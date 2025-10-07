@@ -188,11 +188,96 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         return await self.get_with_details(db, recipient_id)
 
     async def delete_with_cascade(self, db: AsyncSession, recipient_id: UUID) -> bool:
-        """Delete welfare recipient and all related data (optimized - uses direct SQL delete)"""
+        """Delete welfare recipient and all related data"""
         from sqlalchemy import delete as sql_delete
 
         try:
-            # 直接DELETEステートメントを実行（カスケード削除はDB側で処理）
+            # Delete related records first to avoid foreign key constraint violations
+
+            # 1. Delete office associations (office_welfare_recipients)
+            await db.execute(
+                sql_delete(OfficeWelfareRecipient).where(
+                    OfficeWelfareRecipient.welfare_recipient_id == recipient_id
+                )
+            )
+
+            # 2. Delete support plan cycles and their related data
+            from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
+
+            # Get all support plan cycles for this recipient
+            cycles_stmt = select(SupportPlanCycle.id).where(
+                SupportPlanCycle.welfare_recipient_id == recipient_id
+            )
+            cycles_result = await db.execute(cycles_stmt)
+            cycle_ids = [row[0] for row in cycles_result.fetchall()]
+
+            if cycle_ids:
+                # Delete plan deliverables first (foreign key constraint)
+                await db.execute(
+                    sql_delete(PlanDeliverable).where(
+                        PlanDeliverable.plan_cycle_id.in_(cycle_ids)
+                    )
+                )
+
+                # Delete support plan statuses
+                await db.execute(
+                    sql_delete(SupportPlanStatus).where(
+                        SupportPlanStatus.plan_cycle_id.in_(cycle_ids)
+                    )
+                )
+
+            # Delete support plan cycles
+            await db.execute(
+                sql_delete(SupportPlanCycle).where(
+                    SupportPlanCycle.welfare_recipient_id == recipient_id
+                )
+            )
+
+            # 3. Delete emergency contacts (via service_recipient_detail)
+            detail_stmt = select(ServiceRecipientDetail.id).where(
+                ServiceRecipientDetail.welfare_recipient_id == recipient_id
+            )
+            detail_result = await db.execute(detail_stmt)
+            detail_id_row = detail_result.fetchone()
+
+            if detail_id_row:
+                detail_id = detail_id_row[0]
+                await db.execute(
+                    sql_delete(EmergencyContact).where(
+                        EmergencyContact.service_recipient_detail_id == detail_id
+                    )
+                )
+
+            # 4. Delete service recipient detail
+            await db.execute(
+                sql_delete(ServiceRecipientDetail).where(
+                    ServiceRecipientDetail.welfare_recipient_id == recipient_id
+                )
+            )
+
+            # 5. Delete disability details (via disability_status)
+            disability_status_stmt = select(DisabilityStatus.id).where(
+                DisabilityStatus.welfare_recipient_id == recipient_id
+            )
+            disability_status_result = await db.execute(disability_status_stmt)
+            disability_status_id_row = disability_status_result.fetchone()
+
+            if disability_status_id_row:
+                disability_status_id = disability_status_id_row[0]
+                await db.execute(
+                    sql_delete(DisabilityDetail).where(
+                        DisabilityDetail.disability_status_id == disability_status_id
+                    )
+                )
+
+            # 6. Delete disability status
+            await db.execute(
+                sql_delete(DisabilityStatus).where(
+                    DisabilityStatus.welfare_recipient_id == recipient_id
+                )
+            )
+
+            # 7. Finally, delete the welfare recipient
             stmt = sql_delete(WelfareRecipient).where(WelfareRecipient.id == recipient_id)
             result = await db.execute(stmt)
 
