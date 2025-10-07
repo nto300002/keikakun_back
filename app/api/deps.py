@@ -1,5 +1,6 @@
 import uuid
 from typing import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -72,3 +73,18 @@ async def get_current_user(
     if not user:
         raise credentials_exception
     return user
+
+
+@asynccontextmanager
+async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
+    """
+    非同期コンテキストマネージャとしてDBセッションを提供する。
+    バックグラウンドタスクなど、リクエストのライフサイクル外でDBセッションが必要な場合に使用する。
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

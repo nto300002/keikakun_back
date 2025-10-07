@@ -72,7 +72,8 @@ async def crud_dashboard_fixtures(
             status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.assessment, completed=True, completed_at=datetime.utcnow())
             db_session.add(status)
         elif i == 1:
-            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False, monitoring_deadline=7)
+            cycle.monitoring_deadline = 7
+            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False)
             db_session.add(status)
     await db_session.flush()
     
@@ -187,3 +188,110 @@ class TestGetFilteredSummaries:
         assert res_no_cycle[0].id == recipient_no_cycle.id
         assert res_no_cycle[1] == 0 # cycle_count
         assert res_no_cycle[2] is None # latest_cycle
+
+    async def test_filter_by_status_assessment(self, db_session: AsyncSession, crud_dashboard_fixtures):
+        """ステータス 'assessment' でフィルターできることを確認"""
+        office = crud_dashboard_fixtures['office']
+        recipient_assessment = crud_dashboard_fixtures['recipients'][0]
+
+        results = await crud_dashboard.get_filtered_summaries(
+            db=db_session,
+            office_ids=[office.id],
+            sort_by="name_phonetic",
+            sort_order="asc",
+            filters={"status": "assessment"},
+            search_term=None,
+            skip=0,
+            limit=10
+        )
+
+        assert len(results) == 1
+        assert results[0][0].id == recipient_assessment.id
+
+    async def test_filter_by_status_monitoring(self, db_session: AsyncSession, crud_dashboard_fixtures):
+        """ステータス 'monitoring' でフィルターできることを確認"""
+        office = crud_dashboard_fixtures['office']
+        recipient_monitoring = crud_dashboard_fixtures['recipients'][1]
+
+        results = await crud_dashboard.get_filtered_summaries(
+            db=db_session,
+            office_ids=[office.id],
+            sort_by="name_phonetic",
+            sort_order="asc",
+            filters={"status": "monitoring"},
+            search_term=None,
+            skip=0,
+            limit=10
+        )
+
+        assert len(results) == 1
+        assert results[0][0].id == recipient_monitoring.id
+
+    async def test_filter_by_invalid_status(self, db_session: AsyncSession, crud_dashboard_fixtures):
+        """無効なステータスではフィルターが無視されることを確認"""
+        office = crud_dashboard_fixtures['office']
+
+        results = await crud_dashboard.get_filtered_summaries(
+            db=db_session,
+            office_ids=[office.id],
+            sort_by="name_phonetic",
+            sort_order="asc",
+            filters={"status": "invalid_status"},
+            search_term=None,
+            skip=0,
+            limit=10
+        )
+
+        # 無効なステータスは無視されるので、全件取得される
+        assert len(results) == 5
+
+    async def test_filter_by_status_with_conflicting_latest(self, db_session: AsyncSession, crud_dashboard_fixtures):
+        """is_latest_statusとcreated_atが最新のレコードが異なる場合に、is_latest_statusが優先されることを確認"""
+        office = crud_dashboard_fixtures['office']
+        recipient_to_test = crud_dashboard_fixtures['recipients'][2] # 3人目の利用者を使用
+        cycle_to_test = crud_dashboard_fixtures['cycles'][2] # 3人目の利用者のサイクル
+
+        # cycle_to_test をリフレッシュしてリレーションを読み込む
+        await db_session.refresh(cycle_to_test, attribute_names=['statuses'])
+
+        # 既存のステータスをクリア
+        for status in cycle_to_test.statuses:
+            await db_session.delete(status)
+        await db_session.flush()
+
+        # 競合する状態を作成
+        # 1. 古いけど is_latest_status = True
+        status_true_latest = SupportPlanStatus(
+            plan_cycle_id=cycle_to_test.id, 
+            step_type=SupportPlanStep.draft_plan, 
+            completed=False, 
+            is_latest_status=True,
+            created_at=datetime.utcnow() - timedelta(days=1)
+        )
+        # 2. 新しいけど is_latest_status = False
+        status_false_latest = SupportPlanStatus(
+            plan_cycle_id=cycle_to_test.id, 
+            step_type=SupportPlanStep.assessment, 
+            completed=True, 
+            is_latest_status=False,
+            created_at=datetime.utcnow()
+        )
+        db_session.add_all([status_true_latest, status_false_latest])
+        await db_session.commit()
+
+        # is_latest_status=True である 'draft_plan' でフィルターをかける
+        results = await crud_dashboard.get_filtered_summaries(
+            db=db_session,
+            office_ids=[office.id],
+            sort_by="name_phonetic",
+            sort_order="asc",
+            filters={"status": "draft_plan"},
+            search_term=None,
+            skip=0,
+            limit=10
+        )
+
+        # 修正前のロジック(created_at優先)だと0件になるはず
+        # 修正後のロジック(is_latest_status優先)だと1件取得できるはず
+        assert len(results) == 1, "is_latest_status=True のステータスでフィルターされるべき"
+        assert results[0][0].id == recipient_to_test.id

@@ -52,7 +52,8 @@ async def dashboard_fixtures(db_session: AsyncSession, service_admin_user_factor
             status2 = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.draft_plan, completed=False)
             db_session.add_all([status1, status2])
         elif i == 1:
-            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False, monitoring_deadline=7)
+            cycle.monitoring_deadline = 7
+            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False)
             db_session.add(status)
     
     await db_session.commit()
@@ -65,17 +66,25 @@ class TestDashboardAPI:
     async def test_get_dashboard_success(self, async_client: AsyncClient, dashboard_fixtures):
         staff = dashboard_fixtures['staff']
         app.dependency_overrides[get_current_user] = lambda: staff
-        
+
         response = await async_client.get("/api/v1/dashboard/")
-        
+
         del app.dependency_overrides[get_current_user]
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["staff_name"] == staff.name
         assert data["office_name"] == dashboard_fixtures['office'].name
         assert data["current_user_count"] == 3
         assert len(data["recipients"]) == 3
+
+        # monitoring_deadline が設定されている利用者を確認
+        recipient_with_monitoring = next(
+            (r for r in data["recipients"] if r.get("monitoring_deadline") is not None),
+            None
+        )
+        assert recipient_with_monitoring is not None
+        assert recipient_with_monitoring["monitoring_deadline"] == 7
 
     async def test_get_dashboard_empty_recipients(self, async_client: AsyncClient, db_session: AsyncSession, service_admin_user_factory, office_factory):
         staff = await service_admin_user_factory(name="空の事業所管理者", email="empty@example.com")

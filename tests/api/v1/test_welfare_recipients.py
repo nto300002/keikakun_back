@@ -97,3 +97,159 @@ async def test_create_welfare_recipient_integration(
 
     # クリーンアップ
     del app.dependency_overrides[get_current_user]
+
+
+@pytest.mark.asyncio
+async def test_delete_welfare_recipient(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    office_factory,
+    test_admin_user: Staff
+):
+    """
+    DELETE /api/v1/welfare-recipients/{recipient_id} テスト
+    利用者と関連データが正常に削除されることを確認
+    """
+    # 1. テストデータの準備
+    office = await office_factory(creator=test_admin_user)
+    db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
+    await db_session.flush()
+
+    # 利用者を作成
+    from app.api.deps import get_current_user
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+
+    async def override_get_current_user_with_relations():
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        return user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
+
+    # 利用者を作成
+    registration_data = {
+        "basic_info": {
+            "firstName": "削除", "lastName": "テスト",
+            "firstNameFurigana": "さくじょ", "lastNameFurigana": "てすと",
+            "birthDay": "1990-01-01", "gender": "male"
+        },
+        "contact_address": {
+            "address": "削除テスト住所", "formOfResidence": "home_alone",
+            "meansOfTransportation": "car_transport", "tel": "999888777"
+        },
+        "emergency_contacts": [],
+        "disability_info": {
+            "disabilityOrDiseaseName": "削除テスト障害", "livelihoodProtection": "receiving_with_allowance"
+        },
+        "disability_details": []
+    }
+
+    create_response = await async_client.post("/api/v1/welfare-recipients/", json=registration_data)
+    assert create_response.status_code == 201
+    recipient_id = create_response.json()["recipient_id"]
+
+    # 2. 削除APIを呼び出し
+    delete_response = await async_client.delete(f"/api/v1/welfare-recipients/{recipient_id}")
+
+    # 3. レスポンスの検証
+    assert delete_response.status_code == 200
+    assert delete_response.json()["message"] == "Welfare recipient deleted successfully"
+
+    # 4. DBから削除されたことを確認
+    db_recipient = await db_session.get(WelfareRecipient, uuid.UUID(recipient_id))
+    assert db_recipient is None
+
+    # クリーンアップ
+    del app.dependency_overrides[get_current_user]
+
+
+@pytest.mark.asyncio
+async def test_delete_welfare_recipient_with_deliverables(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    office_factory,
+    test_admin_user: Staff
+):
+    """
+    DELETE /api/v1/welfare-recipients/{recipient_id} テスト（成果物あり）
+    成果物を持つ利用者も正常に削除されることを確認
+    """
+    # 1. テストデータの準備
+    office = await office_factory(creator=test_admin_user)
+    db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
+    await db_session.flush()
+
+    from app.api.deps import get_current_user
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+
+    async def override_get_current_user_with_relations():
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        return user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
+
+    # 利用者を作成
+    registration_data = {
+        "basic_info": {
+            "firstName": "成果物", "lastName": "テスト",
+            "firstNameFurigana": "せいかぶつ", "lastNameFurigana": "てすと",
+            "birthDay": "1990-01-01", "gender": "male"
+        },
+        "contact_address": {
+            "address": "成果物テスト住所", "formOfResidence": "home_alone",
+            "meansOfTransportation": "car_transport", "tel": "999888777"
+        },
+        "emergency_contacts": [],
+        "disability_info": {
+            "disabilityOrDiseaseName": "成果物テスト障害", "livelihoodProtection": "receiving_with_allowance"
+        },
+        "disability_details": []
+    }
+
+    create_response = await async_client.post("/api/v1/welfare-recipients/", json=registration_data)
+    assert create_response.status_code == 201
+    recipient_id = create_response.json()["recipient_id"]
+
+    # 成果物を追加
+    from app.models.support_plan_cycle import PlanDeliverable
+    from app.models.enums import DeliverableType
+
+    # サイクルを取得
+    cycles_stmt = select(SupportPlanCycle).where(SupportPlanCycle.welfare_recipient_id == uuid.UUID(recipient_id))
+    cycles_result = await db_session.execute(cycles_stmt)
+    cycle = cycles_result.scalars().first()
+
+    # 成果物を作成
+    deliverable = PlanDeliverable(
+        plan_cycle_id=cycle.id,
+        deliverable_type=DeliverableType.assessment_sheet,
+        file_path="/test/path/assessment.pdf",
+        original_filename="assessment.pdf",
+        uploaded_by=test_admin_user.id
+    )
+    db_session.add(deliverable)
+    await db_session.commit()
+
+    # 2. 削除APIを呼び出し
+    delete_response = await async_client.delete(f"/api/v1/welfare-recipients/{recipient_id}")
+
+    # 3. レスポンスの検証
+    assert delete_response.status_code == 200
+    assert delete_response.json()["message"] == "Welfare recipient deleted successfully"
+
+    # 4. DBから削除されたことを確認
+    db_recipient = await db_session.get(WelfareRecipient, uuid.UUID(recipient_id))
+    assert db_recipient is None
+
+    # 成果物も削除されたことを確認
+    deliverable_stmt = select(PlanDeliverable).where(PlanDeliverable.id == deliverable.id)
+    deliverable_result = await db_session.execute(deliverable_stmt)
+    assert deliverable_result.scalars().first() is None
+
+    # クリーンアップ
+    del app.dependency_overrides[get_current_user]

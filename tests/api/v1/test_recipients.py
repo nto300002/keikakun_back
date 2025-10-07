@@ -262,6 +262,12 @@ async def test_get_recipient_as_employee_allowed(
     テスト: 従業員も同じ事業所の利用者の詳細を取得できる。
     期待: 200 OK。
     """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.staff import Staff
+    from app.api.deps import get_current_user
+    from app.main import app
+
     # 1. 共有の事業所を作成
     admin_user = await manager_user_factory(
         email=f"admin_employee_test_{uuid.uuid4().hex}@example.com",
@@ -279,15 +285,18 @@ async def test_get_recipient_as_employee_allowed(
         office=shared_office
     )
 
-    # 3. managerのトークンを生成
+    # 3. managerのトークンとget_current_userのオーバーライドを設定
     manager_token = create_access_token(str(manager.id))
     manager_headers = {"Authorization": f"Bearer {manager_token}"}
 
-    # 4. employeeのトークンを生成
-    employee_token = create_access_token(str(employee.id))
-    employee_headers = {"Authorization": f"Bearer {employee_token}"}
+    async def override_get_current_user_manager():
+        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
 
-    # 5. managerとして利用者を作成
+    app.dependency_overrides[get_current_user] = override_get_current_user_manager
+
+    # 4. managerとして利用者を作成
     create_response = await async_client.post(
         f"{settings.API_V1_STR}/welfare-recipients/",
         headers=manager_headers,
@@ -295,6 +304,17 @@ async def test_get_recipient_as_employee_allowed(
     )
     assert create_response.status_code == status.HTTP_201_CREATED
     recipient_id = create_response.json()["recipient_id"]
+
+    # 5. employeeのトークンとget_current_userのオーバーライドを設定
+    employee_token = create_access_token(str(employee.id))
+    employee_headers = {"Authorization": f"Bearer {employee_token}"}
+
+    async def override_get_current_user_employee():
+        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_employee
 
     # 6. employeeとして利用者を取得
     response = await async_client.get(
@@ -306,6 +326,9 @@ async def test_get_recipient_as_employee_allowed(
     assert "id" in data
     assert data["id"] == str(recipient_id)
 
+    # クリーンアップ
+    app.dependency_overrides.clear()
+
 
 @pytest.mark.asyncio
 async def test_update_recipient_as_employee_forbidden(
@@ -315,6 +338,12 @@ async def test_update_recipient_as_employee_forbidden(
     テスト: 従業員は利用者を更新できない。
     期待: 403 Forbidden。
     """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.staff import Staff
+    from app.api.deps import get_current_user
+    from app.main import app
+
     # 1. 共有の事業所とユーザーを作成
     admin_user = await manager_user_factory(
         email=f"admin_update_test_{uuid.uuid4().hex}@example.com",
@@ -330,11 +359,16 @@ async def test_update_recipient_as_employee_forbidden(
         office=shared_office
     )
 
-    # 2. トークンを生成
+    # 2. managerのトークンとget_current_userのオーバーライドを設定
     manager_token = create_access_token(str(manager.id))
     manager_headers = {"Authorization": f"Bearer {manager_token}"}
-    employee_token = create_access_token(str(employee.id))
-    employee_headers = {"Authorization": f"Bearer {employee_token}"}
+
+    async def override_get_current_user_manager():
+        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_manager
 
     # 3. managerとして利用者を作成
     create_response = await async_client.post(
@@ -345,7 +379,18 @@ async def test_update_recipient_as_employee_forbidden(
     assert create_response.status_code == status.HTTP_201_CREATED
     recipient_id = create_response.json()["recipient_id"]
 
-    # 4. employeeとして更新を試みる
+    # 4. employeeのトークンとget_current_userのオーバーライドを設定
+    employee_token = create_access_token(str(employee.id))
+    employee_headers = {"Authorization": f"Bearer {employee_token}"}
+
+    async def override_get_current_user_employee():
+        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_employee
+
+    # 5. employeeとして更新を試みる
     update_data = RECIPIENT_CREATE_DATA.copy()
     update_data["contact_address"]["address"] = "東京都渋谷区神南2-2-1"
 
@@ -356,6 +401,9 @@ async def test_update_recipient_as_employee_forbidden(
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    # クリーンアップ
+    app.dependency_overrides.clear()
+
 
 @pytest.mark.asyncio
 async def test_delete_recipient_as_employee_forbidden(
@@ -365,6 +413,12 @@ async def test_delete_recipient_as_employee_forbidden(
     テスト: 従業員は利用者を削除できない。
     期待: 403 Forbidden。
     """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.staff import Staff
+    from app.api.deps import get_current_user
+    from app.main import app
+
     # 1. 共有の事業所とユーザーを作成
     admin_user = await manager_user_factory(
         email=f"admin_delete_test_{uuid.uuid4().hex}@example.com",
@@ -380,11 +434,16 @@ async def test_delete_recipient_as_employee_forbidden(
         office=shared_office
     )
 
-    # 2. トークンを生成
+    # 2. managerのトークンとget_current_userのオーバーライドを設定
     manager_token = create_access_token(str(manager.id))
     manager_headers = {"Authorization": f"Bearer {manager_token}"}
-    employee_token = create_access_token(str(employee.id))
-    employee_headers = {"Authorization": f"Bearer {employee_token}"}
+
+    async def override_get_current_user_manager():
+        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_manager
 
     # 3. managerとして利用者を作成
     create_response = await async_client.post(
@@ -395,9 +454,23 @@ async def test_delete_recipient_as_employee_forbidden(
     assert create_response.status_code == status.HTTP_201_CREATED
     recipient_id = create_response.json()["recipient_id"]
 
-    # 4. employeeとして削除を試みる
+    # 4. employeeのトークンとget_current_userのオーバーライドを設定
+    employee_token = create_access_token(str(employee.id))
+    employee_headers = {"Authorization": f"Bearer {employee_token}"}
+
+    async def override_get_current_user_employee():
+        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_get_current_user_employee
+
+    # 5. employeeとして削除を試みる
     response = await async_client.delete(
         f"{settings.API_V1_STR}/welfare-recipients/{recipient_id}",
         headers=employee_headers,
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    # クリーンアップ
+    app.dependency_overrides.clear()

@@ -52,3 +52,6 @@ python-multipart
 
 # メール認証
 fastapi-mail
+
+# AWS S3
+boto3

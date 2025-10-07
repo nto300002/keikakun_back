@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # --- フロントエンド設定 ---
     FRONTEND_URL: str
 
+    # --- S3 Storage Settings ---
+    S3_ENDPOINT_URL: Optional[str] = None
+    S3_ACCESS_KEY: Optional[str] = None
+    S3_SECRET_KEY: Optional[SecretStr] = None
+    S3_BUCKET_NAME: Optional[str] = None
+    S3_REGION: Optional[str] = None
+
 
 # 設定クラスのインスタンスを作成し、他のモジュールからインポートして使用できるようにします。
 settings = Settings()

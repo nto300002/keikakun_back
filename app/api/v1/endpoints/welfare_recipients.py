@@ -254,8 +254,8 @@ async def delete_welfare_recipient(
     if current_staff.role.value not in ["manager", "owner"]:
         raise ForbiddenException("Only managers and owners can delete welfare recipients")
 
-    # Get existing recipient to verify it exists and belongs to the office
-    welfare_recipient = await crud_welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
+    # Get existing recipient with only office associations (lightweight query for delete)
+    welfare_recipient = await crud_welfare_recipient.get_with_office_associations(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
         raise NotFoundException("Welfare recipient not found")
 

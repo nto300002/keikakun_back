@@ -128,17 +128,19 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             if filters.get("cycle_number"):
                 stmt = stmt.where(func.coalesce(cycle_count_sq.c.cycle_count, 0) == filters["cycle_number"])
             if filters.get("status"):
-                # 最新のステータスを取得するサブクエリ
-                latest_status_subq = select(
-                    SupportPlanStatus.plan_cycle_id,
-                    func.first_value(SupportPlanStatus.step_type).over(
-                        partition_by=SupportPlanStatus.plan_cycle_id, 
-                        order_by=SupportPlanStatus.created_at.desc()
-                    ).label("latest_step")
-                ).distinct().subquery()
-                
-                stmt = stmt.join(latest_status_subq, SupportPlanCycle.id == latest_status_subq.c.plan_cycle_id)
-                stmt = stmt.where(latest_status_subq.c.latest_step == filters["status"])
+                try:
+                    status_enum = SupportPlanStep[filters["status"]]
+                except KeyError:
+                    pass  # 無効なステータスは無視
+                else:
+                    # is_latest_status が true のレコードから step_type を取得するサブクエリ
+                    latest_status_subq = select(
+                        SupportPlanStatus.plan_cycle_id,
+                        SupportPlanStatus.step_type.label("latest_step")
+                    ).where(SupportPlanStatus.is_latest_status == true()).subquery()
+                    
+                    stmt = stmt.join(latest_status_subq, SupportPlanCycle.id == latest_status_subq.c.plan_cycle_id)
+                    stmt = stmt.where(latest_status_subq.c.latest_step == status_enum)
 
         # --- ソート ---
         order_func = None

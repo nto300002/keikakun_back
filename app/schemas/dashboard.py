@@ -30,6 +30,7 @@ class DashboardSummary(BaseModel):
     latest_step: Optional[SupportPlanStep]
     next_renewal_deadline: Optional[date]
     monitoring_due_date: Optional[date]
+    monitoring_deadline: Optional[int] = None  # モニタリング期限（日数）
 
     # Use Pydantic v2 model_config only (remove class Config to avoid conflict)
     model_config = ConfigDict(
