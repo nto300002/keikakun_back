@@ -62,11 +62,10 @@ class TestDashboardServiceHelpers:
         monitoring_status = SupportPlanStatus(
             step_type=SupportPlanStep.monitoring,
             completed=False,
-            monitoring_deadline=7,
             due_date=expected_date,
             is_latest_status=True
         )
-        cycle = SupportPlanCycle(id=1, statuses=[final_plan_status, monitoring_status])
+        cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[final_plan_status, monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result == expected_date
@@ -82,11 +81,10 @@ class TestDashboardServiceHelpers:
         monitoring_status = SupportPlanStatus(
             step_type=SupportPlanStep.monitoring,
             completed=False,
-            monitoring_deadline=None,
             due_date=None,
             is_latest_status=True
         )
-        cycle = SupportPlanCycle(id=1, statuses=[final_plan_status, monitoring_status])
+        cycle = SupportPlanCycle(id=1, monitoring_deadline=None, statuses=[final_plan_status, monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         # due_dateが設定されていない場合はNoneを返す
@@ -97,10 +95,9 @@ class TestDashboardServiceHelpers:
         monitoring_status = SupportPlanStatus(
             step_type=SupportPlanStep.monitoring,
             completed=True,
-            completed_at=datetime.utcnow(),
-            monitoring_deadline=7
+            completed_at=datetime.utcnow()
         )
-        cycle = SupportPlanCycle(id=1, statuses=[monitoring_status])
+        cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[monitoring_status])
         
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result is None
@@ -109,10 +106,9 @@ class TestDashboardServiceHelpers:
         """モニタリング期限日計算テスト（前ステップ未完了）"""
         monitoring_status = SupportPlanStatus(
             step_type=SupportPlanStep.monitoring,
-            completed=False,
-            monitoring_deadline=7
+            completed=False
         )
-        cycle = SupportPlanCycle(id=1, statuses=[monitoring_status])
+        cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result is None
