@@ -10,7 +10,7 @@ from app.models.staff import Staff
 from app.models.support_plan_cycle import SupportPlanStatus, SupportPlanCycle
 from app.models.welfare_recipient import OfficeWelfareRecipient
 from app.models.enums import SupportPlanStep
-from app.schemas.support_plan import SupportPlanStatusUpdate, SupportPlanStatusResponse
+from app.schemas.support_plan import SupportPlanCycleUpdate, SupportPlanStatusResponse
 from app.core.exceptions import NotFoundException, ForbiddenException
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ router = APIRouter()
 @router.patch("/{status_id}", response_model=SupportPlanStatusResponse)
 async def update_monitoring_deadline(
     status_id: int,
-    update_data: SupportPlanStatusUpdate,
+    update_data: SupportPlanCycleUpdate,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
 ):
@@ -95,8 +95,8 @@ async def update_monitoring_deadline(
         if final_plan_status and final_plan_status.completed_at:
             final_plan_completed_at = final_plan_status.completed_at.date()
 
-    # 5. monitoring_deadlineを更新
-    plan_status.monitoring_deadline = update_data.monitoring_deadline
+    # 5. monitoring_deadlineを更新 (SupportPlanCycleに設定)
+    plan_status.plan_cycle.monitoring_deadline = update_data.monitoring_deadline
 
     # 6. due_dateを再計算
     if final_plan_completed_at:
@@ -110,10 +110,12 @@ async def update_monitoring_deadline(
     return SupportPlanStatusResponse(
         id=plan_status.id,
         plan_cycle_id=plan_status.plan_cycle_id,
-        step_type=plan_status.step_type.value,
+        step_type=plan_status.step_type,
         is_latest_status=plan_status.is_latest_status,
         completed=plan_status.completed,
-        completed_at=plan_status.completed_at.date() if plan_status.completed_at else None,
-        monitoring_deadline=plan_status.monitoring_deadline,
-        due_date=plan_status.due_date
+        completed_at=plan_status.completed_at,
+        monitoring_deadline=plan_status.plan_cycle.monitoring_deadline,
+        due_date=plan_status.due_date,
+        pdf_url=None,
+        pdf_filename=None
     )

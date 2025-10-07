@@ -121,7 +121,6 @@ async def get_support_plan_cycles(
                 is_latest_status=status.is_latest_status,
                 completed=status.completed,
                 completed_at=status.completed_at,
-                monitoring_deadline=status.monitoring_deadline,
                 due_date=status.due_date,
                 pdf_url=pdf_url,
                 pdf_filename=pdf_filename
@@ -137,6 +136,7 @@ async def get_support_plan_cycles(
             next_renewal_deadline=cycle.next_renewal_deadline,
             is_latest_cycle=cycle.is_latest_cycle,
             cycle_number=cycle.cycle_number,
+            monitoring_deadline=cycle.monitoring_deadline,
             statuses=statuses_with_url
         )
         cycles_response.append(cycle_response)
@@ -379,3 +379,45 @@ async def delete_plan_deliverable(
 
     # 3. サービス層を呼び出して成果物を削除
     await support_plan_service.handle_deliverable_delete(db=db, deliverable_id=deliverable_id)
+
+
+@router.patch("/cycles/{cycle_id}/monitoring-deadline", response_model=schemas.support_plan.SupportPlanCycleRead)
+async def update_cycle_monitoring_deadline(
+    cycle_id: int,
+    update_data: schemas.support_plan.SupportPlanCycleUpdate,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+):
+    """
+    サイクルのモニタリング期限を更新する
+    """
+    # 1. サイクルを取得
+    stmt = (
+        select(SupportPlanCycle)
+        .where(SupportPlanCycle.id == cycle_id)
+        .options(selectinload(SupportPlanCycle.statuses))
+    )
+    result = await db.execute(stmt)
+    cycle = result.scalar_one_or_none()
+
+    if not cycle:
+        raise NotFoundException(f"サイクルID {cycle_id} が見つかりません。")
+
+    # 2. 権限チェック
+    user_office_ids = [assoc.office_id for assoc in current_user.office_associations]
+    recipient_office_stmt = select(OfficeWelfareRecipient).where(
+        OfficeWelfareRecipient.welfare_recipient_id == cycle.welfare_recipient_id
+    )
+    recipient_office_result = await db.execute(recipient_office_stmt)
+    recipient_office_assoc = recipient_office_result.scalar_one_or_none()
+
+    if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
+        raise ForbiddenException("このサイクルにアクセスする権限がありません。")
+
+    # 3. monitoring_deadlineを更新
+    cycle.monitoring_deadline = update_data.monitoring_deadline
+
+    await db.commit()
+    await db.refresh(cycle)
+
+    return cycle
