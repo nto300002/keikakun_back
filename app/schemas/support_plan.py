@@ -30,7 +30,7 @@ class PlanDeliverableDownloadResponse(BaseModel):
     presigned_url: str
 
 
-class SupportPlanStatusUpdate(BaseModel):
+class SupportPlanCycleUpdate(BaseModel):
     monitoring_deadline: int
 
 
@@ -41,8 +41,8 @@ class SupportPlanStatusResponse(BaseModel):
     is_latest_status: bool
     completed: bool
     completed_at: Optional[datetime]
-    monitoring_deadline: Optional[int]
     due_date: Optional[date]
+    monitoring_deadline: Optional[int] = None  # モニタリング期限（日数）
     pdf_url: Optional[str] = None  # 署名付きPDF URL（フロントエンド用）
     pdf_filename: Optional[str] = None  # PDF元ファイル名（フロントエンド用）
 
@@ -56,6 +56,7 @@ class SupportPlanCycleRead(BaseModel):
     next_renewal_deadline: Optional[date]
     is_latest_cycle: bool
     cycle_number: int
+    monitoring_deadline: Optional[int]
     statuses: List[SupportPlanStatusResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
