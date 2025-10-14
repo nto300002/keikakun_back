@@ -67,8 +67,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         result = await db.execute(select(self.model).filter(self.model.id == id))
         obj = result.scalars().first()
         if obj:
-            # SQLAlchemy AsyncSessionでは、deleteメソッドにawaitは不要
-            db.delete(obj)
+            await db.delete(obj)
             await db.commit()
             return obj
         return None
