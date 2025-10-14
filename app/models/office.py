@@ -11,6 +11,9 @@ from app.models.enums import OfficeType, BillingStatus
 if TYPE_CHECKING:
     from .staff import Staff
     from .welfare_recipient import OfficeWelfareRecipient
+    from .calendar_account import OfficeCalendarAccount
+    from .calendar_events import CalendarEvent, CalendarEventSeries
+    from .support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 
 class Office(Base):
     """事業所"""
@@ -32,9 +35,45 @@ class Office(Base):
 
     # Office -> OfficeStaff (one-to-many)
     staff_associations: Mapped[List["OfficeStaff"]] = relationship(back_populates="office")
-    
+
     # Office -> office_welfare_recipients (one-to-many)
     recipient_associations: Mapped[List["OfficeWelfareRecipient"]] = relationship(back_populates="office")
+
+    # Office -> OfficeCalendarAccount (one-to-one)
+    calendar_account: Mapped[Optional["OfficeCalendarAccount"]] = relationship(
+        "OfficeCalendarAccount",
+        back_populates="office",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    # Office -> CalendarEvent (one-to-many)
+    calendar_events: Mapped[List["CalendarEvent"]] = relationship(
+        "CalendarEvent",
+        back_populates="office",
+        cascade="all, delete-orphan"
+    )
+
+    # Office -> CalendarEventSeries (one-to-many)
+    calendar_event_series: Mapped[List["CalendarEventSeries"]] = relationship(
+        "CalendarEventSeries",
+        back_populates="office",
+        cascade="all, delete-orphan"
+    )
+
+    # Office -> SupportPlanCycle (one-to-many)
+    support_plan_cycles: Mapped[List["SupportPlanCycle"]] = relationship(
+        "SupportPlanCycle",
+        back_populates="office",
+        cascade="all, delete-orphan"
+    )
+
+    # Office -> SupportPlanStatus (one-to-many)
+    support_plan_statuses: Mapped[List["SupportPlanStatus"]] = relationship(
+        "SupportPlanStatus",
+        back_populates="office",
+        cascade="all, delete-orphan"
+    )
 
 class OfficeStaff(Base):
     """スタッフと事業所の中間テーブル"""
@@ -47,6 +86,14 @@ class OfficeStaff(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # OfficeStaff -> Staff (many-to-one)
-    staff: Mapped["Staff"] = relationship(back_populates="office_associations")
+    staff: Mapped["Staff"] = relationship(
+        "Staff",
+        back_populates="office_associations",
+        foreign_keys=[staff_id]
+    )
     # OfficeStaff -> Office (many-to-one)
-    office: Mapped["Office"] = relationship(back_populates="staff_associations")
+    office: Mapped["Office"] = relationship(
+        "Office",
+        back_populates="staff_associations",
+        foreign_keys=[office_id]
+    )
