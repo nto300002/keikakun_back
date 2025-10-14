@@ -13,14 +13,14 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 @pytest.fixture(scope="function")
-def aws_credentials():
+def aws_credentials(monkeypatch):
     """Mock AWS Credentials for moto."""
-    import os
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    # monkeypatchを使用して環境変数を設定（テスト終了後に自動的に元に戻る）
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
 @pytest.fixture(scope="function")
 def s3_client(aws_credentials):
@@ -30,10 +30,12 @@ def s3_client(aws_credentials):
         yield conn
 
 @pytest.fixture(scope="function")
-def s3_bucket(s3_client):
+def s3_bucket(s3_client, monkeypatch):
     """Create a mock S3 bucket."""
     bucket_name = "test-bucket"
-    settings.S3_BUCKET_NAME = bucket_name
+    # monkeypatchを使用してsettingsを変更（テスト終了後に自動的に元に戻る）
+    monkeypatch.setattr(settings, "S3_BUCKET_NAME", bucket_name)
+    monkeypatch.setattr(settings, "S3_ENDPOINT_URL", None)
     s3_client.create_bucket(Bucket=bucket_name)
     return bucket_name
 
