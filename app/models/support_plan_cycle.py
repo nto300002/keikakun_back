@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Text,
+    UUID,
     func,
     Enum as SQLAlchemyEnum,
 )
@@ -19,6 +20,8 @@ from app.models.enums import SupportPlanStep, DeliverableType
 if TYPE_CHECKING:
     from .welfare_recipient import WelfareRecipient
     from .staff import Staff
+    from .office import Office
+    from .calendar_events import CalendarEvent, CalendarEventSeries
 
 
 class SupportPlanCycle(Base):
@@ -26,6 +29,11 @@ class SupportPlanCycle(Base):
     __tablename__ = 'support_plan_cycles'
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     welfare_recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('welfare_recipients.id'))
+    office_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey('offices.id', ondelete='CASCADE'),
+        nullable=False
+    )
     plan_cycle_start_date: Mapped[Optional[datetime.date]]
     final_plan_signed_date: Mapped[Optional[datetime.date]]
     next_renewal_deadline: Mapped[Optional[datetime.date]]
@@ -40,14 +48,27 @@ class SupportPlanCycle(Base):
 
     # Relationships
     welfare_recipient: Mapped["WelfareRecipient"] = relationship(back_populates="support_plan_cycles")
+    office: Mapped["Office"] = relationship(back_populates="support_plan_cycles")
     statuses: Mapped[List["SupportPlanStatus"]] = relationship(back_populates="plan_cycle", cascade="all, delete-orphan")
     deliverables: Mapped[List["PlanDeliverable"]] = relationship(back_populates="plan_cycle", cascade="all, delete-orphan")
+    calendar_events: Mapped[List["CalendarEvent"]] = relationship(back_populates="support_plan_cycle", cascade="all, delete-orphan")
+    calendar_event_series: Mapped[List["CalendarEventSeries"]] = relationship(back_populates="support_plan_cycle", cascade="all, delete-orphan")
 
 class SupportPlanStatus(Base):
     """計画サイクル内の各ステップの進捗"""
     __tablename__ = 'support_plan_statuses'
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     plan_cycle_id: Mapped[int] = mapped_column(ForeignKey('support_plan_cycles.id'))
+    welfare_recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey('welfare_recipients.id', ondelete='CASCADE'),
+        nullable=False
+    )
+    office_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey('offices.id', ondelete='CASCADE'),
+        nullable=False
+    )
     step_type: Mapped[SupportPlanStep] = mapped_column(SQLAlchemyEnum(SupportPlanStep))
     is_latest_status: Mapped[bool] = mapped_column(Boolean, default=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -57,10 +78,14 @@ class SupportPlanStatus(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+
     # Relationships
     plan_cycle: Mapped["SupportPlanCycle"] = relationship(back_populates="statuses")
+    welfare_recipient: Mapped["WelfareRecipient"] = relationship(back_populates="support_plan_statuses")
+    office: Mapped["Office"] = relationship(back_populates="support_plan_statuses")
     completed_by_staff: Mapped[Optional["Staff"]] = relationship(foreign_keys=[completed_by])
+    calendar_events: Mapped[List["CalendarEvent"]] = relationship(back_populates="support_plan_status", cascade="all, delete-orphan")
+    calendar_event_series: Mapped[List["CalendarEventSeries"]] = relationship(back_populates="support_plan_status", cascade="all, delete-orphan")
 
 
 class PlanDeliverable(Base):
