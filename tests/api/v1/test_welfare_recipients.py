@@ -2,12 +2,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 import uuid
-import logging
-
-# SQLAlchemyのロギングを有効化してクエリをデバッグ
-logging.basicConfig()
-logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
@@ -33,16 +30,16 @@ async def test_create_welfare_recipient_integration(
     office = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
     await db_session.flush()
+    await db_session.commit()
 
     # 2. APIエンドポイントの呼び出し
     # ログイン状態を模倣するために、get_current_userをオーバーライド
     from app.api.deps import get_current_user
-    from sqlalchemy.orm import selectinload
-    from sqlalchemy import select
-    from app.models.staff import Staff
 
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
@@ -114,14 +111,15 @@ async def test_delete_welfare_recipient(
     office = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
     await db_session.flush()
+    await db_session.commit()
 
     # 利用者を作成
     from app.api.deps import get_current_user
-    from sqlalchemy.orm import selectinload
-    from sqlalchemy import select
 
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
@@ -180,13 +178,14 @@ async def test_delete_welfare_recipient_with_deliverables(
     office = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
     await db_session.flush()
+    await db_session.commit()
 
     from app.api.deps import get_current_user
-    from sqlalchemy.orm import selectinload
-    from sqlalchemy import select
 
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user

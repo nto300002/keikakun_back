@@ -23,18 +23,18 @@ from app.core.config import settings
 
 
 @pytest.fixture(scope="function")
-def aws_credentials():
+def aws_credentials(monkeypatch):
     """Mock AWS Credentials for moto."""
-    import os
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    # monkeypatchを使用して環境変数を設定（テスト終了後に自動的に元に戻る）
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
 
 @pytest.fixture(scope="function")
-def s3_mock(aws_credentials):
+def s3_mock(aws_credentials, monkeypatch):
     """S3 mock context manager."""
     with mock_aws():
         # S3クライアントを作成してバケットを作成
@@ -42,14 +42,11 @@ def s3_mock(aws_credentials):
         bucket_name = "test-plan-deliverables-bucket"
         s3_client.create_bucket(Bucket=bucket_name)
 
-        # settingsを一時的に上書き
-        original_bucket = settings.S3_BUCKET_NAME
-        settings.S3_BUCKET_NAME = bucket_name
+        # monkeypatchを使用してsettingsを変更（テスト終了後に自動的に元に戻る）
+        monkeypatch.setattr(settings, "S3_BUCKET_NAME", bucket_name)
+        monkeypatch.setattr(settings, "S3_ENDPOINT_URL", None)
 
         yield s3_client
-
-        # 元に戻す
-        settings.S3_BUCKET_NAME = original_bucket
 
 
 @pytest.mark.asyncio
@@ -89,6 +86,7 @@ async def test_reupload_deliverable_replaces_file(
     # サイクルを作成
     cycle = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=True,
         cycle_number=1,
@@ -100,6 +98,8 @@ async def test_reupload_deliverable_replaces_file(
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=False,
             completed=True,
@@ -107,6 +107,8 @@ async def test_reupload_deliverable_replaces_file(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=True,
             completed=False,
@@ -134,17 +136,15 @@ async def test_reupload_deliverable_replaces_file(
     db_session.add(existing_deliverable)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_dbは async_client fixture で既にオーバーライド済み）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. 新しいPDFで再アップロード
@@ -227,6 +227,7 @@ async def test_delete_deliverable_reverts_status(
     # サイクルを作成
     cycle = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=True,
         cycle_number=1,
@@ -238,6 +239,8 @@ async def test_delete_deliverable_reverts_status(
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=False,
             completed=True,
@@ -246,6 +249,8 @@ async def test_delete_deliverable_reverts_status(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=True,
             completed=False,
@@ -273,17 +278,15 @@ async def test_delete_deliverable_reverts_status(
     db_session.add(deliverable)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_dbは async_client fixture で既にオーバーライド済み）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. 削除リクエスト
@@ -361,6 +364,7 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     # サイクル1を作成（全ステップ完了済み）
     cycle1 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=False,
         cycle_number=1,
@@ -371,6 +375,8 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     statuses1 = [
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=False,
             completed=True,
@@ -378,6 +384,8 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=False,
             completed=True,
@@ -385,6 +393,8 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.staff_meeting,
             is_latest_status=False,
             completed=True,
@@ -392,6 +402,8 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
             is_latest_status=False,
             completed=True,
@@ -404,6 +416,7 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     # サイクル2を作成（最新サイクル、既に存在）
     cycle2 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 7, 1),
         is_latest_cycle=True,
         cycle_number=2,
@@ -414,6 +427,8 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     statuses2 = [
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.monitoring,
             is_latest_status=True,
             completed=False,
@@ -441,17 +456,15 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     db_session.add(final_deliverable)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_dbは async_client fixture で既にオーバーライド済み）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. 署名済み計画書を再アップロード
@@ -536,6 +549,7 @@ async def test_delete_deliverable_unauthorized(
     # サイクルを作成
     cycle = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office2.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=True,
         cycle_number=1,
@@ -555,17 +569,15 @@ async def test_delete_deliverable_unauthorized(
     db_session.add(deliverable)
     await db_session.commit()
 
-    # 依存関係のオーバーライド（test_admin_userでログイン）
-    async def override_get_db():
-        yield db_session
-
+    # 依存関係のオーバーライド（test_admin_userでログイン、get_dbは async_client fixture で既にオーバーライド済み）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 他の事業所のdeliverableの削除を試行

@@ -44,16 +44,41 @@ async def dashboard_fixtures(db_session: AsyncSession, service_admin_user_factor
         recipients.append(recipient)
     
     for i, recipient in enumerate(recipients):
-        cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, plan_cycle_start_date=date.today() - timedelta(days=30), next_renewal_deadline=date.today() + timedelta(days=150), is_latest_cycle=True)
+        cycle = SupportPlanCycle(
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
+            plan_cycle_start_date=date.today() - timedelta(days=30),
+            next_renewal_deadline=date.today() + timedelta(days=150),
+            is_latest_cycle=True,
+            cycle_number=1
+        )
         db_session.add(cycle)
         await db_session.flush()
         if i == 0:
-            status1 = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.assessment, completed=True)
-            status2 = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.draft_plan, completed=False)
+            status1 = SupportPlanStatus(
+                plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient.id,
+                office_id=office.id,
+                step_type=SupportPlanStep.assessment,
+                completed=True
+            )
+            status2 = SupportPlanStatus(
+                plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient.id,
+                office_id=office.id,
+                step_type=SupportPlanStep.draft_plan,
+                completed=False
+            )
             db_session.add_all([status1, status2])
         elif i == 1:
             cycle.monitoring_deadline = 7
-            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False)
+            status = SupportPlanStatus(
+                plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient.id,
+                office_id=office.id,
+                step_type=SupportPlanStep.monitoring,
+                completed=False
+            )
             db_session.add(status)
     
     await db_session.commit()
