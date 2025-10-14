@@ -322,7 +322,7 @@ async def repair_support_plan(
 
     try:
         # Recreate support plan data
-        await crud_welfare_recipient._create_initial_support_plan(db, recipient_id)
+        await crud_welfare_recipient._create_initial_support_plan(db, recipient_id, office_id)
         await db.commit()
 
         return {
