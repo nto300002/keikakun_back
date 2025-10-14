@@ -18,23 +18,7 @@ class CRUDStaff:
             selectinload(Staff.mfa_backup_codes)
         )
         result = await db.execute(query)
-        staff = result.scalar_one_or_none()
-        if staff:
-            if staff.office_associations:
-                # is_primary=Trueのものを優先、なければ最初のものを使用
-                primary_assoc = None
-                for assoc in staff.office_associations:
-                    if assoc.is_primary:
-                        primary_assoc = assoc
-                        break
-
-                if primary_assoc:
-                    staff.office = primary_assoc.office
-                else:
-                    staff.office = staff.office_associations[0].office
-            else:
-                staff.office = None
-        return staff
+        return result.scalar_one_or_none()
 
     async def get_by_email(self, db: AsyncSession, *, email: str) -> Staff | None:
         query = select(Staff).filter(Staff.email == email)

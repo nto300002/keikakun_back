@@ -290,7 +290,7 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
             await db.rollback()
             raise e
 
-    async def _create_initial_support_plan(self, db: AsyncSession, recipient_id: UUID) -> None:
+    async def _create_initial_support_plan(self, db: AsyncSession, recipient_id: UUID, office_id: UUID) -> None:
         """Create initial support plan for a welfare recipient"""
         from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
         from app.models.enums import SupportPlanStep
@@ -298,6 +298,7 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
 
         cycle = SupportPlanCycle(
             welfare_recipient_id=recipient_id,
+            office_id=office_id,
             is_latest_cycle=True,
             plan_cycle_start_date=date.today(),
             next_renewal_deadline=date.today() + timedelta(days=180)
@@ -316,6 +317,8 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         for step in initial_steps:
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient_id,
+                office_id=office_id,
                 step_type=step,
                 completed=False
             )
