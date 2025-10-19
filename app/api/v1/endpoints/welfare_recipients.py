@@ -1,5 +1,6 @@
 from typing import Any, List
 from uuid import UUID
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg import errors as psycopg_errors
@@ -24,6 +25,7 @@ from app.core.exceptions import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=UserRegistrationResponse, status_code=status.HTTP_201_CREATED)
@@ -45,6 +47,8 @@ async def create_welfare_recipient(
             raise BadRequestException("障害詳細のカテゴリが未指定です。")
 
     try:
+        logger.info("[ENDPOINT DEBUG] create_welfare_recipient START")
+
         # Check role permissions - only manager and owner can create
         if current_staff.role.value not in ["manager", "owner"]:
             raise ForbiddenException("マネージャーとオーナーのみが福祉受給者を作成,編集できます")
@@ -56,15 +60,27 @@ async def create_welfare_recipient(
             raise ForbiddenException("Staff member must be associated with an office to create recipients")
 
         office_id = office_associations[0].office_id
+        logger.info(f"[ENDPOINT DEBUG] office_id={office_id}")
 
+        logger.info("[ENDPOINT DEBUG] Calling WelfareRecipientService.create_recipient_with_details...")
         welfare_recipient_id = await WelfareRecipientService.create_recipient_with_details(
             db=db,
             registration_data=registration_data,
             office_id=office_id
         )
+        logger.info(f"[ENDPOINT DEBUG] Service call completed. welfare_recipient_id={welfare_recipient_id}")
 
-        await db.commit()
+        logger.info("[ENDPOINT DEBUG] Calling db.commit()...")
+        try:
+            await db.commit()
+            logger.info("[ENDPOINT DEBUG] db.commit() completed successfully")
+        except Exception as commit_error:
+            logger.error(f"[ENDPOINT DEBUG] db.commit() FAILED: {type(commit_error).__name__}: {commit_error}")
+            import traceback
+            logger.error(f"[ENDPOINT DEBUG] Traceback:\n{traceback.format_exc()}")
+            raise
 
+        logger.info("[ENDPOINT DEBUG] Creating response...")
         return UserRegistrationResponse(
             success=True,
             message="利用者の登録が完了しました",
@@ -73,6 +89,7 @@ async def create_welfare_recipient(
         )
 
     except psycopg_errors.InvalidTextRepresentation as e:
+        logger.error(f"[ENDPOINT DEBUG] InvalidTextRepresentation: {e}")
         await db.rollback()
 
         if "disability_category" in str(e):
@@ -86,16 +103,19 @@ async def create_welfare_recipient(
         )
 
     except ValueError as e:
+        logger.error(f"[ENDPOINT DEBUG] ValueError: {e}")
         await db.rollback()
         raise BadRequestException(str(e))
-    except HTTPException:
+    except HTTPException as e:
+        logger.error(f"[ENDPOINT DEBUG] HTTPException: {e.status_code} - {e.detail}")
         await db.rollback()
-
         raise
     except Exception as e:
+        logger.error(f"[ENDPOINT DEBUG] Unexpected Exception: {type(e).__name__}: {e}")
         await db.rollback()
 
         import traceback
+        logger.error(f"[ENDPOINT DEBUG] Full traceback:\n{traceback.format_exc()}")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
