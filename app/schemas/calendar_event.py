@@ -22,8 +22,8 @@ class CalendarEventCreate(CalendarEventBase):
     """カレンダーイベント作成用スキーマ"""
     office_id: uuid.UUID
     welfare_recipient_id: uuid.UUID
-    support_plan_cycle_id: Optional[uuid.UUID] = None
-    support_plan_status_id: Optional[uuid.UUID] = None
+    support_plan_cycle_id: Optional[int] = None
+    support_plan_status_id: Optional[int] = None
     google_event_id: Optional[str] = None
     google_event_url: Optional[str] = None
     created_by_system: bool = True
@@ -48,8 +48,8 @@ class CalendarEventResponse(CalendarEventBase):
     id: uuid.UUID
     office_id: uuid.UUID
     welfare_recipient_id: uuid.UUID
-    support_plan_cycle_id: Optional[uuid.UUID] = None
-    support_plan_status_id: Optional[uuid.UUID] = None
+    support_plan_cycle_id: Optional[int] = None
+    support_plan_status_id: Optional[int] = None
     google_event_id: Optional[str] = None
     google_event_url: Optional[str] = None
     created_by_system: bool
