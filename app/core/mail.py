@@ -8,7 +8,7 @@ from app.core.config import settings
 # .envファイルから読み込んだ設定を基に、メールサーバーへの接続設定を作成します。
 conf = ConnectionConfig(
     MAIL_USERNAME=settings.MAIL_USERNAME,
-    MAIL_PASSWORD=settings.MAIL_PASSWORD,
+    MAIL_PASSWORD=settings.MAIL_PASSWORD.get_secret_value() if settings.MAIL_PASSWORD else None,
     MAIL_FROM=settings.MAIL_FROM or 'default@example.com', # .envにない場合のデフォルト値
     MAIL_PORT=settings.MAIL_PORT,
     MAIL_SERVER=settings.MAIL_SERVER or '',
