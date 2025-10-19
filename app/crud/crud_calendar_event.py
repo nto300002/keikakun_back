@@ -48,7 +48,7 @@ class CRUDCalendarEvent(CRUDBase[CalendarEvent, CalendarEventCreate, CalendarEve
     async def get_by_cycle_id(
         self,
         db: AsyncSession,
-        cycle_id: UUID
+        cycle_id: int
     ) -> List[CalendarEvent]:
         """サイクルIDでカレンダーイベント一覧を取得"""
         result = await db.execute(
@@ -60,7 +60,7 @@ class CRUDCalendarEvent(CRUDBase[CalendarEvent, CalendarEventCreate, CalendarEve
     async def get_by_status_id(
         self,
         db: AsyncSession,
-        status_id: UUID
+        status_id: int
     ) -> List[CalendarEvent]:
         """ステータスIDでカレンダーイベント一覧を取得"""
         result = await db.execute(
