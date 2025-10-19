@@ -144,6 +144,7 @@ class CalendarEvent(Base):
         Index("idx_calendar_events_google_event_id", "google_event_id"),
         Index("idx_calendar_events_event_datetime", "event_start_datetime"),
         # 重複防止用の複合ユニークインデックス
+        # 同じcycle_id/status_idと event_typeの組み合わせでは1つのイベントのみ許可
         Index(
             "idx_calendar_events_cycle_type_unique",
             "support_plan_cycle_id", "event_type",
