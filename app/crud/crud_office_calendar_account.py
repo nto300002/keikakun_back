@@ -57,7 +57,9 @@ class CRUDOfficeCalendarAccount(CRUDBase[OfficeCalendarAccount, OfficeCalendarAc
             .where(self.model.id == account_id)
             .values(**update_data)
         )
-        await db.commit()
+        # SQLAlchemyのライフサイクルに従い、CRUDレイヤーではcommitせずflushのみ実行
+        # commitはエンドポイント層で実行される
+        await db.flush()
 
         return await self.get(db, account_id)
 
