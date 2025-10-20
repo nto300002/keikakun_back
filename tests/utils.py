@@ -176,9 +176,31 @@ class TestDataFactory:
         ])
 
 
+async def load_staff_with_office(db: AsyncSession, staff: Staff) -> Staff:
+    """
+    Staffオブジェクトのoffice_associationsリレーションシップを明示的にロードする
+
+    MissingGreenletエラーを防ぐため、リレーションシップをeager loadingで取得
+    office_associations内のofficeリレーションシップもネストしてロード
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.office import OfficeStaff
+
+    stmt = (
+        select(Staff)
+        .where(Staff.id == staff.id)
+        .options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        .execution_options(populate_existing=True)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().first()
+
+
 # テスト用の定数
 TEST_STAFF_PASSWORD = "testpassword123"
 TEST_ADMIN_EMAIL = "admin@example.com"
 TEST_EMPLOYEE_EMAIL = "employee@example.com"
-TEST_MANAGER_EMAIL = "manager@example.com"
 TEST_MANAGER_EMAIL = "manager@example.com"
