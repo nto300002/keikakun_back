@@ -13,6 +13,7 @@ import logging
 from typing import Optional, Dict
 from uuid import UUID
 from datetime import datetime, date, time, timedelta
+from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -421,12 +422,15 @@ class CalendarService:
         event_title = f"{recipient_last_name} {recipient_first_name} 更新期限まで残り1ヶ月"
 
         # 1つのイベントで150日目9:00～180日目18:00の期間を表現
-        # 開始: 150日目の9:00
-        event_start_date = date.today() + timedelta(days=150)
-        event_start = datetime.combine(event_start_date, time(9, 0))
+        # JST（日本時間）で明示的に指定
+        jst = ZoneInfo("Asia/Tokyo")
 
-        # 終了: 180日目（更新期限日）の18:00
-        event_end = datetime.combine(next_renewal_deadline, time(18, 0))
+        # 開始: 150日目の9:00 JST
+        event_start_date = date.today() + timedelta(days=150)
+        event_start = datetime.combine(event_start_date, time(9, 0), tzinfo=jst)
+
+        # 終了: 180日目（更新期限日）の18:00 JST
+        event_end = datetime.combine(next_renewal_deadline, time(18, 0), tzinfo=jst)
 
         event = CalendarEvent(
             office_id=office_id,
@@ -540,14 +544,17 @@ class CalendarService:
         recipient_first_name = recipient.first_name
         event_title = f"{recipient_last_name} {recipient_first_name} モニタリング期限"
 
-        # 1つのイベントで1日目9:00～7日目18:00の期間（1週間）を表現
-        # 開始: cycle開始1日目の9:00
-        event_start_date = cycle_start_date + timedelta(days=1)
-        event_start = datetime.combine(event_start_date, time(9, 0))
+        # 1つのイベントで登録日当日9:00～7日後18:00の期間（1週間）を表現
+        # JST（日本時間）で明示的に指定
+        jst = ZoneInfo("Asia/Tokyo")
 
-        # 終了: cycle開始7日目の18:00
+        # 開始: cycle開始日（登録日当日）の9:00 JST
+        event_start_date = cycle_start_date
+        event_start = datetime.combine(event_start_date, time(9, 0), tzinfo=jst)
+
+        # 終了: cycle開始7日後の18:00 JST
         event_end_date = cycle_start_date + timedelta(days=7)
-        event_end = datetime.combine(event_end_date, time(18, 0))
+        event_end = datetime.combine(event_end_date, time(18, 0), tzinfo=jst)
 
         event = CalendarEvent(
             office_id=office_id,
@@ -667,11 +674,14 @@ class CalendarService:
         # イベントタイトルを作成
         event_title = f"{recipient.last_name} {recipient.first_name} モニタリング期限"
 
-        # イベント開始時刻: 期限日の9:00
-        event_start = datetime.combine(due_date, time(9, 0))
+        # JST（日本時間）で明示的に指定
+        jst = ZoneInfo("Asia/Tokyo")
 
-        # イベント終了時刻: 期限日の18:00
-        event_end = datetime.combine(due_date, time(18, 0))
+        # イベント開始時刻: 期限日の9:00 JST
+        event_start = datetime.combine(due_date, time(9, 0), tzinfo=jst)
+
+        # イベント終了時刻: 期限日の18:00 JST
+        event_end = datetime.combine(due_date, time(18, 0), tzinfo=jst)
 
         # カレンダーイベントを作成
         event_data = CalendarEventCreate(
