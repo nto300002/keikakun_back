@@ -30,9 +30,12 @@ class TestDashboardServiceHelpers:
 
     def test_get_latest_step_from_statuses(self, dashboard_service):
         """最新ステップ取得テスト - is_latest_statusがない場合はassessmentを返す"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         statuses = [
-            SupportPlanStatus(step_type=SupportPlanStep.assessment, completed=True, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.draft_plan, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.assessment, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.draft_plan, completed=True, is_latest_status=False),
         ]
         cycle = SupportPlanCycle(id=1, statuses=statuses)
         result = dashboard_service._get_latest_step(cycle)
@@ -52,14 +55,21 @@ class TestDashboardServiceHelpers:
 
     def test_calculate_monitoring_due_date(self, dashboard_service):
         """モニタリング期限日計算テスト - is_latest_status=True かつ due_dateが設定されている場合"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         expected_date = (datetime.utcnow() + timedelta(days=7)).date()
         final_plan_status = SupportPlanStatus(
+            welfare_recipient_id=test_recipient_id,
+            office_id=test_office_id,
             step_type=SupportPlanStep.final_plan_signed,
             completed=True,
             completed_at=datetime.utcnow(),
             is_latest_status=False
         )
         monitoring_status = SupportPlanStatus(
+            welfare_recipient_id=test_recipient_id,
+            office_id=test_office_id,
             step_type=SupportPlanStep.monitoring,
             completed=False,
             due_date=expected_date,
@@ -72,13 +82,20 @@ class TestDashboardServiceHelpers:
 
     def test_calculate_monitoring_due_date_no_deadline(self, dashboard_service):
         """モニタリング期限日計算テスト（due_date未設定の場合はNoneを返す）"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         final_plan_status = SupportPlanStatus(
+            welfare_recipient_id=test_recipient_id,
+            office_id=test_office_id,
             step_type=SupportPlanStep.final_plan_signed,
             completed=True,
             completed_at=datetime.utcnow(),
             is_latest_status=False
         )
         monitoring_status = SupportPlanStatus(
+            welfare_recipient_id=test_recipient_id,
+            office_id=test_office_id,
             step_type=SupportPlanStep.monitoring,
             completed=False,
             due_date=None,
@@ -92,19 +109,29 @@ class TestDashboardServiceHelpers:
 
     def test_calculate_monitoring_due_date_completed(self, dashboard_service):
         """モニタリング期限日計算テスト（完了済み）"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         monitoring_status = SupportPlanStatus(
+            welfare_recipient_id=test_recipient_id,
+            office_id=test_office_id,
             step_type=SupportPlanStep.monitoring,
             completed=True,
             completed_at=datetime.utcnow()
         )
         cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[monitoring_status])
-        
+
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result is None
 
     def test_calculate_monitoring_due_date_no_previous_step(self, dashboard_service):
         """モニタリング期限日計算テスト（前ステップ未完了）"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         monitoring_status = SupportPlanStatus(
+            welfare_recipient_id=test_recipient_id,
+            office_id=test_office_id,
             step_type=SupportPlanStep.monitoring,
             completed=False
         )
@@ -121,12 +148,15 @@ class TestDashboardServiceHelpers:
 
     def test_get_latest_step_uses_is_latest_status_flag(self, dashboard_service):
         """is_latest_statusフラグを使って最新ステップを取得するテスト"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         statuses = [
-            SupportPlanStatus(step_type=SupportPlanStep.assessment, completed=True, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.draft_plan, completed=True, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.staff_meeting, completed=True, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.final_plan_signed, completed=True, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.monitoring, completed=False, is_latest_status=True),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.assessment, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.draft_plan, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.staff_meeting, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.final_plan_signed, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.monitoring, completed=False, is_latest_status=True),
         ]
         cycle = SupportPlanCycle(id=1, statuses=statuses)
         result = dashboard_service._get_latest_step(cycle)
@@ -134,11 +164,14 @@ class TestDashboardServiceHelpers:
 
     def test_get_latest_step_defaults_to_assessment_when_no_completed(self, dashboard_service):
         """completedが何もない時はassessmentを返すテスト"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         statuses = [
-            SupportPlanStatus(step_type=SupportPlanStep.assessment, completed=False, is_latest_status=True),
-            SupportPlanStatus(step_type=SupportPlanStep.draft_plan, completed=False, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.staff_meeting, completed=False, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.final_plan_signed, completed=False, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.assessment, completed=False, is_latest_status=True),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.draft_plan, completed=False, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.staff_meeting, completed=False, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.final_plan_signed, completed=False, is_latest_status=False),
         ]
         cycle = SupportPlanCycle(id=1, statuses=statuses)
         result = dashboard_service._get_latest_step(cycle)
@@ -146,10 +179,13 @@ class TestDashboardServiceHelpers:
 
     def test_get_latest_step_prioritizes_is_latest_status_over_completed(self, dashboard_service):
         """is_latest_statusがTrueのものを優先的に返すテスト"""
+        from uuid import uuid4
+        test_recipient_id = uuid4()
+        test_office_id = uuid4()
         statuses = [
-            SupportPlanStatus(step_type=SupportPlanStep.assessment, completed=True, is_latest_status=False),
-            SupportPlanStatus(step_type=SupportPlanStep.draft_plan, completed=False, is_latest_status=True),
-            SupportPlanStatus(step_type=SupportPlanStep.staff_meeting, completed=False, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.assessment, completed=True, is_latest_status=False),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.draft_plan, completed=False, is_latest_status=True),
+            SupportPlanStatus(welfare_recipient_id=test_recipient_id, office_id=test_office_id, step_type=SupportPlanStep.staff_meeting, completed=False, is_latest_status=False),
         ]
         cycle = SupportPlanCycle(id=1, statuses=statuses)
         result = dashboard_service._get_latest_step(cycle)
