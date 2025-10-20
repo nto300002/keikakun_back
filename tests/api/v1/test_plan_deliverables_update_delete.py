@@ -484,7 +484,7 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     # 5. サイクルが重複して作成されていないことを確認
     stmt = select(SupportPlanCycle).where(
         SupportPlanCycle.welfare_recipient_id == recipient.id
-    )
+    ).order_by(SupportPlanCycle.cycle_number)
     result = await db_session.execute(stmt)
     all_cycles = result.scalars().all()
 
