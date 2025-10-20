@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 from app.db.session import AsyncSessionLocal
 from app.services.welfare_recipient_service import welfare_recipient_service
-from app.models.welfare_recipient import WelfareRecipient
+from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 from app.models.staff import Staff
 from app.models.office import Office
@@ -60,6 +60,11 @@ async def test_repair_creates_missing_cycle(db: AsyncSession, setup_staff_and_of
 
     recipient = WelfareRecipient(first_name="修復対象", last_name="一", birth_day=date(1990, 1, 1), gender=GenderType.male)
     db.add(recipient)
+    await db.flush()
+
+    # 利用者と事業所を関連付け
+    office_recipient = OfficeWelfareRecipient(office_id=office.id, welfare_recipient_id=recipient.id)
+    db.add(office_recipient)
     await db.commit()
     await db.refresh(recipient) # commit後にrefreshしてセッションに再アタッチ
     await db.refresh(staff)
@@ -86,11 +91,16 @@ async def test_repair_adds_missing_statuses(db: AsyncSession, setup_staff_and_of
     db.add(recipient)
     await db.flush()
 
-    cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, is_latest_cycle=True, plan_cycle_start_date=date.today(), next_renewal_deadline=date.today() + timedelta(days=180))
+    # 利用者と事業所を関連付け
+    office_recipient = OfficeWelfareRecipient(office_id=office.id, welfare_recipient_id=recipient.id)
+    db.add(office_recipient)
+    await db.flush()
+
+    cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, office_id=office.id, is_latest_cycle=True, plan_cycle_start_date=date.today(), next_renewal_deadline=date.today() + timedelta(days=180))
     db.add(cycle)
     await db.flush()
 
-    st = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.assessment, completed=False)
+    st = SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office.id, step_type=SupportPlanStep.assessment, completed=False)
     db.add(st)
     await db.commit()
     await db.refresh(recipient)
@@ -118,7 +128,12 @@ async def test_repair_returns_false_on_internal_error(db: AsyncSession, setup_st
     db.add(recipient)
     await db.flush()
 
-    cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, is_latest_cycle=True, plan_cycle_start_date=date.today(), next_renewal_deadline=date.today() + timedelta(days=180))
+    # 利用者と事業所を関連付け
+    office_recipient = OfficeWelfareRecipient(office_id=office.id, welfare_recipient_id=recipient.id)
+    db.add(office_recipient)
+    await db.flush()
+
+    cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, office_id=office.id, is_latest_cycle=True, plan_cycle_start_date=date.today(), next_renewal_deadline=date.today() + timedelta(days=180))
     db.add(cycle)
     await db.commit()
     await db.refresh(recipient)

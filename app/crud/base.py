@@ -39,12 +39,15 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         result = await db.execute(select(self.model).offset(skip).limit(limit))
         return result.scalars().all()
 
-    async def create(self, db: AsyncSession, *, obj_in: CreateSchemaType) -> ModelType:
+    async def create(self, db: AsyncSession, *, obj_in: CreateSchemaType, auto_commit: bool = True) -> ModelType:
         obj_in_data = jsonable_encoder(obj_in)
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
+        if auto_commit:
+            await db.commit()
+            await db.refresh(db_obj)
+        else:
+            await db.flush()
         return db_obj
 
     async def update(
@@ -67,8 +70,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         result = await db.execute(select(self.model).filter(self.model.id == id))
         obj = result.scalars().first()
         if obj:
-            # SQLAlchemy AsyncSessionでは、deleteメソッドにawaitは不要
-            db.delete(obj)
+            await db.delete(obj)
             await db.commit()
             return obj
         return None

@@ -58,22 +58,22 @@ async def crud_dashboard_fixtures(
     
     cycles = []
     for i, recipient in enumerate(recipients[:3]):
-        old_cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, plan_cycle_start_date=date.today() - timedelta(days=200), next_renewal_deadline=date.today() - timedelta(days=20), is_latest_cycle=False)
+        old_cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, office_id=office.id, plan_cycle_start_date=date.today() - timedelta(days=200), next_renewal_deadline=date.today() - timedelta(days=20), is_latest_cycle=False)
         db_session.add(old_cycle)
         await db_session.flush()
 
-        latest_cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, plan_cycle_start_date=date.today() - timedelta(days=30), next_renewal_deadline=date.today() + timedelta(days=150), is_latest_cycle=True)
+        latest_cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, office_id=office.id, plan_cycle_start_date=date.today() - timedelta(days=30), next_renewal_deadline=date.today() + timedelta(days=150), is_latest_cycle=True)
         db_session.add(latest_cycle)
         await db_session.flush()
         cycles.append(latest_cycle)
     
     for i, cycle in enumerate(cycles):
         if i == 0:
-            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.assessment, completed=True, completed_at=datetime.utcnow())
+            status = SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipients[i].id, office_id=office.id, step_type=SupportPlanStep.assessment, completed=True, completed_at=datetime.utcnow())
             db_session.add(status)
         elif i == 1:
             cycle.monitoring_deadline = 7
-            status = SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.monitoring, completed=False)
+            status = SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipients[i].id, office_id=office.id, step_type=SupportPlanStep.monitoring, completed=False)
             db_session.add(status)
     await db_session.flush()
     
@@ -262,17 +262,21 @@ class TestGetFilteredSummaries:
         # 競合する状態を作成
         # 1. 古いけど is_latest_status = True
         status_true_latest = SupportPlanStatus(
-            plan_cycle_id=cycle_to_test.id, 
-            step_type=SupportPlanStep.draft_plan, 
-            completed=False, 
+            plan_cycle_id=cycle_to_test.id,
+            welfare_recipient_id=recipient_to_test.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.draft_plan,
+            completed=False,
             is_latest_status=True,
             created_at=datetime.utcnow() - timedelta(days=1)
         )
         # 2. 新しいけど is_latest_status = False
         status_false_latest = SupportPlanStatus(
-            plan_cycle_id=cycle_to_test.id, 
-            step_type=SupportPlanStep.assessment, 
-            completed=True, 
+            plan_cycle_id=cycle_to_test.id,
+            welfare_recipient_id=recipient_to_test.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.assessment,
+            completed=True,
             is_latest_status=False,
             created_at=datetime.utcnow()
         )

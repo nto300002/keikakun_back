@@ -5,10 +5,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import date, datetime
 import uuid
-import logging
-
-logging.basicConfig()
-logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
@@ -17,6 +13,7 @@ from app.models.staff import Staff
 from app.models.enums import GenderType, SupportPlanStep, DeliverableType
 from app.main import app
 from app.api.deps import get_current_user, get_db
+from tests.utils import load_staff_with_office
 
 
 @pytest.mark.asyncio
@@ -56,6 +53,7 @@ async def test_get_support_plan_cycles(
     # サイクル1を作成（is_latest_cycle=False）
     cycle1 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=False,
         cycle_number=1,
@@ -67,6 +65,8 @@ async def test_get_support_plan_cycles(
     statuses1 = [
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=False,
             completed=True,
@@ -74,6 +74,8 @@ async def test_get_support_plan_cycles(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=False,
             completed=True,
@@ -81,6 +83,8 @@ async def test_get_support_plan_cycles(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.staff_meeting,
             is_latest_status=False,
             completed=True,
@@ -88,6 +92,8 @@ async def test_get_support_plan_cycles(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
             is_latest_status=False,
             completed=True,
@@ -99,6 +105,7 @@ async def test_get_support_plan_cycles(
     # サイクル2を作成（最新サイクル）
     cycle2 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 7, 1),
         is_latest_cycle=True,
         cycle_number=2,
@@ -110,24 +117,32 @@ async def test_get_support_plan_cycles(
     statuses2 = [
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=False,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.staff_meeting,
             is_latest_status=False,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
             is_latest_status=False,
             completed=False,
@@ -136,17 +151,11 @@ async def test_get_support_plan_cycles(
     db_session.add_all(statuses2)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_dbは async_client fixture で既にオーバーライド済み）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
-        result = await db_session.execute(stmt)
-        user = result.scalars().first()
-        return user
+        # Reload test_admin_user with office_associations
+        return await load_staff_with_office(db_session, test_admin_user)
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. APIエンドポイントの呼び出し
@@ -193,16 +202,14 @@ async def test_get_support_plan_cycles_not_found(
     存在しない利用者IDの場合404を返すことを確認
     """
     # 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 存在しないUUIDでリクエスト
@@ -263,16 +270,14 @@ async def test_get_support_plan_cycles_unauthorized_office(
     await db_session.commit()
 
     # 依存関係のオーバーライド（test_admin_userでログイン）
-    async def override_get_db():
-        yield db_session
-
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 他の事業所の利用者にアクセス

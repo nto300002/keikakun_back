@@ -10,7 +10,7 @@ import boto3
 from moto import mock_aws
 
 logging.basicConfig()
-logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
 from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
@@ -23,14 +23,21 @@ from app.core.config import settings
 
 
 @pytest.fixture(scope="function")
-def aws_credentials():
+def aws_credentials(monkeypatch):
     """Mock AWS Credentials for moto."""
-    import os
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    # monkeypatchを使用して環境変数を設定（テスト終了後に自動的に元に戻る）
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    # アプリケーションが必要とするS3関連の環境変数
+    monkeypatch.setenv("S3_ACCESS_KEY", "testing")
+    monkeypatch.setenv("S3_SECRET_KEY", "testing")
+    monkeypatch.setenv("S3_REGION", "us-east-1")
+    monkeypatch.setenv("S3_BUCKET_NAME", "test-plan-deliverables-bucket")
+    # S3_ENDPOINT_URLを削除してmotoのデフォルトモックを使用
+    monkeypatch.delenv("S3_ENDPOINT_URL", raising=False)
 
 
 @pytest.fixture(scope="function")
@@ -38,18 +45,22 @@ def s3_mock(aws_credentials):
     """S3 mock context manager."""
     with mock_aws():
         # S3クライアントを作成してバケットを作成
-        s3_client = boto3.client("s3", region_name="us-east-1")
+        # region_name=Noneを使用してsettings.S3_REGIONと一致させる
+        s3_client = boto3.client(
+            "s3",
+            region_name="us-east-1",
+            aws_access_key_id="testing",
+            aws_secret_access_key="testing"
+        )
         bucket_name = "test-plan-deliverables-bucket"
         s3_client.create_bucket(Bucket=bucket_name)
 
-        # settingsを一時的に上書き
-        original_bucket = settings.S3_BUCKET_NAME
-        settings.S3_BUCKET_NAME = bucket_name
+        # バケットが作成されたことを確認
+        buckets = s3_client.list_buckets()
+        print(f"\n=== S3 Mock Setup ===")
+        print(f"DEBUG: Created buckets: {[b['Name'] for b in buckets['Buckets']]}")
 
         yield s3_client
-
-        # 元に戻す
-        settings.S3_BUCKET_NAME = original_bucket
 
 
 @pytest.mark.asyncio
@@ -58,37 +69,140 @@ async def test_upload_assessment_pdf(
     db_session: AsyncSession,
     test_admin_user: Staff,
     office_factory,
-    s3_mock
+    s3_mock,
+    monkeypatch
 ):
     """
     POST /api/v1/plan-deliverables
     アセスメントPDFのアップロードが正常に完了することを確認
     """
+    # S3アップロード関数をモック
+    from unittest.mock import AsyncMock
+    async def mock_upload_file(file, object_name: str):
+        """S3アップロードをモック"""
+        return f"s3://test-plan-deliverables-bucket/{object_name}"
+
+    from app.core import storage
+    monkeypatch.setattr(storage, "upload_file", mock_upload_file)
+
     # 1. テストデータの準備
+    print(f"\n=== DEBUG: Test data preparation ===")
+    print(f"DEBUG: test_admin_user.id = {test_admin_user.id}")
+    print(f"DEBUG: db_session object id (test data prep) = {id(db_session)}")
+
     office = await office_factory(creator=test_admin_user)
+    print(f"DEBUG: office.id = {office.id}")
+
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
+    await db_session.flush()  # OfficeStaffを先にflush
+
+    # OfficeStaffが保存されたか確認
+    office_staff_check = await db_session.execute(
+        select(OfficeStaff).where(OfficeStaff.staff_id == test_admin_user.id)
+    )
+    saved_office_staff = office_staff_check.scalars().all()
+    print(f"DEBUG: OfficeStaff records saved = {len(saved_office_staff)}")
+    for idx, os in enumerate(saved_office_staff):
+        print(f"DEBUG: OfficeStaff[{idx}].staff_id = {os.staff_id}, office_id = {os.office_id}")
+
     recipient = WelfareRecipient(first_name="テスト", last_name="太郎", first_name_furigana="テスト", last_name_furigana="タロウ", birth_day=date(1990, 1, 1), gender=GenderType.male)
     db_session.add(recipient)
     await db_session.flush()
     association = OfficeWelfareRecipient(office_id=office.id, welfare_recipient_id=recipient.id)
     db_session.add(association)
-    cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, is_latest_cycle=True, cycle_number=1)
+    cycle = SupportPlanCycle(welfare_recipient_id=recipient.id, office_id=office.id, is_latest_cycle=True, cycle_number=1)
     db_session.add(cycle)
     await db_session.flush()
-    statuses = [SupportPlanStatus(plan_cycle_id=cycle.id, step_type=s, is_latest_status=(s==SupportPlanStep.assessment)) for s in [SupportPlanStep.assessment, SupportPlanStep.draft_plan, SupportPlanStep.staff_meeting, SupportPlanStep.final_plan_signed]]
+    statuses = [SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office.id, step_type=s, is_latest_status=(s==SupportPlanStep.assessment)) for s in [SupportPlanStep.assessment, SupportPlanStep.draft_plan, SupportPlanStep.staff_meeting, SupportPlanStep.final_plan_signed]]
     db_session.add_all(statuses)
     await db_session.commit()
+    print(f"=== DEBUG: Test data preparation complete ===\n")
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db(): yield db_session
-
+    # 2. 依存関係のオーバーライド（get_current_userのみ）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        print(f"\n=== DEBUG test_upload_assessment_pdf: override_get_current_user_with_relations called ===")
+        print(f"DEBUG: test_admin_user.id = {test_admin_user.id}")
+        print(f"DEBUG: db_session object id = {id(db_session)}")
+
+        # SQLAlchemyのSQLログを一時的に有効化
+        import logging
+        logging.basicConfig()
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+        # SQL レベルでの確認: OfficeStaff が存在するか生SQLで確認
+        from sqlalchemy import text
+        print("\n--- Raw SQL Query ---")
+        raw_sql_result = await db_session.execute(
+            text("SELECT id, staff_id, office_id, is_primary FROM office_staffs WHERE staff_id = :staff_id"),
+            {"staff_id": str(test_admin_user.id)}
+        )
+        raw_rows = raw_sql_result.fetchall()
+        print(f"DEBUG: Raw SQL - OfficeStaff records = {len(raw_rows)}")
+        for idx, row in enumerate(raw_rows):
+            print(f"DEBUG: Raw SQL - OfficeStaff[{idx}]: id={row[0]}, staff_id={row[1]}, office_id={row[2]}, is_primary={row[3]}")
+
+        # OfficeStaffを直接クエリしてみる
+        print("\n--- Direct OfficeStaff Query ---")
+        office_staff_stmt = select(OfficeStaff).where(OfficeStaff.staff_id == test_admin_user.id)
+        office_staff_result = await db_session.execute(office_staff_stmt)
+        office_staff_records = office_staff_result.scalars().all()
+        print(f"DEBUG: Direct OfficeStaff query - records found = {len(office_staff_records)}")
+        for idx, os in enumerate(office_staff_records):
+            print(f"DEBUG: OfficeStaff[{idx}]: id={os.id}, staff_id={os.staff_id}, office_id={os.office_id}")
+            # Staffオブジェクトにアクセスしてみる
+            try:
+                print(f"DEBUG: OfficeStaff[{idx}].staff = {os.staff}")
+                print(f"DEBUG: OfficeStaff[{idx}].staff.id = {os.staff.id if os.staff else None}")
+            except Exception as e:
+                print(f"DEBUG: Error accessing OfficeStaff[{idx}].staff: {e}")
+
+        # selectinloadなしで取得してみる
+        print("\n--- Staff Query Without selectinload ---")
+        stmt_no_load = select(Staff).where(Staff.id == test_admin_user.id)
+        result_no_load = await db_session.execute(stmt_no_load)
+        user_no_load = result_no_load.scalars().first()
+        print(f"DEBUG: Without selectinload - user found = {user_no_load is not None}")
+        if user_no_load:
+            print(f"DEBUG: user_no_load object state: {user_no_load.__dict__}")
+            try:
+                print(f"DEBUG: Without selectinload - office_associations length = {len(user_no_load.office_associations)}")
+            except Exception as e:
+                print(f"DEBUG: Without selectinload - Error accessing office_associations: {type(e).__name__}: {e}")
+
+        # キャッシュをバイパスして強制的にDBから再ロード
+        print("\n--- Staff Query With selectinload (populate_existing=True) ---")
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
+
+        print(f"DEBUG: With selectinload - user found = {user is not None}")
+        if user:
+            print(f"DEBUG: user.id = {user.id}")
+            print(f"DEBUG: user object state: {user.__dict__}")
+            print(f"DEBUG: user.office_associations = {user.office_associations}")
+            print(f"DEBUG: len(office_associations) = {len(user.office_associations)}")
+            for idx, assoc in enumerate(user.office_associations):
+                print(f"DEBUG: association[{idx}].staff_id = {assoc.staff_id}")
+                print(f"DEBUG: association[{idx}].office_id = {assoc.office_id}")
+                print(f"DEBUG: association[{idx}].office = {assoc.office}")
+                if assoc.office:
+                    print(f"DEBUG: association[{idx}].office.id = {assoc.office.id}")
+                    print(f"DEBUG: association[{idx}].office.name = {assoc.office.name}")
+
+        # リレーションシップのメタデータを確認
+        print("\n--- Relationship Metadata ---")
+        print(f"DEBUG: Staff.office_associations.property = {Staff.office_associations.property}")
+        print(f"DEBUG: Staff.office_associations.property.mapper = {Staff.office_associations.property.mapper}")
+
+        print(f"=== DEBUG END ===\n")
+
+        # SQLログを元に戻す
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. API呼び出し
@@ -128,12 +242,20 @@ async def test_upload_final_plan_creates_new_cycle(
     db_session: AsyncSession,
     test_admin_user: Staff,
     office_factory,
-    s3_mock
+    s3_mock,
+    monkeypatch
 ):
     """
     POST /api/v1/plan-deliverables
     最終計画書(署名済み)のアップロードで新しいサイクルが自動生成されることを確認
     """
+    # S3アップロード関数をモック
+    async def mock_upload_file(file, object_name: str):
+        return f"s3://test-plan-deliverables-bucket/{object_name}"
+
+    from app.core import storage
+    monkeypatch.setattr(storage, "upload_file", mock_upload_file)
+
     # 1. テストデータの準備
     office = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
@@ -159,6 +281,7 @@ async def test_upload_final_plan_creates_new_cycle(
     # サイクル1を作成（すべてのステップが完了直前）
     cycle1 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=True,
         cycle_number=1,
@@ -170,6 +293,8 @@ async def test_upload_final_plan_creates_new_cycle(
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=False,
             completed=True,
@@ -177,6 +302,8 @@ async def test_upload_final_plan_creates_new_cycle(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=False,
             completed=True,
@@ -184,6 +311,8 @@ async def test_upload_final_plan_creates_new_cycle(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.staff_meeting,
             is_latest_status=False,
             completed=True,
@@ -191,6 +320,8 @@ async def test_upload_final_plan_creates_new_cycle(
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
             is_latest_status=True,
             completed=False,
@@ -199,17 +330,15 @@ async def test_upload_final_plan_creates_new_cycle(
     db_session.add_all(statuses)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_current_userのみ）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. 最終計画書PDFをアップロード
@@ -259,12 +388,20 @@ async def test_upload_wrong_step_order(
     db_session: AsyncSession,
     test_admin_user: Staff,
     office_factory,
-    s3_mock
+    s3_mock,
+    monkeypatch
 ):
     """
     POST /api/v1/plan-deliverables
     ステップの順序を守らずにアップロードしようとした場合、エラーになることを確認
     """
+    # S3アップロード関数をモック
+    async def mock_upload_file(file, object_name: str):
+        return f"s3://test-plan-deliverables-bucket/{object_name}"
+
+    from app.core import storage
+    monkeypatch.setattr(storage, "upload_file", mock_upload_file)
+
     # 1. テストデータの準備
     office = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
@@ -290,6 +427,7 @@ async def test_upload_wrong_step_order(
     # サイクルを作成（最新ステップはassessment）
     cycle = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=True,
         cycle_number=1,
@@ -301,24 +439,32 @@ async def test_upload_wrong_step_order(
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True,  # 現在のステップ
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=False,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.staff_meeting,
             is_latest_status=False,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
             is_latest_status=False,
             completed=False,
@@ -327,17 +473,15 @@ async def test_upload_wrong_step_order(
     db_session.add_all(statuses)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_current_userのみ）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. アセスメントをスキップして、draft_planをアップロードしようとする
@@ -377,16 +521,25 @@ async def test_upload_unauthorized_office(
     db_session: AsyncSession,
     test_admin_user: Staff,
     office_factory,
-    s3_mock
+    s3_mock,
+    monkeypatch
 ):
     """
     POST /api/v1/plan-deliverables
     他の事業所の利用者の計画にアップロードしようとした場合、403エラーになることを確認
     """
+    # S3アップロード関数をモック
+    async def mock_upload_file(file, object_name: str):
+        return f"s3://test-plan-deliverables-bucket/{object_name}"
+
+    from app.core import storage
+    monkeypatch.setattr(storage, "upload_file", mock_upload_file)
+
     # 1. テストデータの準備
     # 事業所1（test_admin_userが所属）
     office1 = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office1.id, is_primary=True))
+    await db_session.flush()  # OfficeStaffを先にflush
 
     # 別のスタッフと事業所2を作成
     other_staff = Staff(
@@ -420,6 +573,7 @@ async def test_upload_unauthorized_office(
     # サイクルを作成
     cycle = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office2.id,
         plan_cycle_start_date=date(2024, 1, 1),
         is_latest_cycle=True,
         cycle_number=1,
@@ -431,6 +585,8 @@ async def test_upload_unauthorized_office(
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office2.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True,
             completed=False,
@@ -440,16 +596,14 @@ async def test_upload_unauthorized_office(
     await db_session.commit()
 
     # 2. 依存関係のオーバーライド（test_admin_userでログイン）
-    async def override_get_db():
-        yield db_session
-
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. 他の事業所の利用者の計画にアップロード試行
@@ -479,12 +633,20 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
     db_session: AsyncSession,
     test_admin_user: Staff,
     office_factory,
-    s3_mock
+    s3_mock,
+    monkeypatch
 ):
     """
     POST /api/v1/plan-deliverables
     サイクル2でmonitoringを完了した後、draft_planをアップロードできることを確認
     """
+    # S3アップロード関数をモック
+    async def mock_upload_file(file, object_name: str):
+        return f"s3://test-plan-deliverables-bucket/{object_name}"
+
+    from app.core import storage
+    monkeypatch.setattr(storage, "upload_file", mock_upload_file)
+
     # 1. テストデータの準備
     office = await office_factory(creator=test_admin_user)
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
@@ -510,6 +672,7 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
     # サイクル2を作成（monitoringが最新ステップ）
     cycle2 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office.id,
         plan_cycle_start_date=date(2024, 7, 1),
         is_latest_cycle=True,
         cycle_number=2,
@@ -521,24 +684,32 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.monitoring,
             is_latest_status=True,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.draft_plan,
             is_latest_status=False,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.staff_meeting,
             is_latest_status=False,
             completed=False,
         ),
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
             is_latest_status=False,
             completed=False,
@@ -547,17 +718,15 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
     db_session.add_all(statuses)
     await db_session.commit()
 
-    # 2. 依存関係のオーバーライド
-    async def override_get_db():
-        yield db_session
-
+    # 2. 依存関係のオーバーライド（get_current_userのみ）
     async def override_get_current_user_with_relations():
-        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
         user = result.scalars().first()
         return user
 
-    app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
     # 3. monitoringのPDFをアップロード

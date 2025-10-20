@@ -2,6 +2,8 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from jose import jwt, JWTError
 from pydantic import ValidationError
 from typing import Optional
@@ -21,6 +23,7 @@ from app.core.security import (
 )
 from app.core.mail import send_verification_email
 from pydantic import BaseModel
+from app.models.office import OfficeStaff
 
 class MFAVerifyRequest(BaseModel):
     temporary_token: str
@@ -58,15 +61,22 @@ async def register_admin(
     user = await staff_crud.create_admin(db=db, obj_in=staff_in)
 
     # コミットするとuserオブジェクトが期限切れになり、user.emailにアクセスできなくなるため
-    # 先にメールアドレスを変数に格納しておく
+    # 先にメールアドレスとIDを変数に格納しておく
     user_email = user.email
+    user_id = user.id
     await db.commit()
-    await db.refresh(user) # DBから最新の状態を読み込み、オブジェクトを「新鮮」な状態にする
-    
+
+    # DBから最新の状態を読み込み、office_associationsもeager loadする
+    stmt = select(models.Staff).options(
+        selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
+    ).where(models.Staff.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one()
+
     # メール確認トークンを生成して送信
     token = create_email_verification_token(email=user_email)
     await send_verification_email(recipient_email=user_email, token=token)
-    
+
     return user
 
 
@@ -96,12 +106,19 @@ async def register_staff(
     user = await staff_crud.create_staff(db=db, obj_in=staff_in)
 
     user_email = user.email
+    user_id = user.id
     await db.commit()
-    await db.refresh(user)
-    
+
+    # DBから最新の状態を読み込み、office_associationsもeager loadする
+    stmt = select(models.Staff).options(
+        selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
+    ).where(models.Staff.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one()
+
     token = create_email_verification_token(email=user_email)
     await send_verification_email(recipient_email=user_email, token=token)
-    
+
     return user
 
 

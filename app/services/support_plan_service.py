@@ -15,6 +15,7 @@ from app import crud
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
 from app.models.enums import DeliverableType, SupportPlanStep
 from app.schemas.support_plan import PlanDeliverableCreate
+from app.services.calendar_service import calendar_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,9 @@ class SupportPlanService:
         final_plan_completed_at: datetime.datetime
     ):
         """最終計画書アップロード時に新しいサイクルを作成する"""
+        # MissingGreenletエラーを防ぐため、old_cycleの全属性をロード
+        await db.refresh(old_cycle)
+
         # 1. 現在のサイクルを「最新ではない」に更新 (呼び出し元で実施)
         old_cycle.is_latest_cycle = False
 
@@ -90,13 +94,18 @@ class SupportPlanService:
         today = datetime.date.today()
         new_cycle = SupportPlanCycle(
             welfare_recipient_id=old_cycle.welfare_recipient_id,
+            office_id=old_cycle.office_id,
             plan_cycle_start_date=today,
             next_renewal_deadline=today + datetime.timedelta(days=180),
             is_latest_cycle=True,
             cycle_number=old_cycle.cycle_number + 1
         )
+
         db.add(new_cycle)
         await db.flush() # 新しいサイクルのIDを確定させる
+        await db.refresh(new_cycle)  # MissingGreenletエラーを防ぐため全属性をロード
+
+        logger.info(f"Created new cycle {new_cycle.id} for recipient {new_cycle.welfare_recipient_id}")
 
         # 3. 新しいサイクル用のステータスを作成 (モニタリングから開始)
         new_steps = [
@@ -105,6 +114,7 @@ class SupportPlanService:
             SupportPlanStep.staff_meeting,
             SupportPlanStep.final_plan_signed,
         ]
+        monitoring_status = None
         for i, step_type in enumerate(new_steps):
             due_date = None
 
@@ -116,11 +126,64 @@ class SupportPlanService:
 
             new_status = SupportPlanStatus(
                 plan_cycle_id=new_cycle.id,
+                welfare_recipient_id=old_cycle.welfare_recipient_id,
+                office_id=old_cycle.office_id,
                 step_type=step_type,
                 is_latest_status=(i == 0),  # 最初のステップ(monitoring)を最新にする
                 due_date=due_date
             )
             db.add(new_status)
+
+            if step_type == SupportPlanStep.monitoring:
+                monitoring_status = new_status
+
+        await db.flush()  # ステータスのIDを確定させる
+
+        # MissingGreenletエラーを防ぐため、monitoring_statusの全属性をロード
+        if monitoring_status:
+            await db.refresh(monitoring_status)
+
+        # 4. カレンダーイベントを作成
+        # MissingGreenletエラーを防ぐため、必要な属性を事前に変数に保存
+        cycle_id = new_cycle.id
+        office_id = new_cycle.office_id
+        welfare_recipient_id = new_cycle.welfare_recipient_id
+        next_renewal_deadline = new_cycle.next_renewal_deadline
+        cycle_start_date = new_cycle.plan_cycle_start_date
+        cycle_number = new_cycle.cycle_number
+        monitoring_status_id = monitoring_status.id if monitoring_status else None
+
+        try:
+            logger.info(f"Creating calendar events for cycle {cycle_id}")
+
+            # 更新期限イベントを作成（150日目～180日目の1イベント）
+            renewal_event_ids = await calendar_service.create_renewal_deadline_events(
+                db=db,
+                office_id=office_id,
+                welfare_recipient_id=welfare_recipient_id,
+                cycle_id=cycle_id,
+                next_renewal_deadline=next_renewal_deadline
+            )
+
+            if renewal_event_ids:
+                logger.info(f"Created renewal deadline calendar event for cycle {cycle_id}")
+
+            # モニタリング期限イベントを作成（cycle_number >= 2の場合、1日目9:00～7日目18:00の1イベント）
+            monitoring_event_ids = await calendar_service.create_monitoring_deadline_events(
+                db=db,
+                office_id=office_id,
+                welfare_recipient_id=welfare_recipient_id,
+                cycle_id=cycle_id,
+                cycle_start_date=cycle_start_date,
+                cycle_number=cycle_number,
+                status_id=monitoring_status_id
+            )
+            if monitoring_event_ids:
+                logger.info(f"Created monitoring deadline calendar events for cycle {cycle_id}")
+
+        except Exception as e:
+            # カレンダーイベント作成に失敗してもサイクル作成は継続
+            logger.warning(f"Failed to create calendar events for cycle {cycle_id}: {str(e)}")
 
     @staticmethod
     async def handle_deliverable_upload(
@@ -207,13 +270,60 @@ class SupportPlanService:
             logger.error(f"Target status not found for step: {target_step_type}")
             raise NotFoundException(f"ステップ {target_step_type.value} のステータスが見つかりません。")
 
+        logger.info(f"[STATUS_UPDATE] BEFORE - status_id={current_status.id}, step={current_status.step_type}, completed={current_status.completed}, is_latest={current_status.is_latest_status}")
+
         # ステータスを更新
         current_status.completed = True
         current_status.completed_at = datetime.datetime.now(datetime.timezone.utc)
-        current_status.is_latest_status = False
+        # final_plan_signedの場合は、サイクルの最終ステップなのでis_latest_status=Trueのまま維持
+        if target_step_type != SupportPlanStep.final_plan_signed:
+            current_status.is_latest_status = False
         current_status.completed_by = uploaded_by_staff_id
 
+        logger.info(f"[STATUS_UPDATE] AFTER - status_id={current_status.id}, step={current_status.step_type}, completed={current_status.completed}, is_latest={current_status.is_latest_status}")
+
+        # カレンダーイベント削除フック
+        from app.services.calendar_service import calendar_service
+        from app.models.enums import CalendarEventType
+
+        # final_plan_signed完了時: 更新期限イベントを削除
+        if target_step_type == SupportPlanStep.final_plan_signed:
+            logger.info(f"[CALENDAR_EVENT] Deleting renewal deadline event for cycle_id={cycle.id}")
+            try:
+                deleted = await calendar_service.delete_event_by_cycle(
+                    db=db,
+                    cycle_id=cycle.id,
+                    event_type=CalendarEventType.renewal_deadline
+                )
+                if deleted:
+                    logger.info(f"[CALENDAR_EVENT] Renewal deadline event deleted for cycle_id={cycle.id}")
+                else:
+                    logger.info(f"[CALENDAR_EVENT] No renewal deadline event found for cycle_id={cycle.id}")
+            except Exception as e:
+                logger.warning(f"[CALENDAR_EVENT] Failed to delete renewal deadline event: {e}")
+
+        # monitoring完了時: モニタリング期限イベントを削除
+        if target_step_type == SupportPlanStep.monitoring:
+            logger.info(f"[CALENDAR_EVENT] Deleting monitoring deadline event for status_id={current_status.id}")
+            try:
+                deleted = await calendar_service.delete_event_by_status(
+                    db=db,
+                    status_id=current_status.id,
+                    event_type=CalendarEventType.monitoring_deadline
+                )
+                if deleted:
+                    logger.info(f"[CALENDAR_EVENT] Monitoring deadline event deleted for status_id={current_status.id}")
+                else:
+                    logger.info(f"[CALENDAR_EVENT] No monitoring deadline event found for status_id={current_status.id}")
+            except Exception as e:
+                logger.warning(f"[CALENDAR_EVENT] Failed to delete monitoring deadline event: {e}")
+
         if deliverable_in.deliverable_type == DeliverableType.final_plan_signed_pdf:
+            logger.info(f"[FINAL_PLAN] Detected final_plan_signed_pdf upload for cycle {cycle.id}")
+
+            # ステータス更新をデータベースに反映させるため、ここでflushを呼ぶ
+            await db.flush()
+
             # cycle_numberが現在のサイクルより大きいサイクルがあるか確認
             future_cycle_stmt = select(SupportPlanCycle).where(
                 SupportPlanCycle.welfare_recipient_id == cycle.welfare_recipient_id,
@@ -222,18 +332,24 @@ class SupportPlanService:
             future_cycle_result = await db.execute(future_cycle_stmt)
             has_future_cycles = future_cycle_result.scalar_one_or_none() is not None
 
+            logger.info(f"[FINAL_PLAN] has_future_cycles={has_future_cycles}")
+
             # 既に次のサイクルが存在する場合は、未来のサイクルを削除して再定義
             if has_future_cycles:
+                logger.info(f"[FINAL_PLAN] Resetting future cycles for recipient {cycle.welfare_recipient_id}")
                 await SupportPlanService._reset_future_cycles(
                     db,
                     welfare_recipient_id=cycle.welfare_recipient_id,
                     current_cycle_number=cycle.cycle_number
                 )
+                logger.info(f"[FINAL_PLAN] Future cycles reset completed")
 
             # 新しいサイクルを作成
+            logger.info(f"[FINAL_PLAN] Creating new cycle from final_plan for cycle {cycle.id}")
             await SupportPlanService._create_new_cycle_from_final_plan(
                 db, old_cycle=cycle, final_plan_completed_at=current_status.completed_at
             )
+            logger.info(f"[FINAL_PLAN] New cycle creation completed")
         else:
             # 次のステップを最新にする
             # サイクル内のステップ順序を決定
@@ -263,6 +379,7 @@ class SupportPlanService:
                 pass
 
         # 成果物レコードを作成
+        logger.info(f"[DELIVERABLE_CREATE] Creating PlanDeliverable for cycle {deliverable_in.plan_cycle_id}, type={deliverable_in.deliverable_type}")
         new_deliverable = PlanDeliverable(
             plan_cycle_id=deliverable_in.plan_cycle_id,
             deliverable_type=deliverable_in.deliverable_type,
@@ -271,9 +388,20 @@ class SupportPlanService:
             uploaded_by=uploaded_by_staff_id
         )
         db.add(new_deliverable)
+        logger.info(f"[DELIVERABLE_CREATE] PlanDeliverable added to session")
 
-        await db.commit()
+        logger.info(f"[COMMIT] Calling db.commit() for deliverable upload...")
+        try:
+            await db.commit()
+            logger.info(f"[COMMIT] db.commit() completed successfully")
+        except Exception as commit_error:
+            logger.error(f"[COMMIT] db.commit() FAILED: {type(commit_error).__name__}: {commit_error}")
+            import traceback
+            logger.error(f"[COMMIT] Traceback:\n{traceback.format_exc()}")
+            raise
+
         await db.refresh(new_deliverable)
+        logger.info(f"[DELIVERABLE_CREATE] PlanDeliverable created with id={new_deliverable.id}")
 
         return new_deliverable
 
@@ -405,6 +533,80 @@ class SupportPlanService:
         await db.commit()
 
         logger.info(f"[DELIVERABLE_DELETE] Delete completed - deliverable_id: {deliverable_id}")
+
+    @staticmethod
+    async def update_status_completion(
+        db: AsyncSession,
+        status_id: int,
+        completed: bool
+    ) -> SupportPlanStatus:
+        """ステータスのcompleted状態を更新する（テスト用ヘルパーメソッド）
+
+        Args:
+            db: データベースセッション
+            status_id: ステータスID
+            completed: 完了状態
+
+        Returns:
+            更新されたステータス
+
+        Raises:
+            NotFoundException: ステータスが見つからない場合
+        """
+        from sqlalchemy import select
+        from app.core.exceptions import NotFoundException
+
+        # ステータスを取得
+        stmt = select(SupportPlanStatus).where(SupportPlanStatus.id == status_id)
+        result = await db.execute(stmt)
+        status = result.scalar_one_or_none()
+
+        if not status:
+            raise NotFoundException(f"ステータスID {status_id} が見つかりません。")
+
+        # completedを更新
+        status.completed = completed
+        if completed:
+            status.completed_at = datetime.datetime.now(datetime.timezone.utc)
+        else:
+            status.completed_at = None
+            status.completed_by = None
+
+        # カレンダーイベント削除フック
+        if completed:
+            from app.services.calendar_service import calendar_service
+            from app.models.enums import CalendarEventType
+
+            # final_plan_signed完了時: 更新期限イベントを削除
+            if status.step_type == SupportPlanStep.final_plan_signed:
+                logger.info(f"[CALENDAR_EVENT] Deleting renewal deadline event for cycle_id={status.plan_cycle_id}")
+                try:
+                    deleted = await calendar_service.delete_event_by_cycle(
+                        db=db,
+                        cycle_id=status.plan_cycle_id,
+                        event_type=CalendarEventType.renewal_deadline
+                    )
+                    if deleted:
+                        logger.info(f"[CALENDAR_EVENT] Renewal deadline event deleted for cycle_id={status.plan_cycle_id}")
+                except Exception as e:
+                    logger.warning(f"[CALENDAR_EVENT] Failed to delete renewal deadline event: {e}")
+
+            # monitoring完了時: モニタリング期限イベントを削除
+            if status.step_type == SupportPlanStep.monitoring:
+                logger.info(f"[CALENDAR_EVENT] Deleting monitoring deadline event for status_id={status.id}")
+                try:
+                    deleted = await calendar_service.delete_event_by_status(
+                        db=db,
+                        status_id=status.id,
+                        event_type=CalendarEventType.monitoring_deadline
+                    )
+                    if deleted:
+                        logger.info(f"[CALENDAR_EVENT] Monitoring deadline event deleted for status_id={status.id}")
+                except Exception as e:
+                    logger.warning(f"[CALENDAR_EVENT] Failed to delete monitoring deadline event: {e}")
+
+        await db.flush()
+        return status
 
 
 support_plan_service = SupportPlanService()

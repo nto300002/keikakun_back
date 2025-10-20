@@ -25,7 +25,7 @@ import logging
 import inspect
 import asyncio
 
-
+logger = logging.getLogger(__name__)
 
 class WelfareRecipientService:
     """
@@ -52,10 +52,12 @@ class WelfareRecipientService:
         利用者情報と初期支援計画の一括作成 (非同期)
         """
         try:
+            logger.info("[SERVICE DEBUG] create_recipient_with_initial_plan START")
             # Pydanticによる型変換とバリデーションが完了しているため、手動バリデーションは不要
-    
+
             # 2. 利用者基本情報の作成
             basic_info = registration_data.basic_info
+            logger.info(f"[SERVICE DEBUG] Creating WelfareRecipient: {basic_info.lastName} {basic_info.firstName}")
             welfare_recipient = WelfareRecipient(
                 first_name=basic_info.firstName,
                 last_name=basic_info.lastName,
@@ -65,35 +67,54 @@ class WelfareRecipientService:
                 gender=basic_info.gender
             )
             db.add(welfare_recipient)
+            logger.info("[SERVICE DEBUG] Flushing WelfareRecipient...")
             await db.flush()  # IDを取得するためにflush
-    
+
+            # IMPORTANT: flush()直後にIDを変数に保存する
+            # その後の処理（flush等）でオブジェクトがexpired状態になり、
+            # 再度welfare_recipient.idにアクセスするとgreenletエラーが発生するため
+            recipient_id = welfare_recipient.id
+            logger.info(f"[SERVICE DEBUG] WelfareRecipient created with id={recipient_id}")
+
             # 3. 関連データの作成
+            logger.info("[SERVICE DEBUG] Calling crud_welfare_recipient.create_related_data...")
             await crud_welfare_recipient.create_related_data(
                 db=db,
                 welfare_recipient=welfare_recipient,
                 registration_data=registration_data,
                 office_id=office_id
             )
-    
-            # 4. 初期支援計画の作成（mini.mdの要件）
-            await WelfareRecipientService._create_initial_support_plan(db, welfare_recipient.id)
+            logger.info("[SERVICE DEBUG] create_related_data completed")
 
-            # 5. すべての変更をフラッシュしてDBに反映準備
-            await db.flush()
-    
-            # 6. オブジェクトのIDを返す (コミットは呼び出し元で行う)
-            return welfare_recipient.id
-    
+            # 4. 初期支援計画の作成（mini.mdの要件）
+            # 既に保存したrecipient_idを使用（welfare_recipient.idに再アクセスしない）
+            logger.info("[SERVICE DEBUG] Calling _create_initial_support_plan...")
+            await WelfareRecipientService._create_initial_support_plan(db, recipient_id, office_id)
+            logger.info("[SERVICE DEBUG] _create_initial_support_plan completed")
+
+            # 5. IDを返す (コミット/ロールバックは呼び出し元で行う)
+            logger.info(f"[SERVICE DEBUG] create_recipient_with_initial_plan END: returning recipient_id={recipient_id}")
+            return recipient_id
+
         except IntegrityError as e:
-            await db.rollback()
+            logger.error(f"[SERVICE DEBUG] IntegrityError occurred: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise BadRequestException("データの整合性エラーが発生しました。")
-    
+
         except SQLAlchemyError as e:
-            await db.rollback()
+            logger.error(f"[SERVICE DEBUG] SQLAlchemyError occurred: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise InternalServerException(f"データベースエラーが発生しました: {e}")
-    
+
         except Exception as e:
-            await db.rollback()
+            logger.error(f"[SERVICE DEBUG] Unexpected exception occurred: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise
 
     @staticmethod
@@ -107,25 +128,34 @@ class WelfareRecipientService:
         pass
 
     @staticmethod
-    async def _create_initial_support_plan(db: AsyncSession, welfare_recipient_id: UUID) -> None:
+    async def _create_initial_support_plan(db: AsyncSession, welfare_recipient_id: UUID, office_id: UUID) -> None:
         """
         利用者作成時の初期支援計画 (サイクル + ステータス) を作成する (非同期)。
         サイクル番号に応じて作成するステップを変更する。
+        カレンダーイベントも自動作成する。
         """
+        logger.info(f"[DEBUG] _create_initial_support_plan START: welfare_recipient_id={welfare_recipient_id}, office_id={office_id}")
+
         # 既存のサイクル数を取得して新しいサイクル番号を決定
+        logger.info("[DEBUG] Counting existing cycles...")
         count_stmt = select(func.count()).select_from(SupportPlanCycle).where(SupportPlanCycle.welfare_recipient_id == welfare_recipient_id)
         existing_cycles_count = (await db.execute(count_stmt)).scalar_one()
         new_cycle_number = existing_cycles_count + 1
+        logger.info(f"[DEBUG] New cycle_number={new_cycle_number}")
 
+        logger.info("[DEBUG] Creating SupportPlanCycle...")
         cycle = SupportPlanCycle(
             welfare_recipient_id=welfare_recipient_id,
+            office_id=office_id,
             is_latest_cycle=True,
             cycle_number=new_cycle_number,
             plan_cycle_start_date=date.today(),
             next_renewal_deadline=date.today() + timedelta(days=180)
         )
         db.add(cycle)
+        logger.info("[DEBUG] Flushing cycle...")
         await db.flush()  # cycle.id を取得するため
+        logger.info(f"[DEBUG] Cycle created with id={cycle.id}")
 
         if new_cycle_number == 1:
             initial_steps = [
@@ -142,16 +172,71 @@ class WelfareRecipientService:
                 SupportPlanStep.final_plan_signed
             ]
 
+        logger.info(f"[DEBUG] Creating {len(initial_steps)} status records...")
         for i, step in enumerate(initial_steps):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
+                welfare_recipient_id=welfare_recipient_id,
+                office_id=office_id,
                 step_type=step,
                 completed=False,
                 is_latest_status=(i == 0)  # 最初のステップを最新にする
             )
             db.add(status)
 
+        logger.info("[DEBUG] Flushing status records...")
         await db.flush()
+        logger.info("[DEBUG] Status records created successfully")
+
+        # カレンダーイベントを自動作成（ベストエフォート：失敗してもサイクル作成は継続）
+        logger.info("[DEBUG] Creating calendar events...")
+        try:
+            from app.services.calendar_service import calendar_service
+            from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
+
+            # 更新期限イベント（150日目～180日目の1イベント）
+            try:
+                await calendar_service.create_renewal_deadline_events(
+                    db=db,
+                    office_id=office_id,
+                    welfare_recipient_id=welfare_recipient_id,
+                    cycle_id=cycle.id,
+                    next_renewal_deadline=cycle.next_renewal_deadline
+                )
+                logger.info("[DEBUG] Renewal deadline event created successfully")
+            except SQLAlchemyIntegrityError as e:
+                # 重複エラーの場合は警告のみ（既にイベントが存在する）
+                logger.warning(f"[DEBUG] Renewal deadline event already exists for cycle_id={cycle.id}: {e}")
+            except Exception as e:
+                # その他のエラーも警告のみ（カレンダー設定がない等）
+                logger.warning(f"[DEBUG] Could not create renewal deadline events: {type(e).__name__}: {e}")
+
+            # モニタリング期限イベント（cycle_number>=2の場合のみ、1~7日の7イベント）
+            try:
+                await calendar_service.create_monitoring_deadline_events(
+                    db=db,
+                    office_id=office_id,
+                    welfare_recipient_id=welfare_recipient_id,
+                    cycle_id=cycle.id,
+                    cycle_start_date=cycle.plan_cycle_start_date,
+                    cycle_number=new_cycle_number
+                )
+                logger.info("[DEBUG] Monitoring deadline events created successfully")
+            except SQLAlchemyIntegrityError as e:
+                # 重複エラーの場合は警告のみ（既にイベントが存在する）
+                logger.warning(f"[DEBUG] Monitoring deadline events already exist for cycle_id={cycle.id}: {e}")
+            except Exception as e:
+                # その他のエラーも警告のみ（cycle_number=1等）
+                logger.warning(f"[DEBUG] Could not create monitoring deadline events: {type(e).__name__}: {e}")
+
+        except Exception as e:
+            # calendar_service自体のインポートエラー等、予期しないエラー
+            logger.error(f"[DEBUG] Unexpected error during calendar event creation: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"[DEBUG] Traceback:\n{traceback.format_exc()}")
+            # カレンダーイベント作成の失敗は利用者登録を妨げない
+
+        logger.info("[DEBUG] _create_initial_support_plan END")
 
     @staticmethod
     def _create_initial_support_plan_sync(db: Session, welfare_recipient_id: UUID) -> None:
@@ -435,6 +520,17 @@ class WelfareRecipientService:
         戻り値: (repaired: bool, message: str)
         """
         try:
+            # 利用者の office_id を取得
+            from app.models.welfare_recipient import OfficeWelfareRecipient
+            office_stmt = select(OfficeWelfareRecipient.office_id).where(
+                OfficeWelfareRecipient.welfare_recipient_id == welfare_recipient_id
+            ).limit(1)
+            office_result = await db.execute(office_stmt)
+            office_id = office_result.scalar_one_or_none()
+
+            if not office_id:
+                return False, "利用者の事業所情報が見つかりません"
+
             # 最新サイクルを取得
             stmt = select(SupportPlanCycle).where(
                 SupportPlanCycle.welfare_recipient_id == welfare_recipient_id,
@@ -447,6 +543,7 @@ class WelfareRecipientService:
                 # 初期サイクルと初期ステータスを作成
                 cycle = SupportPlanCycle(
                     welfare_recipient_id=welfare_recipient_id,
+                    office_id=office_id,
                     is_latest_cycle=True,
                     plan_cycle_start_date=date.today(),
                     next_renewal_deadline=date.today()
@@ -463,6 +560,8 @@ class WelfareRecipientService:
                 for step in initial_steps:
                     st = SupportPlanStatus(
                         plan_cycle_id=cycle.id,
+                        welfare_recipient_id=welfare_recipient_id,
+                        office_id=office_id,
                         step_type=step,
                         completed=False
                     )
@@ -509,6 +608,8 @@ class WelfareRecipientService:
         for step in to_create:
             st = SupportPlanStatus(
                 plan_cycle_id=latest_cycle.id,
+                welfare_recipient_id=latest_cycle.welfare_recipient_id,
+                office_id=latest_cycle.office_id,
                 step_type=step,
                 completed=False
             )
@@ -517,6 +618,101 @@ class WelfareRecipientService:
         if to_create:
             await db.flush()
         return len(to_create)
+
+    async def delete_recipient(
+        self,
+        db: AsyncSession,
+        recipient_id: UUID
+    ) -> bool:
+        """利用者を削除（関連カレンダーイベントもGoogle Calendarから削除）
+
+        【責務の説明】
+        利用者削除には2つのアプローチがあります：
+        1. crud層の `delete_with_cascade`: データベースのみの削除（CASCADE削除を含む）
+        2. services層の `delete_recipient`（このメソッド）: ビジネスロジックを含む削除
+
+        このメソッドを使うべき理由：
+        - Google Calendar APIを呼び出してクラウド側からもイベントを削除する
+        - データベースのCASCADEだけでは、Google Calendar上のイベントは削除されない
+        - カレンダーイベントの完全な削除（DB + Google Calendar）を保証する
+
+        Args:
+            db: データベースセッション
+            recipient_id: 利用者ID
+
+        Returns:
+            削除成功フラグ
+        """
+        logger.info(f"[DEBUG] delete_recipient START: recipient_id={recipient_id}")
+
+        # 1. 利用者に紐づくカレンダーイベントを取得
+        from app.models.calendar_events import CalendarEvent
+        from app.crud.crud_office_calendar_account import crud_office_calendar_account
+
+        stmt = select(CalendarEvent).where(
+            CalendarEvent.welfare_recipient_id == recipient_id
+        )
+        result = await db.execute(stmt)
+        events = result.scalars().all()
+
+        logger.info(f"[DEBUG] Found {len(events)} calendar events for recipient {recipient_id}")
+
+        # 2. Google Calendarから各イベントを削除
+        for event in events:
+            # MissingGreenletエラーを防ぐため、必要な属性を事前に変数に保存
+            event_id = event.id
+            google_event_id = event.google_event_id
+            office_id = event.office_id
+
+            if google_event_id:
+                try:
+                    logger.info(f"[DEBUG-DELETE] Processing event {event_id} with google_event_id={google_event_id}, office_id={office_id}")
+
+                    # カレンダーアカウント取得
+                    account = await crud_office_calendar_account.get_by_office_id(
+                        db=db,
+                        office_id=office_id
+                    )
+                    logger.info(f"[DEBUG-DELETE] Calendar account retrieved: {account is not None}")
+
+                    if account:
+                        logger.info(f"[DEBUG-DELETE] Account attributes: service_account_key exists={hasattr(account, 'service_account_key')}, decrypt method exists={hasattr(account, 'decrypt_service_account_key')}")
+
+                        # Google Calendarクライアント初期化
+                        from app.services.google_calendar_client import GoogleCalendarClient
+
+                        # decrypt_service_account_key() はメソッドなので呼び出す必要がある
+                        decrypted_key = account.decrypt_service_account_key()
+                        logger.info(f"[DEBUG-DELETE] Decrypted key obtained: {decrypted_key is not None}")
+
+                        calendar_client = GoogleCalendarClient(
+                            service_account_json=decrypted_key,
+                            calendar_id=account.google_calendar_id
+                        )
+                        logger.info(f"[DEBUG-DELETE] GoogleCalendarClient initialized")
+
+                        # Google Calendarからイベント削除
+                        await calendar_client.delete_event(google_event_id)
+                        logger.info(f"[DEBUG] Deleted event {event_id} from Google Calendar: {google_event_id}")
+                    else:
+                        logger.warning(f"[DEBUG] Calendar account not found for office_id={office_id}")
+
+                except Exception as e:
+                    # Google Calendar削除に失敗してもDB削除は継続
+                    logger.warning(f"[DEBUG] Failed to delete event {event_id} from Google Calendar: {str(e)}")
+                    import traceback
+                    logger.warning(f"[DEBUG-DELETE] Traceback:\n{traceback.format_exc()}")
+
+        # 3. 利用者削除（CASCADE でイベントも削除される）
+        recipient = await db.get(WelfareRecipient, recipient_id)
+        if recipient:
+            await db.delete(recipient)
+            await db.flush()
+            logger.info(f"[DEBUG] delete_recipient END: deleted recipient {recipient_id}")
+            return True
+
+        logger.warning(f"[DEBUG] delete_recipient END: recipient {recipient_id} not found")
+        return False
 
 # ensure module exports an instance expected by tests/endpoints
 try:

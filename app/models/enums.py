@@ -129,3 +129,44 @@ class DisabilityCategory(str, enum.Enum):
     disability_basic_pension = "disability_basic_pension"
     other_disability_pension = "other_disability_pension"
     public_assistance = "public_assistance"
+
+class CalendarConnectionStatus(str, enum.Enum):
+    """カレンダー連携状態"""
+    not_connected = "not_connected"  # 未連携
+    connected = "connected"          # 連携済み
+    error = "error"                  # エラー状態
+    suspended = "suspended"          # 一時停止
+
+class NotificationTiming(str, enum.Enum):
+    """通知タイミング設定"""
+    early = "early"        # 早め (30日前、14日前、7日前、3日前、1日前)
+    standard = "standard"  # 標準 (30日前、7日前、1日前)
+    minimal = "minimal"    # 最小限 (7日前、1日前)
+    custom = "custom"      # カスタム
+
+class CalendarEventType(str, enum.Enum):
+    """カレンダーイベントタイプ"""
+    renewal_deadline = "renewal_deadline"       # 更新期限
+    monitoring_deadline = "monitoring_deadline" # モニタリング期限
+    custom = "custom"                           # カスタムイベント
+
+class CalendarSyncStatus(str, enum.Enum):
+    """カレンダー同期ステータス"""
+    pending = "pending"     # 同期待ち
+    synced = "synced"       # 同期済み
+    failed = "failed"       # 同期失敗
+    cancelled = "cancelled" # キャンセル済み
+
+class ReminderPatternType(str, enum.Enum):
+    """リマインダーパターンタイプ"""
+    single = "single"               # 単発イベント
+    multiple_fixed = "multiple_fixed" # 固定日程の複数イベント
+    recurring_rule = "recurring_rule" # RRULEによる繰り返し
+
+class EventInstanceStatus(str, enum.Enum):
+    """イベントインスタンスステータス"""
+    pending = "pending"       # 作成予定
+    created = "created"       # 作成済み
+    modified = "modified"     # 変更済み
+    cancelled = "cancelled"   # キャンセル済み
+    completed = "completed"   # 完了

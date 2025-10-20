@@ -21,7 +21,8 @@ from app.models.enums import (
 
 if TYPE_CHECKING:
     from .office import Office
-    from .support_plan_cycle import SupportPlanCycle
+    from .support_plan_cycle import SupportPlanCycle, SupportPlanStatus
+    from .calendar_events import CalendarEvent, CalendarEventSeries
     # from .assessment import AssessmentSheetDeliverable # NOTE: 未実装のためコメントアウト
 
 
@@ -41,8 +42,11 @@ class WelfareRecipient(Base):
     # Relationships
     office_associations: Mapped[List["OfficeWelfareRecipient"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
     support_plan_cycles: Mapped[List["SupportPlanCycle"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    support_plan_statuses: Mapped[List["SupportPlanStatus"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
     detail: Mapped[Optional["ServiceRecipientDetail"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
     disability_status: Mapped[Optional["DisabilityStatus"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    calendar_events: Mapped[List["CalendarEvent"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    calendar_event_series: Mapped[List["CalendarEventSeries"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
     # assessment_sheets: Mapped[List["AssessmentSheetDeliverable"]] = relationship(back_populates="welfare_recipient")
 
 

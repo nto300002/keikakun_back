@@ -125,7 +125,7 @@ class TestCreateInitialSupportPlan:
         db.add(recipient)
         await db.flush()
 
-        await welfare_recipient_service._create_initial_support_plan(db, recipient.id)
+        await welfare_recipient_service._create_initial_support_plan(db, recipient.id, office.id)
 
 
         stmt = select(SupportPlanCycle).where(SupportPlanCycle.welfare_recipient_id == recipient.id).options(selectinload(SupportPlanCycle.statuses))
@@ -151,15 +151,16 @@ class TestCreateInitialSupportPlan:
 
         # 既存のサイクルを１つ作成しておく
         existing_cycle = SupportPlanCycle(
-            welfare_recipient_id=recipient.id, 
-            cycle_number=1, 
-            is_latest_cycle=False, 
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
+            cycle_number=1,
+            is_latest_cycle=False,
             plan_cycle_start_date=date.today() - timedelta(days=200)
         )
         db.add(existing_cycle)
         await db.flush()
 
-        await welfare_recipient_service._create_initial_support_plan(db, recipient.id)
+        await welfare_recipient_service._create_initial_support_plan(db, recipient.id, office.id)
 
         stmt = select(SupportPlanCycle).where(
             SupportPlanCycle.welfare_recipient_id == recipient.id, 
@@ -196,3 +197,261 @@ class TestCreateInitialSupportPlan:
                 else:
                     # 同期例外が発生するならそのまま呼び出す
                     _ = coro_or_res
+
+    async def test_no_duplicate_calendar_events_on_user_registration(
+        self, db: AsyncSession, full_registration_data: UserRegistrationRequest, setup_staff_and_office
+    ):
+        """利用者登録時にカレンダーイベントの重複が発生しないこと（idx_calendar_events_cycle_type_unique制約）"""
+        from app.models.calendar_events import CalendarEvent
+        from app.models.calendar_account import OfficeCalendarAccount
+        from app.models.enums import CalendarConnectionStatus
+
+        _, office = setup_staff_and_office
+
+        # カレンダーアカウントを作成（イベント作成に必要）
+        # ユニーク制約違反を避けるため、テストごとにユニークなカレンダーIDを生成
+        unique_calendar_id = f"test-calendar-{uuid4().hex[:8]}@group.calendar.google.com"
+        calendar_account = OfficeCalendarAccount(
+            office_id=office.id,
+            google_calendar_id=unique_calendar_id,
+            calendar_name="テストカレンダー",
+            service_account_email="test@serviceaccount.com",
+            service_account_key="fake_encrypted_key_data",
+            connection_status=CalendarConnectionStatus.connected
+        )
+        db.add(calendar_account)
+        await db.flush()
+
+        # 利用者を作成
+        coro_or_res = welfare_recipient_service.create_recipient_with_initial_plan(
+            db=db, registration_data=full_registration_data, office_id=office.id
+        )
+        if hasattr(coro_or_res, "__await__"):
+            recipient_id = await coro_or_res
+        else:
+            recipient_id = coro_or_res
+
+        await db.commit()
+
+        # 作成されたカレンダーイベントを確認
+        stmt = select(CalendarEvent).where(CalendarEvent.welfare_recipient_id == recipient_id)
+        result = await db.execute(stmt)
+        events = result.scalars().all()
+
+        # イベントが作成されていることを確認
+        assert len(events) > 0, "カレンダーイベントが作成されていません"
+
+        # cycle_id + event_type の組み合わせで重複がないことを確認
+        event_keys = [(event.support_plan_cycle_id, event.event_type) for event in events]
+        assert len(event_keys) == len(set(event_keys)), "カレンダーイベントに重複があります"
+
+    async def test_no_missing_greenlet_error_on_user_registration(
+        self, db: AsyncSession, full_registration_data: UserRegistrationRequest, setup_staff_and_office
+    ):
+        """利用者登録時にMissingGreenletエラーが発生しないこと"""
+        from app.models.calendar_account import OfficeCalendarAccount
+        from app.models.enums import CalendarConnectionStatus
+
+        _, office = setup_staff_and_office
+
+        # カレンダーアカウントを作成
+        # ユニーク制約違反を避けるため、テストごとにユニークなカレンダーIDを生成
+        unique_calendar_id = f"test-calendar-{uuid4().hex[:8]}@group.calendar.google.com"
+        calendar_account = OfficeCalendarAccount(
+            office_id=office.id,
+            google_calendar_id=unique_calendar_id,
+            calendar_name="テストカレンダー",
+            service_account_email="test@serviceaccount.com",
+            service_account_key="fake_encrypted_key_data",
+            connection_status=CalendarConnectionStatus.connected
+        )
+        db.add(calendar_account)
+        await db.flush()
+
+        # MissingGreenletエラーが発生しないことを確認
+        try:
+            coro_or_res = welfare_recipient_service.create_recipient_with_initial_plan(
+                db=db, registration_data=full_registration_data, office_id=office.id
+            )
+            if hasattr(coro_or_res, "__await__"):
+                recipient_id = await coro_or_res
+            else:
+                recipient_id = coro_or_res
+
+            await db.commit()
+            assert recipient_id is not None
+        except Exception as e:
+            # MissingGreenletエラーが発生した場合はテスト失敗
+            assert "greenlet" not in str(e).lower(), f"MissingGreenletエラーが発生しました: {e}"
+            raise
+
+
+@pytest.mark.asyncio
+async def test_delete_recipient_also_deletes_calendar_events(db: AsyncSession):
+    """【統合テスト】利用者削除時、関連するカレンダーイベントがGoogle Calendarからも削除されること"""
+    from app.models.calendar_events import CalendarEvent
+    from app.models.enums import CalendarEventType, CalendarConnectionStatus, CalendarSyncStatus, GenderType
+    from app.services.calendar_service import calendar_service
+    from unittest.mock import patch, MagicMock, AsyncMock
+    import json
+
+    # スタッフと事業所を作成
+    staff = Staff(
+        name="テスト管理者",
+        email=f"test_{uuid4()}@example.com",
+        hashed_password=get_password_hash("password"),
+        role=StaffRole.owner
+    )
+    db.add(staff)
+    await db.flush()
+
+    office = Office(
+        name="テスト事業所",
+        type=OfficeType.type_A_office,
+        created_by=staff.id,
+        last_modified_by=staff.id
+    )
+    db.add(office)
+    await db.flush()
+
+    # カレンダーアカウントを作成
+    valid_sa_json = json.dumps({
+        "type": "service_account",
+        "project_id": "test",
+        "private_key_id": "test-key-id",
+        "private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+        "client_email": "test@test.iam.gserviceaccount.com",
+        "client_id": "123456"
+    })
+    from app.schemas.calendar_account import CalendarSetupRequest
+    setup_req = CalendarSetupRequest(
+        office_id=office.id,
+        google_calendar_id=f"test-{uuid4().hex[:8]}@group.calendar.google.com",
+        service_account_json=valid_sa_json,
+        calendar_name="テストカレンダー"
+    )
+    account = await calendar_service.setup_office_calendar(db=db, request=setup_req)
+    await calendar_service.update_connection_status(
+        db=db,
+        account_id=account.id,
+        status=CalendarConnectionStatus.connected
+    )
+
+    # 利用者を作成
+    recipient = WelfareRecipient(
+        first_name="太郎",
+        last_name="削除テスト",
+        first_name_furigana="たろう",
+        last_name_furigana="さくじょてすと",
+        birth_day=date(1990, 1, 1),
+        gender=GenderType.male
+    )
+    db.add(recipient)
+    await db.flush()
+
+    # 事業所との紐付け
+    from app.models.welfare_recipient import OfficeWelfareRecipient
+    association = OfficeWelfareRecipient(
+        office_id=office.id,
+        welfare_recipient_id=recipient.id
+    )
+    db.add(association)
+    await db.flush()
+
+    # サイクルを作成
+    cycle_start = date.today()
+    cycle = SupportPlanCycle(
+        welfare_recipient_id=recipient.id,
+        office_id=office.id,
+        plan_cycle_start_date=cycle_start,
+        next_renewal_deadline=cycle_start + timedelta(days=180),
+        cycle_number=2,
+        is_latest_cycle=True
+    )
+    db.add(cycle)
+    await db.flush()
+
+    # monitoringステータスを作成
+    status = SupportPlanStatus(
+        welfare_recipient_id=recipient.id,
+        plan_cycle_id=cycle.id,
+        office_id=office.id,
+        step_type=SupportPlanStep.monitoring,
+        completed=False,
+        is_latest_status=True
+    )
+    db.add(status)
+    await db.flush()
+
+    # カレンダーイベントを作成（更新期限とモニタリング期限）
+    renewal_event_ids = await calendar_service.create_renewal_deadline_events(
+        db=db,
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_id=cycle.id,
+        next_renewal_deadline=cycle.next_renewal_deadline
+    )
+    assert len(renewal_event_ids) == 1
+
+    monitoring_event_ids = await calendar_service.create_monitoring_deadline_events(
+        db=db,
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_id=cycle.id,
+        cycle_start_date=cycle_start,
+        cycle_number=cycle.cycle_number,
+        status_id=status.id
+    )
+    assert len(monitoring_event_ids) == 1
+
+    # Google event IDを設定（Google Calendar同期済みとして扱う）
+    renewal_event = await db.get(CalendarEvent, renewal_event_ids[0])
+    renewal_event.google_event_id = f"google_event_{uuid4().hex[:8]}"
+
+    monitoring_event = await db.get(CalendarEvent, monitoring_event_ids[0])
+    monitoring_event.google_event_id = f"google_event_{uuid4().hex[:8]}"
+
+    await db.flush()
+
+    # MissingGreenletエラーを防ぐため、commit前にrecipient_idを変数に保存
+    recipient_id = recipient.id
+
+    await db.commit()
+
+    # イベントが存在することを確認
+    events = await db.execute(
+        select(CalendarEvent).where(
+            CalendarEvent.welfare_recipient_id == recipient_id
+        )
+    )
+    events_list = events.scalars().all()
+    assert len(events_list) == 2
+
+    # Google Calendar APIのモック
+    with patch('app.services.google_calendar_client.GoogleCalendarClient') as mock_client_class:
+        mock_instance = MagicMock()
+        mock_instance.delete_event = AsyncMock()
+        mock_client_class.return_value = mock_instance
+
+        # 利用者削除
+        deleted = await welfare_recipient_service.delete_recipient(
+            db=db,
+            recipient_id=recipient_id
+        )
+
+        assert deleted is True
+
+        # Google Calendar APIのdelete_eventが2回呼ばれたことを確認
+        assert mock_instance.delete_event.call_count == 2
+
+    # DBからイベントが削除されたことを確認（CASCADE）
+    events_after = await db.execute(
+        select(CalendarEvent).where(
+            CalendarEvent.welfare_recipient_id == recipient_id
+        )
+    )
+    assert len(events_after.scalars().all()) == 0
+
+    # 利用者も削除されたことを確認
+    recipient_after = await db.get(WelfareRecipient, recipient_id)
+    assert recipient_after is None

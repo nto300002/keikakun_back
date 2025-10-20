@@ -1,12 +1,15 @@
 import uuid
 import datetime
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Integer, select, delete
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.enums import StaffRole
+
+if TYPE_CHECKING:
+    from app.models.office import Office, OfficeStaff
 
 class Staff(Base):
     """スタッフ"""
@@ -27,9 +30,32 @@ class Staff(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    office_associations: Mapped[List["OfficeStaff"]] = relationship(back_populates="staff")
+    office_associations: Mapped[List["OfficeStaff"]] = relationship(
+        "OfficeStaff",
+        back_populates="staff",
+        foreign_keys="[OfficeStaff.staff_id]"
+    )
     mfa_backup_codes: Mapped[List["MFABackupCode"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
     mfa_audit_logs: Mapped[List["MFAAuditLog"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
+
+    @property
+    def office(self) -> Optional["Office"]:
+        """プライマリ事業所を取得する（プロパティ）"""
+        if not self.office_associations:
+            return None
+        # is_primary=Trueのものを優先、なければ最初のものを使用
+        for assoc in self.office_associations:
+            if assoc.is_primary:
+                return assoc.office
+        return self.office_associations[0].office if self.office_associations else None
+
+    # Staff -> StaffCalendarAccount (one-to-one)
+    calendar_account: Mapped[Optional["StaffCalendarAccount"]] = relationship(
+        "StaffCalendarAccount",
+        back_populates="staff",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
     
     # MFA関連メソッド
     def set_mfa_secret(self, secret: str) -> None:

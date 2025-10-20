@@ -5,10 +5,12 @@ from slowapi.errors import RateLimitExceeded
 import uvicorn
 import logging
 import sys
+import atexit
 
 from app.core.limiter import limiter  # 新しいファイルからインポート
 from app.core.config import settings # settingsをインポート
 from app.api.v1.api import api_router
+from app.scheduler.calendar_sync_scheduler import calendar_sync_scheduler
 
 # ログ設定（標準出力に出力）
 logging.basicConfig(
@@ -25,6 +27,22 @@ logger.info("Application starting...")
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """アプリケーション起動時の処理"""
+    logger.info("Starting calendar sync scheduler...")
+    calendar_sync_scheduler.start()
+    logger.info("Calendar sync scheduler started successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """アプリケーション終了時の処理"""
+    logger.info("Shutting down calendar sync scheduler...")
+    calendar_sync_scheduler.shutdown()
+    logger.info("Calendar sync scheduler stopped successfully")
 
 # CORSミドルウェアの設定
 app.add_middleware(

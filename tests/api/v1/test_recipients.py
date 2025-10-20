@@ -265,6 +265,7 @@ async def test_get_recipient_as_employee_allowed(
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from app.models.staff import Staff
+    from app.models.office import OfficeStaff
     from app.api.deps import get_current_user
     from app.main import app
 
@@ -290,7 +291,9 @@ async def test_get_recipient_as_employee_allowed(
     manager_headers = {"Authorization": f"Bearer {manager_token}"}
 
     async def override_get_current_user_manager():
-        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == manager.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
         result = await db_session.execute(stmt)
         return result.scalars().first()
 
@@ -310,7 +313,9 @@ async def test_get_recipient_as_employee_allowed(
     employee_headers = {"Authorization": f"Bearer {employee_token}"}
 
     async def override_get_current_user_employee():
-        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == employee.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
         result = await db_session.execute(stmt)
         return result.scalars().first()
 
@@ -341,6 +346,7 @@ async def test_update_recipient_as_employee_forbidden(
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from app.models.staff import Staff
+    from app.models.office import OfficeStaff
     from app.api.deps import get_current_user
     from app.main import app
 
@@ -364,7 +370,9 @@ async def test_update_recipient_as_employee_forbidden(
     manager_headers = {"Authorization": f"Bearer {manager_token}"}
 
     async def override_get_current_user_manager():
-        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == manager.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
         result = await db_session.execute(stmt)
         return result.scalars().first()
 
@@ -384,7 +392,9 @@ async def test_update_recipient_as_employee_forbidden(
     employee_headers = {"Authorization": f"Bearer {employee_token}"}
 
     async def override_get_current_user_employee():
-        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == employee.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
         result = await db_session.execute(stmt)
         return result.scalars().first()
 
@@ -416,6 +426,7 @@ async def test_delete_recipient_as_employee_forbidden(
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from app.models.staff import Staff
+    from app.models.office import OfficeStaff
     from app.api.deps import get_current_user
     from app.main import app
 
@@ -439,7 +450,9 @@ async def test_delete_recipient_as_employee_forbidden(
     manager_headers = {"Authorization": f"Bearer {manager_token}"}
 
     async def override_get_current_user_manager():
-        stmt = select(Staff).where(Staff.id == manager.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == manager.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
         result = await db_session.execute(stmt)
         return result.scalars().first()
 
@@ -459,7 +472,9 @@ async def test_delete_recipient_as_employee_forbidden(
     employee_headers = {"Authorization": f"Bearer {employee_token}"}
 
     async def override_get_current_user_employee():
-        stmt = select(Staff).where(Staff.id == employee.id).options(selectinload(Staff.office_associations))
+        stmt = select(Staff).where(Staff.id == employee.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
         result = await db_session.execute(stmt)
         return result.scalars().first()
 

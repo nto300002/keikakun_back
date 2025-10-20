@@ -18,8 +18,20 @@ from app.services.support_plan_service import support_plan_service
 from app.schemas.support_plan import PlanDeliverableCreate
 from app.core.exceptions import InvalidStepOrderError
 
-# Add basic logging config to see output
-logging.basicConfig(level=logging.INFO)
+# Configure logging to suppress SQL statements and show only application logs
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:%(name)s:%(message)s'
+)
+
+# Suppress SQLAlchemy engine logs (SQL statements)
+logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
+logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
+logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
+
+# Keep application logs visible
+logging.getLogger('app').setLevel(logging.INFO)
 
 
 pytestmark = pytest.mark.asyncio
@@ -87,6 +99,7 @@ async def setup_recipient_with_initial_cycle(db: AsyncSession, setup_staff_and_o
 
     cycle = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
+        office_id=office_id,
         plan_cycle_start_date=None,
         next_renewal_deadline=None,
         is_latest_cycle=True,
@@ -96,10 +109,10 @@ async def setup_recipient_with_initial_cycle(db: AsyncSession, setup_staff_and_o
     await db.flush()
 
     statuses = [
-        SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.assessment, is_latest_status=True),
-        SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.draft_plan, is_latest_status=False),
-        SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.staff_meeting, is_latest_status=False),
-        SupportPlanStatus(plan_cycle_id=cycle.id, step_type=SupportPlanStep.final_plan_signed, is_latest_status=False),
+        SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.assessment, is_latest_status=True),
+        SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.draft_plan, is_latest_status=False),
+        SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.staff_meeting, is_latest_status=False),
+        SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.final_plan_signed, is_latest_status=False),
     ]
     db.add_all(statuses)
 
@@ -244,9 +257,15 @@ async def test_upload_final_plan_creates_new_cycle(
         )
 
         from sqlalchemy import select
-        original_cycle_stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == original_cycle_id)
+        original_cycle_stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == original_cycle_id).options(selectinload(SupportPlanCycle.statuses))
         original_cycle = (await db.execute(original_cycle_stmt)).scalar_one()
         assert original_cycle.is_latest_cycle is False
+
+        # 【新規テスト要件】旧サイクルのfinal_plan_signedステータスが完了し、is_latest_status=Trueであることを確認
+        final_plan_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.final_plan_signed), None)
+        assert final_plan_status is not None, "final_plan_signedステータスが存在すること"
+        assert final_plan_status.completed is True, "final_plan_signedステータスが完了していること"
+        assert final_plan_status.is_latest_status is True, "サイクル完了時、final_plan_signedはis_latest_status=Trueであること"
 
         new_cycle_stmt = select(SupportPlanCycle).where(
             SupportPlanCycle.welfare_recipient_id == recipient_id,
@@ -446,3 +465,416 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     # cycle_number=2のサイクルが1つだけであることを確認
     cycle_2_count = sum(1 for c in all_cycles if c.cycle_number == 2)
     assert cycle_2_count == 1
+
+
+# ==================== Phase 3: カレンダー連携統合テスト ====================
+
+@pytest.mark.asyncio
+async def test_final_plan_upload_creates_calendar_event(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
+):
+    """【統合テスト】最終計画書アップロード時に更新期限イベントが自動作成されること"""
+    from app import crud
+    from app.services.calendar_service import calendar_service
+    from app.schemas.calendar_account import CalendarSetupRequest
+    from app.models.enums import CalendarConnectionStatus, CalendarEventType
+    import json
+
+    recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # 事業所IDを取得
+    from sqlalchemy import select
+    cycle_stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == original_cycle_id)
+    cycle = (await db.execute(cycle_stmt)).scalar_one()
+    office_id = cycle.office_id
+
+    # カレンダーアカウントを設定
+    service_account_json = json.dumps({
+        "type": "service_account",
+        "project_id": "test-project",
+        "private_key_id": "test-key-id",
+        "private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+        "client_email": "test@test.iam.gserviceaccount.com",
+        "client_id": "123456",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test"
+    })
+
+    setup_request = CalendarSetupRequest(
+        office_id=office_id,
+        google_calendar_id=f"test-{uuid4().hex[:8]}@group.calendar.google.com",
+        service_account_json=service_account_json,
+        calendar_name="テストカレンダー"
+    )
+    account = await calendar_service.setup_office_calendar(db=db, request=setup_request)
+    await calendar_service.update_connection_status(
+        db=db,
+        account_id=account.id,
+        status=CalendarConnectionStatus.connected
+    )
+
+    # 前提となるステップを完了させる
+    steps_to_complete = [
+        (DeliverableType.assessment_sheet, "assessment.pdf"),
+        (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
+        (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
+    ]
+
+    for deliverable_type, filename in steps_to_complete:
+        await db.refresh(await db.get(SupportPlanCycle, original_cycle_id), attribute_names=["statuses"])
+        deliverable_in = PlanDeliverableCreate(
+            plan_cycle_id=original_cycle_id,
+            deliverable_type=deliverable_type,
+            file_path=f"/path/to/{filename}",
+            original_filename=filename,
+        )
+        await support_plan_service.handle_deliverable_upload(
+            db=db,
+            deliverable_in=deliverable_in,
+            uploaded_by_staff_id=staff_id
+        )
+
+    # 最終計画書をアップロード
+    deliverable_in = PlanDeliverableCreate(
+        plan_cycle_id=original_cycle_id,
+        deliverable_type=DeliverableType.final_plan_signed_pdf,
+        file_path="/path/to/final_plan.pdf",
+        original_filename="final_plan.pdf",
+    )
+    await support_plan_service.handle_deliverable_upload(
+        db=db,
+        deliverable_in=deliverable_in,
+        uploaded_by_staff_id=staff_id
+    )
+
+    # 新しいサイクルを取得
+    new_cycle_stmt = select(SupportPlanCycle).where(
+        SupportPlanCycle.welfare_recipient_id == recipient_id,
+        SupportPlanCycle.is_latest_cycle == True
+    ).options(selectinload(SupportPlanCycle.statuses))
+    new_cycle = (await db.execute(new_cycle_stmt)).scalar_one()
+
+    # 更新期限イベントが作成されたことを確認
+    events = await crud.calendar_event.get_by_cycle_id(db=db, cycle_id=new_cycle.id)
+    renewal_events = [e for e in events if e.event_type == CalendarEventType.renewal_deadline]
+
+    assert len(renewal_events) == 1, "更新期限イベントが1つ作成されているべき"
+    renewal_event = renewal_events[0]
+    assert renewal_event.welfare_recipient_id == recipient_id
+    assert renewal_event.office_id == office_id
+    assert "更新期限" in renewal_event.event_title
+
+    # モニタリング期限イベントも作成されたことを確認
+    monitoring_status = next((s for s in new_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
+    assert monitoring_status is not None
+
+    monitoring_events = await crud.calendar_event.get_by_status_id(db=db, status_id=monitoring_status.id)
+    monitoring_deadline_events = [e for e in monitoring_events if e.event_type == CalendarEventType.monitoring_deadline]
+
+    assert len(monitoring_deadline_events) == 1, "モニタリング期限イベントが1つ作成されているべき"
+    monitoring_event = monitoring_deadline_events[0]
+    assert monitoring_event.welfare_recipient_id == recipient_id
+    assert monitoring_event.office_id == office_id
+    assert "モニタリング期限" in monitoring_event.event_title
+
+
+@pytest.mark.asyncio
+async def test_final_plan_upload_without_calendar_account_succeeds(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
+):
+    """【統合テスト】カレンダー未設定でも最終計画書アップロードは成功すること"""
+    recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # カレンダーアカウントを設定しない
+
+    # 前提となるステップを完了させる
+    steps_to_complete = [
+        (DeliverableType.assessment_sheet, "assessment.pdf"),
+        (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
+        (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
+    ]
+
+    for deliverable_type, filename in steps_to_complete:
+        await db.refresh(await db.get(SupportPlanCycle, original_cycle_id), attribute_names=["statuses"])
+        deliverable_in = PlanDeliverableCreate(
+            plan_cycle_id=original_cycle_id,
+            deliverable_type=deliverable_type,
+            file_path=f"/path/to/{filename}",
+            original_filename=filename,
+        )
+        await support_plan_service.handle_deliverable_upload(
+            db=db,
+            deliverable_in=deliverable_in,
+            uploaded_by_staff_id=staff_id
+        )
+
+    # 最終計画書をアップロード（エラーが発生しないことを確認）
+    deliverable_in = PlanDeliverableCreate(
+        plan_cycle_id=original_cycle_id,
+        deliverable_type=DeliverableType.final_plan_signed_pdf,
+        file_path="/path/to/final_plan.pdf",
+        original_filename="final_plan.pdf",
+    )
+
+    # エラーが発生しないことを確認
+    await support_plan_service.handle_deliverable_upload(
+        db=db,
+        deliverable_in=deliverable_in,
+        uploaded_by_staff_id=staff_id
+    )
+
+    # 新しいサイクルが作成されたことを確認
+    from sqlalchemy import select
+    new_cycle_stmt = select(SupportPlanCycle).where(
+        SupportPlanCycle.welfare_recipient_id == recipient_id,
+        SupportPlanCycle.is_latest_cycle == True
+    )
+    new_cycle = (await db.execute(new_cycle_stmt)).scalar_one()
+    assert new_cycle is not None
+    assert new_cycle.cycle_number == 2
+
+
+class TestCalendarEventDeletionHooks:
+    """カレンダーイベント削除フックのテスト"""
+
+    async def test_delete_renewal_event_on_final_plan_completion(self, db: AsyncSession):
+        """final_plan_signed完了時に更新期限イベントが削除されることを確認"""
+        from app.models.calendar_events import CalendarEvent
+        from app.models.calendar_account import OfficeCalendarAccount
+        from app.models.enums import CalendarEventType, CalendarConnectionStatus, CalendarSyncStatus
+        from app.services.calendar_service import calendar_service
+        import json
+
+        # スタッフと事業所を作成
+        staff = Staff(
+            name="テスト管理者",
+            email=f"test_{uuid4()}@example.com",
+            hashed_password=get_password_hash("password"),
+            role=StaffRole.owner
+        )
+        db.add(staff)
+        await db.flush()
+
+        office = Office(
+            name="テスト事業所",
+            type=OfficeType.type_A_office,
+            created_by=staff.id,
+            last_modified_by=staff.id
+        )
+        db.add(office)
+        await db.flush()
+
+        # カレンダーアカウントを作成
+        valid_sa_json = json.dumps({
+            "type": "service_account",
+            "project_id": "test",
+            "private_key_id": "test-key-id",
+            "private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+            "client_email": "test@test.iam.gserviceaccount.com",
+            "client_id": "123456"
+        })
+        from app.schemas.calendar_account import CalendarSetupRequest
+        setup_req = CalendarSetupRequest(
+            office_id=office.id,
+            google_calendar_id=f"test-{uuid4().hex[:8]}@group.calendar.google.com",
+            service_account_json=valid_sa_json,
+            calendar_name="テストカレンダー"
+        )
+        account = await calendar_service.setup_office_calendar(db=db, request=setup_req)
+        await calendar_service.update_connection_status(
+            db=db,
+            account_id=account.id,
+            status=CalendarConnectionStatus.connected
+        )
+
+        # 利用者を作成
+        recipient = WelfareRecipient(
+            first_name="太郎",
+            last_name="テスト",
+            first_name_furigana="たろう",
+            last_name_furigana="てすと",
+            birth_day=date(1990, 1, 1),
+            gender=GenderType.male
+        )
+        db.add(recipient)
+        await db.flush()
+
+        # サイクルを作成
+        cycle_start = date.today()
+        cycle = SupportPlanCycle(
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
+            plan_cycle_start_date=cycle_start,
+            next_renewal_deadline=cycle_start + timedelta(days=180),
+            cycle_number=1,
+            is_latest_cycle=True
+        )
+        db.add(cycle)
+        await db.flush()
+
+        # ステータスを作成
+        status = SupportPlanStatus(
+            welfare_recipient_id=recipient.id,
+            plan_cycle_id=cycle.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.final_plan_signed,
+            completed=False,
+            is_latest_status=True
+        )
+        db.add(status)
+        await db.flush()
+
+        # 更新期限イベントを作成
+        event_ids = await calendar_service.create_renewal_deadline_events(
+            db=db,
+            office_id=office.id,
+            welfare_recipient_id=recipient.id,
+            cycle_id=cycle.id,
+            next_renewal_deadline=cycle.next_renewal_deadline
+        )
+        assert len(event_ids) == 1
+
+        # イベントが存在することを確認
+        from sqlalchemy import select
+        event_stmt = select(CalendarEvent).where(
+            CalendarEvent.support_plan_cycle_id == cycle.id,
+            CalendarEvent.event_type == CalendarEventType.renewal_deadline
+        )
+        event = (await db.execute(event_stmt)).scalar_one_or_none()
+        assert event is not None
+
+        # final_plan_signedを完了にする
+        await support_plan_service.update_status_completion(
+            db=db,
+            status_id=status.id,
+            completed=True
+        )
+        await db.commit()
+
+        # イベントが削除されたことを確認
+        event_after = (await db.execute(event_stmt)).scalar_one_or_none()
+        assert event_after is None
+
+    async def test_delete_monitoring_event_on_monitoring_completion(self, db: AsyncSession):
+        """monitoring完了時にモニタリングイベントが削除されることを確認"""
+        from app.models.calendar_events import CalendarEvent
+        from app.models.calendar_account import OfficeCalendarAccount
+        from app.models.enums import CalendarEventType, CalendarConnectionStatus, CalendarSyncStatus
+        from app.services.calendar_service import calendar_service
+        import json
+
+        # スタッフと事業所を作成
+        staff = Staff(
+            name="テスト管理者",
+            email=f"test_{uuid4()}@example.com",
+            hashed_password=get_password_hash("password"),
+            role=StaffRole.owner
+        )
+        db.add(staff)
+        await db.flush()
+
+        office = Office(
+            name="テスト事業所",
+            type=OfficeType.type_A_office,
+            created_by=staff.id,
+            last_modified_by=staff.id
+        )
+        db.add(office)
+        await db.flush()
+
+        # カレンダーアカウントを作成
+        valid_sa_json = json.dumps({
+            "type": "service_account",
+            "project_id": "test",
+            "private_key_id": "test-key-id",
+            "private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+            "client_email": "test@test.iam.gserviceaccount.com",
+            "client_id": "123456"
+        })
+        from app.schemas.calendar_account import CalendarSetupRequest
+        setup_req = CalendarSetupRequest(
+            office_id=office.id,
+            google_calendar_id=f"test-{uuid4().hex[:8]}@group.calendar.google.com",
+            service_account_json=valid_sa_json,
+            calendar_name="テストカレンダー"
+        )
+        account = await calendar_service.setup_office_calendar(db=db, request=setup_req)
+        await calendar_service.update_connection_status(
+            db=db,
+            account_id=account.id,
+            status=CalendarConnectionStatus.connected
+        )
+
+        # 利用者を作成
+        recipient = WelfareRecipient(
+            first_name="次郎",
+            last_name="テスト",
+            first_name_furigana="じろう",
+            last_name_furigana="てすと",
+            birth_day=date(1992, 2, 2),
+            gender=GenderType.male
+        )
+        db.add(recipient)
+        await db.flush()
+
+        # サイクルを作成（cycle_number=2でモニタリングイベント作成可能）
+        cycle_start = date.today()
+        cycle = SupportPlanCycle(
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
+            plan_cycle_start_date=cycle_start,
+            next_renewal_deadline=cycle_start + timedelta(days=180),
+            cycle_number=2,
+            is_latest_cycle=True
+        )
+        db.add(cycle)
+        await db.flush()
+
+        # monitoringステータスを作成
+        status = SupportPlanStatus(
+            welfare_recipient_id=recipient.id,
+            plan_cycle_id=cycle.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.monitoring,
+            completed=False,
+            is_latest_status=True
+        )
+        db.add(status)
+        await db.flush()
+
+        # モニタリングイベントを作成
+        event_ids = await calendar_service.create_monitoring_deadline_events(
+            db=db,
+            office_id=office.id,
+            welfare_recipient_id=recipient.id,
+            cycle_id=cycle.id,
+            cycle_start_date=cycle_start,
+            cycle_number=cycle.cycle_number,
+            status_id=status.id  # status_idを渡してイベントに紐付け
+        )
+        assert len(event_ids) == 1
+
+        # イベントが存在することを確認
+        from sqlalchemy import select
+        event_stmt = select(CalendarEvent).where(
+            CalendarEvent.support_plan_status_id == status.id,
+            CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+        )
+        event = (await db.execute(event_stmt)).scalar_one_or_none()
+        assert event is not None
+
+        # monitoringを完了にする
+        await support_plan_service.update_status_completion(
+            db=db,
+            status_id=status.id,
+            completed=True
+        )
+        await db.commit()
+
+        # イベントが削除されたことを確認
+        event_after = (await db.execute(event_stmt)).scalar_one_or_none()
+        assert event_after is None

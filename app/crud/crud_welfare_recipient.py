@@ -20,6 +20,8 @@ from app.schemas.welfare_recipient import (
     UserRegistrationRequest
 )
 
+logger = logging.getLogger(__name__)
+
 
 class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, WelfareRecipientUpdate]):
 
@@ -74,7 +76,10 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         office_id: UUID
     ) -> None:
         """Create related data for a welfare recipient."""
+        logger.info(f"[CRUD DEBUG] create_related_data START: welfare_recipient_id={welfare_recipient.id}, office_id={office_id}")
+
         contact_address = registration_data.contact_address
+        logger.info("[CRUD DEBUG] Creating ServiceRecipientDetail...")
         detail = ServiceRecipientDetail(
             welfare_recipient_id=welfare_recipient.id,
             address=contact_address.address,
@@ -85,8 +90,11 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
             tel=contact_address.tel
         )
         db.add(detail)
+        logger.info("[CRUD DEBUG] Flushing ServiceRecipientDetail...")
         await db.flush()
+        logger.info(f"[CRUD DEBUG] ServiceRecipientDetail created with id={detail.id}")
 
+        logger.info(f"[CRUD DEBUG] Creating {len(registration_data.emergency_contacts)} emergency contacts...")
         for contact_data in registration_data.emergency_contacts:
             emergency_contact = EmergencyContact(
                 service_recipient_detail_id=detail.id,
@@ -101,8 +109,10 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
                 priority=contact_data.priority
             )
             db.add(emergency_contact)
+        logger.info("[CRUD DEBUG] Emergency contacts added")
 
         disability_info = registration_data.disability_info
+        logger.info("[CRUD DEBUG] Creating DisabilityStatus...")
         disability_status = DisabilityStatus(
             welfare_recipient_id=welfare_recipient.id,
             disability_or_disease_name=disability_info.disabilityOrDiseaseName,
@@ -110,8 +120,11 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
             special_remarks=disability_info.specialRemarks
         )
         db.add(disability_status)
+        logger.info("[CRUD DEBUG] Flushing DisabilityStatus...")
         await db.flush()
+        logger.info(f"[CRUD DEBUG] DisabilityStatus created with id={disability_status.id}")
 
+        logger.info(f"[CRUD DEBUG] Creating {len(registration_data.disability_details)} disability details...")
         for detail_data in registration_data.disability_details:
             disability_detail = DisabilityDetail(
                 disability_status_id=disability_status.id,
@@ -122,12 +135,15 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
                 application_status=detail_data.application_status
             )
             db.add(disability_detail)
+        logger.info("[CRUD DEBUG] Disability details added")
 
+        logger.info("[CRUD DEBUG] Creating OfficeWelfareRecipient association...")
         office_association = OfficeWelfareRecipient(
             welfare_recipient_id=welfare_recipient.id,
             office_id=office_id
         )
         db.add(office_association)
+        logger.info("[CRUD DEBUG] create_related_data END")
 
     async def search_by_name(self, db: AsyncSession, office_id: UUID, search_term: str, skip: int = 0, limit: int = 100) -> List[WelfareRecipient]:
         """Search welfare recipients by name (supports both kanji and furigana)"""
@@ -188,7 +204,18 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         return await self.get_with_details(db, recipient_id)
 
     async def delete_with_cascade(self, db: AsyncSession, recipient_id: UUID) -> bool:
-        """Delete welfare recipient and all related data"""
+        """Delete welfare recipient and all related data
+
+        【注意】
+        このメソッドはデータベースのみの削除を行います。
+        カレンダーイベントを削除する場合は、services層の `delete_recipient` を使用してください。
+        そちらは Google Calendar API を呼び出してクラウド側からもイベントを削除します。
+
+        このメソッドの用途：
+        - カレンダーイベントが存在しない利用者の削除
+        - テストデータのクリーンアップ
+        - Google Calendar との同期が不要な場合
+        """
         from sqlalchemy import delete as sql_delete
 
         try:
@@ -290,7 +317,7 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
             await db.rollback()
             raise e
 
-    async def _create_initial_support_plan(self, db: AsyncSession, recipient_id: UUID) -> None:
+    async def _create_initial_support_plan(self, db: AsyncSession, recipient_id: UUID, office_id: UUID) -> None:
         """Create initial support plan for a welfare recipient"""
         from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
         from app.models.enums import SupportPlanStep
@@ -298,6 +325,7 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
 
         cycle = SupportPlanCycle(
             welfare_recipient_id=recipient_id,
+            office_id=office_id,
             is_latest_cycle=True,
             plan_cycle_start_date=date.today(),
             next_renewal_deadline=date.today() + timedelta(days=180)
@@ -316,6 +344,8 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         for step in initial_steps:
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient_id,
+                office_id=office_id,
                 step_type=step,
                 completed=False
             )
