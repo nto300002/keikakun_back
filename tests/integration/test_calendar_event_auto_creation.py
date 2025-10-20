@@ -176,12 +176,13 @@ async def test_renewal_deadline_event_has_correct_datetime(
     )
     calendar_event = result.scalar_one()
 
-    # 開始時刻: 150日後 9:00 (UTC) - 更新期限30日前
-    from datetime import timezone
+    # 開始時刻: 150日後 9:00 (JST) - 更新期限30日前
+    from zoneinfo import ZoneInfo
+    jst = ZoneInfo("Asia/Tokyo")
     expected_start_date = date.today() + timedelta(days=150)
-    expected_start = datetime.combine(expected_start_date, time(9, 0), tzinfo=timezone.utc)
-    # 終了時刻: 180日後（next_renewal_deadline）18:00 (UTC)
-    expected_end = datetime.combine(new_cycle.next_renewal_deadline, time(18, 0), tzinfo=timezone.utc)
+    expected_start = datetime.combine(expected_start_date, time(9, 0), tzinfo=jst)
+    # 終了時刻: 180日後（next_renewal_deadline）18:00 (JST)
+    expected_end = datetime.combine(new_cycle.next_renewal_deadline, time(18, 0), tzinfo=jst)
 
     assert calendar_event.event_start_datetime == expected_start, \
         f"開始時刻が正しくありません: {calendar_event.event_start_datetime} (期待: {expected_start})"
@@ -269,11 +270,12 @@ async def test_monitoring_deadline_event_creation(
     )
     calendar_event = result.scalar_one()
 
-    # 開始時刻: 期限日 9:00 (UTC)
-    from datetime import timezone
-    expected_start = datetime.combine(due_date, time(9, 0), tzinfo=timezone.utc)
-    # 終了時刻: 期限日 18:00 (UTC)
-    expected_end = datetime.combine(due_date, time(18, 0), tzinfo=timezone.utc)
+    # 開始時刻: 期限日 9:00 (JST)
+    from zoneinfo import ZoneInfo
+    jst = ZoneInfo("Asia/Tokyo")
+    expected_start = datetime.combine(due_date, time(9, 0), tzinfo=jst)
+    # 終了時刻: 期限日 18:00 (JST)
+    expected_end = datetime.combine(due_date, time(18, 0), tzinfo=jst)
 
     assert calendar_event.event_start_datetime == expected_start, \
         f"開始時刻が正しくありません: {calendar_event.event_start_datetime}"
