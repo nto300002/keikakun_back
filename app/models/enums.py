@@ -170,3 +170,38 @@ class EventInstanceStatus(str, enum.Enum):
     modified = "modified"     # 変更済み
     cancelled = "cancelled"   # キャンセル済み
     completed = "completed"   # 完了
+
+class Household(str, enum.Enum):
+    """世帯区分"""
+    same = "same"           # 同じ
+    separate = "separate"   # 別
+
+class MedicalCareInsurance(str, enum.Enum):
+    """医療保険の種類"""
+    national_health_insurance = "national_health_insurance"  # 国保
+    mutual_aid = "mutual_aid"                                # 共済
+    social_insurance = "social_insurance"                    # 社保
+    livelihood_protection = "livelihood_protection"          # 生活保護
+    other = "other"                                          # その他
+
+class AidingType(str, enum.Enum):
+    """公費負担の種類"""
+    none = "none"                # なし
+    subsidized = "subsidized"    # あり（一部補助）
+    full_exemption = "full_exemption"  # 全額免除
+
+class WorkConditions(str, enum.Enum):
+    """就労状況"""
+    general_employment = "general_employment"              # 一般就労
+    part_time = "part_time"                                # パート、アルバイト
+    transition_support = "transition_support"              # 就労移行支援
+    continuous_support_a = "continuous_support_a"          # 就労継続支援A
+    continuous_support_b = "continuous_support_b"          # 就労継続支援B
+    main_employment = "main_employment"                    # 本就労
+    other = "other"                                        # その他
+
+class WorkOutsideFacility(str, enum.Enum):
+    """施設外就労の希望"""
+    hope = "hope"              # 希望する
+    not_hope = "not_hope"      # 希望しない
+    undecided = "undecided"    # 未定

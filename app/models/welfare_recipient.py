@@ -4,8 +4,7 @@ from typing import List, Optional, TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, text, func, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, mapped_column, Mapped
-from sqlalchemy.orm import relationship as orm_relationship
+from sqlalchemy.orm import relationship as orm_relationship, mapped_column, Mapped
 from sqlalchemy import Enum as SQLAlchemyEnum
 
 from app.db.base import Base
@@ -23,6 +22,13 @@ if TYPE_CHECKING:
     from .office import Office
     from .support_plan_cycle import SupportPlanCycle, SupportPlanStatus
     from .calendar_events import CalendarEvent, CalendarEventSeries
+    from .assessment import (
+        FamilyOfServiceRecipients,
+        WelfareServicesUsed,
+        MedicalMatters,
+        EmploymentRelated,
+        IssueAnalysis,
+    )
     # from .assessment import AssessmentSheetDeliverable # NOTE: 未実装のためコメントアウト
 
 
@@ -40,14 +46,20 @@ class WelfareRecipient(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    office_associations: Mapped[List["OfficeWelfareRecipient"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    support_plan_cycles: Mapped[List["SupportPlanCycle"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    support_plan_statuses: Mapped[List["SupportPlanStatus"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    detail: Mapped[Optional["ServiceRecipientDetail"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    disability_status: Mapped[Optional["DisabilityStatus"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    calendar_events: Mapped[List["CalendarEvent"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    calendar_event_series: Mapped[List["CalendarEventSeries"]] = relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
-    # assessment_sheets: Mapped[List["AssessmentSheetDeliverable"]] = relationship(back_populates="welfare_recipient")
+    office_associations: Mapped[List["OfficeWelfareRecipient"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    support_plan_cycles: Mapped[List["SupportPlanCycle"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    support_plan_statuses: Mapped[List["SupportPlanStatus"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    detail: Mapped[Optional["ServiceRecipientDetail"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    disability_status: Mapped[Optional["DisabilityStatus"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    calendar_events: Mapped[List["CalendarEvent"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    calendar_event_series: Mapped[List["CalendarEventSeries"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    # アセスメント関連
+    family_members: Mapped[List["FamilyOfServiceRecipients"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    service_history: Mapped[List["WelfareServicesUsed"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    medical_matters: Mapped[Optional["MedicalMatters"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    employment_related: Mapped[Optional["EmploymentRelated"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    issue_analysis: Mapped[Optional["IssueAnalysis"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
+    # assessment_sheets: Mapped[List["AssessmentSheetDeliverable"]] = orm_relationship(back_populates="welfare_recipient")
 
 
 class OfficeWelfareRecipient(Base):
@@ -60,8 +72,8 @@ class OfficeWelfareRecipient(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    welfare_recipient: Mapped["WelfareRecipient"] = relationship(back_populates="office_associations")
-    office: Mapped["Office"] = relationship(back_populates="recipient_associations")
+    welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="office_associations")
+    office: Mapped["Office"] = orm_relationship(back_populates="recipient_associations")
 
 
 class ServiceRecipientDetail(Base):

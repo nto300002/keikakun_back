@@ -199,8 +199,9 @@ class TestGetOffices:
         """正常系: 認証済みユーザーが全ての事業所一覧を取得できる"""
         # Arrange
         # 事前に複数の事業所を作成
-        await office_factory(name="事業所A", creator=owner_user_with_office)
-        await office_factory(name="事業所B", creator=owner_user_with_office)
+        await office_factory(name="事業所A", creator=owner_user_with_office, session=db_session)
+        await office_factory(name="事業所B", creator=owner_user_with_office, session=db_session)
+        await db_session.commit()  # 作成した事業所をコミットして他のセッションから見えるようにする
 
         access_token = create_access_token(str(mock_current_user.id), timedelta(minutes=30))
         headers = {"Authorization": f"Bearer {access_token}"}

@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auths, mfa, offices, staffs, office_staff, dashboard, welfare_recipients, support_plans, support_plan_statuses, calendar
+from app.api.v1.endpoints import (
+    auths,
+    mfa,
+    offices,
+    staffs,
+    office_staff,
+    dashboard,
+    welfare_recipients,
+    support_plans,
+    support_plan_statuses,
+    calendar,
+    assessment,
+)
 
 api_router = APIRouter()
 
@@ -15,3 +27,4 @@ api_router.include_router(welfare_recipients.router, prefix="/welfare-recipients
 api_router.include_router(support_plans.router, prefix="/support-plans", tags=["support-plans"])
 api_router.include_router(support_plan_statuses.router, prefix="/support-plan-statuses", tags=["support-plan-statuses"])
 api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
+api_router.include_router(assessment.router, tags=["assessment"])

@@ -410,6 +410,7 @@ async def test_office_with_calendar(
     """カレンダーアカウント付きのテスト事業所を作成する共通fixture"""
     from app.models.calendar_account import OfficeCalendarAccount
     from app.models.enums import CalendarConnectionStatus
+    from sqlalchemy import delete
     import os
 
     # テスト管理者と事業所を作成
@@ -425,6 +426,14 @@ async def test_office_with_calendar(
     google_calendar_id = os.getenv("TEST_GOOGLE_CALENDAR_ID")
     if not google_calendar_id:
         pytest.skip("TEST_GOOGLE_CALENDAR_ID environment variable is not set")
+
+    # 既存の同じカレンダーIDを持つアカウントを削除（UNIQUE制約違反を防ぐ）
+    await db_session.execute(
+        delete(OfficeCalendarAccount).where(
+            OfficeCalendarAccount.google_calendar_id == google_calendar_id
+        )
+    )
+    await db_session.flush()
 
     # OfficeCalendarAccountを作成
     from app.crud.crud_office_calendar_account import crud_office_calendar_account
@@ -500,6 +509,136 @@ async def welfare_recipient_fixture(
     recipient.office_id = office.id
 
     return recipient
+
+
+@pytest_asyncio.fixture
+async def setup_recipient(
+    db_session: AsyncSession,
+    manager_user_factory,
+    office_factory
+):
+    """アセスメント機能テスト用の利用者、スタッフ、事業所、トークンヘッダーのセットアップ"""
+    from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
+    from app.models.enums import GenderType
+    from datetime import date
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    print("\n" + "="*80)
+    print("=== setup_recipient fixture start ===")
+    logger.info("=== setup_recipient fixture start ===")
+
+    # マネージャーを作成（事業所も自動作成される）
+    manager = await manager_user_factory(session=db_session)
+    await db_session.commit()  # コミットして確実にDBに保存
+    print(f"Manager created: {manager.email}, id: {manager.id}")
+    logger.info(f"Manager created: {manager.email}, id: {manager.id}")
+
+    # マネージャーの所属事業所を取得
+    office = manager.office_associations[0].office
+    print(f"Office: {office.name}, id: {office.id}")
+    logger.info(f"Office: {office.name}, id: {office.id}")
+
+    # 利用者を作成
+    recipient = WelfareRecipient(
+        last_name="テスト",
+        first_name="太郎",
+        last_name_furigana="テスト",
+        first_name_furigana="タロウ",
+        birth_day=date(1990, 1, 1),
+        gender=GenderType.male
+    )
+    db_session.add(recipient)
+    await db_session.flush()
+    print(f"Recipient created: {recipient.id}")
+    logger.info(f"Recipient created: {recipient.id}")
+
+    # 事業所との関連付けを作成
+    office_recipient_association = OfficeWelfareRecipient(
+        welfare_recipient_id=recipient.id,
+        office_id=office.id
+    )
+    db_session.add(office_recipient_association)
+    await db_session.flush()
+    await db_session.refresh(recipient)
+
+    # トークンを生成
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(manager.id), access_token_expires)
+    print(f"Token created: {access_token[:30]}...")
+    logger.info(f"Token created: {access_token[:30]}...")
+
+    # get_current_userをオーバーライド
+    async def override_get_current_user():
+        print(f"\n{'='*80}")
+        print(f"=== override_get_current_user called in setup_recipient ===")
+        logger.info(f"=== override_get_current_user called in setup_recipient ===")
+        stmt = select(Staff).where(Staff.id == manager.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        print(f"Returning user from override: {user.email if user else 'None'}")
+        print(f"{'='*80}\n")
+        logger.info(f"Returning user from override: {user.email if user else 'None'}")
+        return user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    print("dependency_overrides set for get_current_user")
+    print(f"Current overrides: {list(app.dependency_overrides.keys())}")
+    print("="*80 + "\n")
+    logger.info("dependency_overrides set for get_current_user")
+
+    token_headers = {"Authorization": f"Bearer {access_token}"}
+
+    yield recipient, manager, office, token_headers
+
+    # クリーンアップ
+    print("\n" + "="*80)
+    print("=== setup_recipient fixture cleanup ===")
+    logger.info("=== setup_recipient fixture cleanup ===")
+    app.dependency_overrides.pop(get_current_user, None)
+    print("dependency_overrides removed for get_current_user")
+    print(f"Current overrides after cleanup: {list(app.dependency_overrides.keys())}")
+    print("="*80 + "\n")
+    logger.info("dependency_overrides removed for get_current_user")
+
+
+@pytest_asyncio.fixture
+async def setup_other_office_staff(
+    db_session: AsyncSession,
+    manager_user_factory
+):
+    """別事業所のスタッフとトークンヘッダーを作成（権限テスト用）"""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.office import OfficeStaff
+
+    # 別のマネージャーを作成（新しい事業所が自動作成される）
+    other_manager = await manager_user_factory(session=db_session)
+    await db_session.commit()  # コミットして確実にDBに保存
+
+    # トークンを生成
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(other_manager.id), access_token_expires)
+
+    # get_current_userをオーバーライド
+    async def override_get_current_user():
+        stmt = select(Staff).where(Staff.id == other_manager.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await db_session.execute(stmt)
+        user = result.scalars().first()
+        return user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    token_headers = {"Authorization": f"Bearer {access_token}"}
+
+    yield other_manager, token_headers
+
+    # クリーンアップ
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 # --- mock_current_user フィクスチャ ---
