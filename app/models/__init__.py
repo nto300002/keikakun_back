@@ -4,7 +4,9 @@ from .enums import (
     SupportPlanStep, DeliverableType, AssessmentSheetType,
     CalendarConnectionStatus, NotificationTiming,
     CalendarEventType, CalendarSyncStatus,
-    ReminderPatternType, EventInstanceStatus
+    ReminderPatternType, EventInstanceStatus,
+    Household, MedicalCareInsurance, AidingType,
+    WorkConditions, WorkOutsideFacility
 )
 from .office import Office, OfficeStaff
 from .staff import Staff #, PasswordResetToken
@@ -16,4 +18,12 @@ from .calendar_account import OfficeCalendarAccount, StaffCalendarAccount
 from .calendar_events import (
     CalendarEvent, NotificationPattern,
     CalendarEventSeries, CalendarEventInstance
+)
+from .assessment import (
+    FamilyOfServiceRecipients,
+    WelfareServicesUsed,
+    MedicalMatters,
+    HistoryOfHospitalVisits,
+    EmploymentRelated,
+    IssueAnalysis
 )
