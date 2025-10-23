@@ -1,4 +1,5 @@
 import uuid
+import logging
 from typing import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,8 @@ from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal
 from app.models.staff import Staff
 from app.schemas.token import TokenData
+
+logger = logging.getLogger(__name__)
 
 # OAuth2PasswordBearerは、指定されたURL(tokenUrl)からトークンを取得する"callable"クラスです。
 # FastAPIはこれを使って、Swagger UI上で認証を試すためのUIを生成します。
@@ -35,6 +38,12 @@ async def get_current_user(
     対応するユーザーをDBから取得する依存性注入関数。
     認証が必要なエンドポイントで使用します。
     """
+    print("\n" + "="*80)
+    print("=== get_current_user called ===")
+    print(f"Token received: {token[:20]}..." if token else "No token")
+    logger.info("=== get_current_user called ===")
+    logger.info(f"Token received: {token[:20]}..." if token else "No token")
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -42,22 +51,36 @@ async def get_current_user(
     )
 
     payload = decode_access_token(token)
+    print(f"Decoded payload: {payload}")
+    logger.info(f"Decoded payload: {payload}")
 
     if payload is None:
+        print("Payload is None - raising 401")
+        logger.warning("Payload is None - raising 401")
         raise credentials_exception
 
     try:
         token_data = TokenData(sub=payload.get("sub"))
-    except ValidationError:
+        print(f"TokenData created with sub: {token_data.sub}")
+        logger.info(f"TokenData created with sub: {token_data.sub}")
+    except ValidationError as e:
+        print(f"ValidationError: {e}")
+        logger.warning(f"ValidationError: {e}")
         raise credentials_exception
 
     if token_data.sub is None:
+        print("token_data.sub is None - raising 401")
+        logger.warning("token_data.sub is None - raising 401")
         raise credentials_exception
 
     # IDを元に、crud層を経由してユーザーをデータベースから検索します。
     try:
         user_id = uuid.UUID(token_data.sub)
-    except ValueError:
+        print(f"Parsed user_id: {user_id}")
+        logger.info(f"Parsed user_id: {user_id}")
+    except ValueError as e:
+        print(f"ValueError parsing UUID: {e}")
+        logger.warning(f"ValueError parsing UUID: {e}")
         raise credentials_exception
 
     from sqlalchemy.orm import selectinload
@@ -71,7 +94,13 @@ async def get_current_user(
     user = result.scalars().first()
 
     if not user:
+        print(f"User not found for id: {user_id}")
+        logger.warning(f"User not found for id: {user_id}")
         raise credentials_exception
+
+    print(f"User found: {user.email}, id: {user.id}")
+    print("="*80 + "\n")
+    logger.info(f"User found: {user.email}, id: {user.id}")
     return user
 
 
