@@ -608,5 +608,148 @@ class SupportPlanService:
         await db.flush()
         return status
 
+    @staticmethod
+    async def get_deliverables_list(
+        db: AsyncSession,
+        current_user,
+        office_id: UUID,
+        search: str = None,
+        recipient_ids: list[UUID] = None,
+        deliverable_types: list[DeliverableType] = None,
+        date_from: datetime.datetime = None,
+        date_to: datetime.datetime = None,
+        sort_by: str = "uploaded_at",
+        sort_order: str = "desc",
+        skip: int = 0,
+        limit: int = 20,
+    ):
+        """
+        PDF一覧を取得する
+
+        Args:
+            db: データベースセッション
+            current_user: 現在のユーザー
+            office_id: 事業所ID
+            search: 検索キーワード
+            recipient_ids: 利用者IDリスト
+            deliverable_types: deliverable_typeリスト
+            date_from: アップロード日時の開始
+            date_to: アップロード日時の終了
+            sort_by: ソート対象
+            sort_order: ソート順
+            skip: スキップ件数
+            limit: 取得件数
+
+        Returns:
+            PlanDeliverableListResponse
+        """
+        from app.schemas.support_plan import (
+            PlanDeliverableListResponse,
+            PlanDeliverableListItem,
+            WelfareRecipientBrief,
+            StaffBrief,
+            PlanCycleBrief,
+        )
+        from app.core import storage
+        from app.core.config import settings
+
+        # フィルター条件の構築
+        filters = {}
+        if search:
+            filters["search"] = search
+        if recipient_ids:
+            filters["recipient_ids"] = recipient_ids
+        if deliverable_types:
+            filters["deliverable_types"] = deliverable_types
+        if date_from:
+            filters["date_from"] = date_from
+        if date_to:
+            filters["date_to"] = date_to
+
+        # データ取得
+        deliverables = await crud.support_plan.get_multi_deliverables_with_relations(
+            db,
+            office_id=office_id,
+            filters=filters,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            skip=skip,
+            limit=limit,
+        )
+
+        # 総件数取得
+        total = await crud.support_plan.count_deliverables_with_filters(
+            db,
+            office_id=office_id,
+            filters=filters,
+        )
+
+        # deliverable_typeの表示名マッピング
+        DELIVERABLE_TYPE_DISPLAY = {
+            DeliverableType.assessment_sheet: "アセスメントシート",
+            DeliverableType.draft_plan_pdf: "計画書（原案）",
+            DeliverableType.final_plan_signed_pdf: "計画書（署名済）",
+            DeliverableType.staff_meeting_minutes: "担当者会議議事録",
+            DeliverableType.monitoring_report_pdf: "モニタリング報告書",
+        }
+
+        # レスポンスデータの構築
+        items = []
+        for deliverable in deliverables:
+            # S3パスから署名付きURL生成
+            object_name = deliverable.file_path.replace(f"s3://{settings.S3_BUCKET_NAME}/", "")
+            try:
+                download_url = await storage.create_presigned_url(
+                    object_name=object_name,
+                    expiration=3600,  # 1時間
+                    inline=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to generate presigned URL for {object_name}: {e}")
+                download_url = None
+
+            # レスポンスオブジェクト作成
+            item = PlanDeliverableListItem(
+                id=deliverable.id,
+                original_filename=deliverable.original_filename,
+                file_path=deliverable.file_path,
+                deliverable_type=deliverable.deliverable_type,
+                deliverable_type_display=DELIVERABLE_TYPE_DISPLAY.get(
+                    deliverable.deliverable_type,
+                    deliverable.deliverable_type.value
+                ),
+                plan_cycle=PlanCycleBrief(
+                    id=deliverable.plan_cycle.id,
+                    cycle_number=deliverable.plan_cycle.cycle_number,
+                    plan_cycle_start_date=deliverable.plan_cycle.plan_cycle_start_date,
+                    next_renewal_deadline=deliverable.plan_cycle.next_renewal_deadline,
+                    is_latest_cycle=deliverable.plan_cycle.is_latest_cycle,
+                ),
+                welfare_recipient=WelfareRecipientBrief(
+                    id=deliverable.plan_cycle.welfare_recipient.id,
+                    full_name=deliverable.plan_cycle.welfare_recipient.full_name,
+                    full_name_furigana=deliverable.plan_cycle.welfare_recipient.full_name_furigana,
+                ),
+                uploaded_by=StaffBrief(
+                    id=deliverable.uploaded_by_staff.id,
+                    name=deliverable.uploaded_by_staff.name,
+                    role=deliverable.uploaded_by_staff.role.value,
+                ),
+                uploaded_at=deliverable.uploaded_at,
+                download_url=download_url,
+            )
+            items.append(item)
+
+        # ページネーション情報
+        has_more = (skip + limit) < total
+
+        return PlanDeliverableListResponse(
+            items=items,
+            total=total,
+            skip=skip,
+            limit=limit,
+            has_more=has_more,
+        )
+
 
 support_plan_service = SupportPlanService()
