@@ -1,16 +1,17 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import datetime
 import io
 import uuid as uuid_lib
+from typing import Optional
 
 from app import crud, models, schemas
 from app.api import deps
 from app.core import storage
-from app.schemas.support_plan import DeliverableType
+from app.schemas.support_plan import DeliverableType, SortBy, SortOrder
 from app.models.support_plan_cycle import SupportPlanCycle, PlanDeliverable
 from app.models.welfare_recipient import OfficeWelfareRecipient
 from app.services.support_plan_service import support_plan_service
@@ -421,3 +422,84 @@ async def update_cycle_monitoring_deadline(
     await db.refresh(cycle)
 
     return cycle
+
+
+@router.get("/plan-deliverables", response_model=schemas.support_plan.PlanDeliverableListResponse)
+async def get_plan_deliverables_list(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_staff: models.Staff = Depends(deps.get_current_user),
+    office_id: UUID = Query(..., description="事業所ID"),
+    search: Optional[str] = Query(None, max_length=200, description="検索キーワード"),
+    recipient_ids: Optional[str] = Query(None, description="利用者IDのカンマ区切り"),
+    deliverable_types: Optional[str] = Query(None, description="deliverable_typeのカンマ区切り"),
+    date_from: Optional[datetime.datetime] = Query(None, description="アップロード日時の開始（ISO 8601形式）"),
+    date_to: Optional[datetime.datetime] = Query(None, description="アップロード日時の終了（ISO 8601形式）"),
+    sort_by: SortBy = Query(SortBy.uploaded_at, description="ソート対象"),
+    sort_order: SortOrder = Query(SortOrder.desc, description="ソート順"),
+    skip: int = Query(0, ge=0, description="スキップ件数"),
+    limit: int = Query(20, ge=1, le=100, description="取得件数")
+):
+    """
+    PDF一覧を取得
+
+    - 検索、フィルタリング、ソート、ページネーションをサポート
+    - employeeロール以上でアクセス可能
+    """
+    try:
+        # 権限チェック: ユーザーがこの事業所にアクセスする権限を持っているかチェック
+        user_office_ids = [assoc.office_id for assoc in current_staff.office_associations]
+        if office_id not in user_office_ids:
+            raise ForbiddenException("この事業所のPDFにアクセスする権限がありません")
+
+        # カンマ区切り文字列をリストに変換
+        recipient_ids_list = None
+        if recipient_ids:
+            try:
+                recipient_ids_list = [UUID(r.strip()) for r in recipient_ids.split(",")]
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid recipient_ids format: {e}"
+                )
+
+        deliverable_types_list = None
+        if deliverable_types:
+            try:
+                deliverable_types_list = [DeliverableType(d.strip()) for d in deliverable_types.split(",")]
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid deliverable_types format: {e}"
+                )
+
+        # サービス層呼び出し
+        result = await support_plan_service.get_deliverables_list(
+            db=db,
+            current_user=current_staff,
+            office_id=office_id,
+            search=search,
+            recipient_ids=recipient_ids_list,
+            deliverable_types=deliverable_types_list,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by.value,
+            sort_order=sort_order.value,
+            skip=skip,
+            limit=limit,
+        )
+
+        return result
+
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"PDF一覧の取得に失敗しました: {str(e)}"
+        )
