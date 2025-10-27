@@ -45,6 +45,16 @@ class WelfareRecipient(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    @property
+    def full_name(self) -> str:
+        """フルネームを返す"""
+        return f"{self.last_name} {self.first_name}"
+
+    @property
+    def full_name_furigana(self) -> str:
+        """フルネーム（フリガナ）を返す"""
+        return f"{self.last_name_furigana} {self.first_name_furigana}"
+
     # Relationships
     office_associations: Mapped[List["OfficeWelfareRecipient"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
     support_plan_cycles: Mapped[List["SupportPlanCycle"]] = orm_relationship(back_populates="welfare_recipient", cascade="all, delete-orphan")
