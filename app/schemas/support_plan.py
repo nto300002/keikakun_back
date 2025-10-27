@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from uuid import UUID
 from typing import Optional, List
 from datetime import date, datetime
+from enum import Enum
 
 from app.models.enums import DeliverableType, SupportPlanStep
 
@@ -63,3 +64,74 @@ class SupportPlanCycleRead(BaseModel):
 
 class SupportPlanCyclesResponse(BaseModel):
     cycles: List[SupportPlanCycleRead]
+
+
+# ========================================
+# PDF一覧取得用スキーマ
+# ========================================
+
+class SortBy(str, Enum):
+    """ソート対象"""
+    uploaded_at = "uploaded_at"
+    recipient_name = "recipient_name"
+    file_name = "file_name"
+
+
+class SortOrder(str, Enum):
+    """ソート順"""
+    asc = "asc"
+    desc = "desc"
+
+
+class WelfareRecipientBrief(BaseModel):
+    """利用者情報（簡易版）"""
+    id: UUID
+    full_name: str
+    full_name_furigana: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StaffBrief(BaseModel):
+    """スタッフ情報（簡易版）"""
+    id: UUID
+    name: str
+    role: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PlanCycleBrief(BaseModel):
+    """計画サイクル情報（簡易版）"""
+    id: int
+    cycle_number: int
+    plan_cycle_start_date: Optional[date]
+    next_renewal_deadline: Optional[date]
+    is_latest_cycle: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PlanDeliverableListItem(BaseModel):
+    """PDF成果物レスポンス（一覧用）"""
+    id: int
+    original_filename: str
+    file_path: str
+    deliverable_type: DeliverableType
+    deliverable_type_display: str
+    plan_cycle: PlanCycleBrief
+    welfare_recipient: WelfareRecipientBrief
+    uploaded_by: StaffBrief
+    uploaded_at: datetime
+    download_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PlanDeliverableListResponse(BaseModel):
+    """PDF一覧レスポンス"""
+    items: List[PlanDeliverableListItem]
+    total: int
+    skip: int
+    limit: int
+    has_more: bool
