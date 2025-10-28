@@ -6,6 +6,7 @@ import uvicorn
 import logging
 import sys
 import atexit
+import os
 
 from app.core.limiter import limiter  # 新しいファイルからインポート
 from app.core.config import settings # settingsをインポート
@@ -44,13 +45,43 @@ async def shutdown_event():
     calendar_sync_scheduler.shutdown()
     logger.info("Calendar sync scheduler stopped successfully")
 
+# 環境に応じてCORS設定を変更
+is_production = os.getenv("ENVIRONMENT") == "production"
+
+if is_production:
+    # 本番環境: 必要最小限のオリジン・メソッド・ヘッダーのみ許可
+    allowed_origins = [
+        "https://keikakun-front.vercel.app",
+        "https://www.keikakun.com"
+    ]
+    allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allowed_headers = [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+    ]
+else:
+    # 開発環境: localhost + 本番確認用
+    allowed_origins = [
+        "http://localhost:3000",
+        "https://keikakun-front.vercel.app",  # 開発環境でも本番確認用
+    ]
+    allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allowed_headers = [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+    ]
+
 # CORSミドルウェアの設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://keikakun-front.vercel.app", "https://www.keikakun.com"],  # フロントエンドのオリジンと、一旦すべてのオリジンを許可
-    allow_credentials=True,
-    allow_methods=["*"],  # すべてのメソッドを許可
-    allow_headers=["*"],  # すべてのヘッダーを許可
+    allow_origins=allowed_origins,
+    allow_credentials=True,  # Cookie送信のために必要
+    allow_methods=allowed_methods,
+    allow_headers=allowed_headers,
 )
 
 
