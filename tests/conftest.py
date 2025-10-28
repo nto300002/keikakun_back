@@ -172,8 +172,35 @@ async def service_admin_user_factory(db_session: AsyncSession):
 
 
 @pytest_asyncio.fixture
-async def test_admin_user(service_admin_user_factory):
-    return await service_admin_user_factory()
+async def test_admin_user(service_admin_user_factory, db_session: AsyncSession):
+    """
+    管理者ユーザーを作成し、get_current_userをオーバーライドするフィクスチャ
+
+    このフィクスチャは認証が必要なAPIテストで使用できます。
+    テスト関数内で個別にget_current_userをオーバーライドする場合は、
+    そちらが優先されます。
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.office import OfficeStaff
+
+    user = await service_admin_user_factory()
+
+    # get_current_userをオーバーライドして、作成したユーザーを返す
+    async def override_get_current_user():
+        stmt = select(Staff).where(Staff.id == user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        ).execution_options(populate_existing=True)
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    try:
+        yield user
+    finally:
+        # クリーンアップ: オーバーライドを削除
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest_asyncio.fixture
