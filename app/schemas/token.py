@@ -23,3 +23,27 @@ class AccessToken(BaseModel):
 class MFARequiredResponse(BaseModel):
     requires_mfa_verification: bool = True
     temporary_token: str
+
+
+# Cookie認証用のレスポンススキーマ
+class TokenWithCookie(BaseModel):
+    """
+    Cookie認証を使用する場合のレスポンス
+    access_tokenはCookieに設定されるため、レスポンスボディには含まれない
+    """
+    refresh_token: str
+    token_type: str = "bearer"
+    session_duration: Optional[int] = None
+    session_type: Optional[str] = None
+    message: Optional[str] = None
+
+
+class TokenRefreshResponse(BaseModel):
+    """
+    トークンリフレッシュ時のレスポンス
+    access_tokenはCookieに設定されるため、レスポンスボディには含まれない
+    """
+    token_type: str = "bearer"
+    session_duration: Optional[int] = None
+    session_type: Optional[str] = None
+    message: Optional[str] = None
