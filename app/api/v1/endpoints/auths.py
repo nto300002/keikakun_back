@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -162,6 +162,7 @@ async def verify_email(
 @limiter.limit("5/minute")
 async def login_for_access_token(
     *,
+    response: Response,  # Cookie設定のため追加
     request: Request,  # limiterがIPアドレスを取得するために必要
     db: AsyncSession = Depends(deps.get_db),
     username: str = Form(...),
@@ -215,17 +216,43 @@ async def login_for_access_token(
         session_duration=session_duration,
         session_type=session_type
     )
+
+    # Cookie設定
+    is_production = os.getenv("ENVIRONMENT") == "production"
+    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+
+    cookie_options = {
+        "key": "access_token",
+        "value": access_token,
+        "httponly": True,
+        "secure": is_production,
+        "max_age": session_duration,
+        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
+        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
+        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
+    }
+    if cookie_domain:
+        cookie_options["domain"] = cookie_domain
+
+    response.set_cookie(**cookie_options)
+
+    # セキュリティ向上: レスポンスボディからaccess_tokenを削除
+    # トークンはCookieでのみ送信される（refresh_tokenは保持）
     return {
-        "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "session_duration": session_duration,
         "session_type": session_type,
+        "message": "Login successful"
     }
 
 
-@router.post("/refresh-token", response_model=schemas.AccessToken)
-async def refresh_access_token(refresh_token_data: schemas.RefreshToken):
+@router.post("/refresh-token", response_model=schemas.TokenRefreshResponse)
+async def refresh_access_token(
+    response: Response,  # Cookie設定のため追加
+    refresh_token_data: schemas.RefreshToken
+):
     """
     Refresh access token
     """
@@ -260,17 +287,39 @@ async def refresh_access_token(refresh_token_data: schemas.RefreshToken):
         expires_delta_seconds=session_duration,
         session_type=session_type
     )
+
+    # Cookie設定
+    is_production = os.getenv("ENVIRONMENT") == "production"
+    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+
+    cookie_options = {
+        "key": "access_token",
+        "value": new_access_token,
+        "httponly": True,
+        "secure": is_production,
+        "max_age": session_duration,
+        # samesiteのデフォルトは'lax'なので、開発環境ではNoneを明示的に設定
+        "samesite": cookie_samesite if cookie_samesite else "none" if not is_production else "lax",
+    }
+    if cookie_domain:
+        cookie_options["domain"] = cookie_domain
+
+    response.set_cookie(**cookie_options)
+
+    # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     return {
-        "access_token": new_access_token,
         "token_type": "bearer",
         "session_duration": session_duration,
-        "session_type": session_type
+        "session_type": session_type,
+        "message": "Token refreshed"
     }
 
 
-@router.post("/token/verify-mfa", response_model=schemas.Token)
+@router.post("/token/verify-mfa", response_model=schemas.TokenWithCookie)
 async def verify_mfa_for_login(
     *,
+    response: Response,  # Cookie設定のため追加
     db: AsyncSession = Depends(deps.get_db),
     mfa_data: MFAVerifyRequest,
     staff_crud=Depends(get_staff_crud),
@@ -320,17 +369,40 @@ async def verify_mfa_for_login(
         session_duration=session_duration,
         session_type=session_type
     )
+
+    # Cookie設定
+    is_production = os.getenv("ENVIRONMENT") == "production"
+    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+
+    cookie_options = {
+        "key": "access_token",
+        "value": access_token,
+        "httponly": True,
+        "secure": is_production,
+        "max_age": session_duration,
+        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
+        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
+        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
+    }
+    if cookie_domain:
+        cookie_options["domain"] = cookie_domain
+
+    response.set_cookie(**cookie_options)
+
+    # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     return {
-        "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "session_duration": session_duration,
         "session_type": session_type,
+        "message": "MFA verification successful"
     }
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(
     *,
+    response: Response,  # Cookie削除のため追加
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.Staff = Depends(get_current_user),
 ):
@@ -339,5 +411,18 @@ async def logout(
     クライアント側でトークンを無効化するためのエンドポイントです。
     サーバー側での追加のアクションは現在ありません。
     """
+    # Cookieをクリア
+    is_production = os.getenv("ENVIRONMENT") == "production"
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+
+    delete_cookie_options = {
+        "key": "access_token",
+        "httponly": True,
+        # samesiteのデフォルトは'lax'なので、開発環境ではNoneを明示的に設定
+        "samesite": cookie_samesite if cookie_samesite else "none" if not is_production else "lax",
+    }
+
+    response.delete_cookie(**delete_cookie_options)
+
     # 今後のためにcurrent_userとdbは引数として残しておく
     return {"message": "Logout successful"}
