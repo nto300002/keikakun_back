@@ -167,10 +167,13 @@ class TestMFALogin:
         )
         
         assert response.status_code == status.HTTP_200_OK
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in response.cookies
+
+        # レスポンスボディの検証
         data = response.json()
-        
-        # MFA未設定ユーザーは通常のトークンが発行される
-        assert "access_token" in data
+        assert "access_token" not in data  # Cookieに設定される
         assert "refresh_token" in data
         assert data["token_type"] == "bearer"
         
@@ -209,9 +212,15 @@ class TestMFALogin:
         
         assert verify_response.status_code == status.HTTP_200_OK
         verify_data = verify_response.json()
-        assert "access_token" in verify_data
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in verify_response.cookies
+        assert "access_token" not in verify_data  # レスポンスボディには含まれない
+
+        # レスポンスボディの検証
         assert "refresh_token" in verify_data
         assert verify_data["token_type"] == "bearer"
+        assert verify_data["message"] == "MFA verification successful"
         
     @pytest.mark.asyncio
     async def test_login_mfa_enabled_invalid_totp(self, async_client: AsyncClient, db_session: AsyncSession):
@@ -296,7 +305,11 @@ class TestMFARecoveryCode:
         
         assert verify_response.status_code == status.HTTP_200_OK
         data = verify_response.json()
-        assert "access_token" in data
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in verify_response.cookies
+        assert "access_token" not in data  # レスポンスボディには含まれない
+        assert "refresh_token" in data
         
     @pytest.mark.asyncio  
     async def test_mfa_recovery_code_invalid(self, async_client: AsyncClient, db_session: AsyncSession):
