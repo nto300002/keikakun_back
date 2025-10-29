@@ -791,3 +791,146 @@ class TestCookieAuthentication:
         # Assert: ログアウト後は認証が必要なエンドポイントにアクセスできない
         me_response = await async_client.get("/api/v1/staffs/me")
         assert me_response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_expired_token_returns_401(
+        self, async_client: AsyncClient, service_admin_user_factory
+    ):
+        """正常系: 有効期限切れのトークンで401エラーが返る"""
+        import time
+        from app.core.security import create_access_token
+
+        # Arrange: 有効期限切れのトークンを作成（1秒で期限切れ）
+        password = "Test-password123!"
+        user = await service_admin_user_factory(
+            email="expired.token@example.com",
+            password=password
+        )
+
+        # 1秒で期限切れのトークンを作成
+        expired_token = create_access_token(
+            subject=str(user.id),
+            expires_delta_seconds=1,
+            session_type="standard"
+        )
+
+        # 2秒待機してトークンを確実に期限切れにする
+        time.sleep(2)
+
+        # Act: 期限切れのトークンでアクセス
+        async_client.cookies.set("access_token", expired_token)
+        response = await async_client.get("/api/v1/staffs/me")
+
+        # Assert: 401エラーが返る
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_invalid_cookie_returns_401(
+        self, async_client: AsyncClient, service_admin_user_factory
+    ):
+        """正常系: 不正なCookieでアクセス時に401エラーが返る"""
+        # Arrange: 不正な署名のトークンを設定
+        invalid_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature"
+
+        # Act: 不正なトークンでアクセス
+        async_client.cookies.set("access_token", invalid_token)
+        response = await async_client.get("/api/v1/staffs/me")
+
+        # Assert: 401エラーが返る
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("endpoint", [
+        "/api/v1/staffs/me",
+        "/api/v1/offices/me",
+    ])
+    async def test_protected_endpoints_with_cookie(
+        self, async_client: AsyncClient, service_admin_user_factory, endpoint: str
+    ):
+        """正常系: 保護されたエンドポイントでCookie認証が機能する"""
+        # Arrange: ログインしてCookieを取得
+        password = "Test-password123!"
+        user = await service_admin_user_factory(
+            email="protected.endpoint@example.com",
+            password=password
+        )
+
+        login_response = await async_client.post(
+            "/api/v1/auth/token",
+            data={"username": user.email, "password": password},
+        )
+        assert login_response.status_code == 200
+        assert "access_token" in login_response.cookies
+
+        # Act: Cookie認証で保護されたエンドポイントにアクセス
+        response = await async_client.get(endpoint)
+
+        # Assert: 認証が成功する（401以外）
+        # /api/v1/offices/me は事業所未設定の場合404を返す可能性があるため、
+        # 401でなければOKとする
+        assert response.status_code != 401
+
+    @pytest.mark.asyncio
+    async def test_cookie_attributes_in_production(
+        self, async_client: AsyncClient, service_admin_user_factory, monkeypatch
+    ):
+        """正常系: 本番環境でSecure=True、SameSite=Noneが設定される"""
+        # Arrange: 環境変数を本番環境に設定
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        # COOKIE_DOMAINは設定しない（空文字列）
+
+        password = "Test-password123!"
+        user = await service_admin_user_factory(
+            email="prod.cookie@example.com",
+            password=password
+        )
+
+        # Act: ログイン
+        response = await async_client.post(
+            "/api/v1/auth/token",
+            data={"username": user.email, "password": password},
+        )
+
+        # Assert: レスポンスステータス
+        assert response.status_code == 200
+        assert "access_token" in response.cookies
+
+        # Assert: Cookie属性の確認
+        set_cookie_header = response.headers.get("set-cookie", "")
+        assert "HttpOnly" in set_cookie_header
+        # 本番環境ではSecure=Trueが設定される
+        assert "Secure" in set_cookie_header or "secure" in set_cookie_header
+        # 本番環境ではSameSite=Noneが設定される
+        assert "SameSite=none" in set_cookie_header or "SameSite=None" in set_cookie_header
+
+    @pytest.mark.asyncio
+    async def test_cookie_domain_in_production(
+        self, async_client: AsyncClient, service_admin_user_factory, monkeypatch
+    ):
+        """正常系: 本番環境でCOOKIE_DOMAIN設定時にDomain属性が設定される"""
+        # Arrange: 環境変数を本番環境に設定
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setenv("COOKIE_DOMAIN", ".keikakun.com")
+
+        password = "Test-password123!"
+        user = await service_admin_user_factory(
+            email="prod.domain.cookie@example.com",
+            password=password
+        )
+
+        # Act: ログイン
+        response = await async_client.post(
+            "/api/v1/auth/token",
+            data={"username": user.email, "password": password},
+        )
+
+        # Assert: レスポンスステータス
+        assert response.status_code == 200
+
+        # Assert: Domain属性の確認（Set-Cookieヘッダーを直接確認）
+        # httpxはDomainが異なる場合にCookieを保存しないため、ヘッダーで確認
+        set_cookie_header = response.headers.get("set-cookie", "")
+        assert "access_token=" in set_cookie_header
+        assert "Domain=.keikakun.com" in set_cookie_header
+        assert "HttpOnly" in set_cookie_header
+        assert "Secure" in set_cookie_header or "secure" in set_cookie_header
