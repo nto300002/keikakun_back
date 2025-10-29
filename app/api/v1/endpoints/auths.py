@@ -411,16 +411,19 @@ async def logout(
     クライアント側でトークンを無効化するためのエンドポイントです。
     サーバー側での追加のアクションは現在ありません。
     """
-    # Cookieをクリア
+    # Cookieをクリア（ログイン時と同じパラメータで削除）
     is_production = os.getenv("ENVIRONMENT") == "production"
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)
 
     delete_cookie_options = {
         "key": "access_token",
-        "httponly": True,
-        # samesiteのデフォルトは'lax'なので、開発環境ではNoneを明示的に設定
-        "samesite": cookie_samesite if cookie_samesite else "none" if not is_production else "lax",
+        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
+        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
+        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
     }
+    if cookie_domain:
+        delete_cookie_options["domain"] = cookie_domain
 
     response.delete_cookie(**delete_cookie_options)
 

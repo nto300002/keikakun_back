@@ -758,7 +758,7 @@ class TestCookieAuthentication:
     async def test_logout_clears_cookie(
         self, async_client: AsyncClient, service_admin_user_factory
     ):
-        """正常系: ログアウト時にCookieがクリアされる"""
+        """正常系: ログアウト時にCookieがクリアされる（Cookieのみで認証）"""
         # Arrange: ログインしてトークンを取得
         password = "Test-password123!"
         user = await service_admin_user_factory(
@@ -772,15 +772,12 @@ class TestCookieAuthentication:
         )
         assert login_response.status_code == 200
 
-        # Cookie認証: access_tokenはCookieから取得
-        access_token = login_response.cookies.get("access_token")
-        assert access_token is not None
+        # Cookie認証: access_tokenがCookieに設定されている
+        assert "access_token" in login_response.cookies
 
-        # Act: ログアウト
-        logout_response = await async_client.post(
-            "/api/v1/auth/logout",
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
+        # Act: Cookie認証でログアウト（ブラウザと同じ動作）
+        # httpxは自動的にCookieを保持・送信する
+        logout_response = await async_client.post("/api/v1/auth/logout")
 
         # Assert: レスポンスステータス
         assert logout_response.status_code == 200
@@ -790,3 +787,7 @@ class TestCookieAuthentication:
         # クッキー削除の場合、Max-Age=0 または expires=過去の日付が設定される
         assert "access_token=" in set_cookie_header
         assert ("Max-Age=0" in set_cookie_header or "max-age=0" in set_cookie_header)
+
+        # Assert: ログアウト後は認証が必要なエンドポイントにアクセスできない
+        me_response = await async_client.get("/api/v1/staffs/me")
+        assert me_response.status_code == 401
