@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,7 @@ async def get_staff_crud():
     return crud.staff
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -218,9 +220,14 @@ async def login_for_access_token(
     )
 
     # Cookie設定
-    is_production = os.getenv("ENVIRONMENT") == "production"
+    environment_value = os.getenv("ENVIRONMENT")
+    is_production = environment_value == "production"
     cookie_domain = os.getenv("COOKIE_DOMAIN", None)
     cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+
+    # デバッグログ
+    logger.info(f"[LOGIN COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
+    logger.info(f"[LOGIN COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
 
     cookie_options = {
         "key": "access_token",
@@ -234,6 +241,8 @@ async def login_for_access_token(
     }
     if cookie_domain:
         cookie_options["domain"] = cookie_domain
+
+    logger.info(f"[LOGIN COOKIE DEBUG] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
 
     response.set_cookie(**cookie_options)
 
@@ -371,9 +380,14 @@ async def verify_mfa_for_login(
     )
 
     # Cookie設定
-    is_production = os.getenv("ENVIRONMENT") == "production"
+    environment_value = os.getenv("ENVIRONMENT")
+    is_production = environment_value == "production"
     cookie_domain = os.getenv("COOKIE_DOMAIN", None)
     cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
+
+    # デバッグログ
+    logger.info(f"[MFA COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
+    logger.info(f"[MFA COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
 
     cookie_options = {
         "key": "access_token",
@@ -387,6 +401,8 @@ async def verify_mfa_for_login(
     }
     if cookie_domain:
         cookie_options["domain"] = cookie_domain
+
+    logger.info(f"[MFA COOKIE DEBUG] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
 
     response.set_cookie(**cookie_options)
 
