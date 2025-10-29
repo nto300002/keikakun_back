@@ -47,15 +47,16 @@ class TestAuthSessionPersistence:
         assert response.status_code == 200
         response_data = response.json()
 
-        # アクセストークンが返される
-        assert "access_token" in response_data
-        assert "session_duration" in response_data
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in response.cookies
+        assert "access_token" not in response_data  # レスポンスボディには含まれない
 
-        # セッション期間が1時間（3600秒）
-        assert response_data["session_duration"] == 3600
+        # レスポンスボディの検証
+        assert "session_duration" in response_data
+        assert response_data["session_duration"] == 3600  # 1時間（3600秒）
 
         # トークンをデコードして期限を確認
-        token = response_data["access_token"]
+        token = response.cookies.get("access_token")
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = decode_access_token(token)
 
@@ -81,15 +82,16 @@ class TestAuthSessionPersistence:
         assert response.status_code == 200
         response_data = response.json()
 
-        # アクセストークンが返される
-        assert "access_token" in response_data
-        assert "session_duration" in response_data
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in response.cookies
+        assert "access_token" not in response_data
 
-        # セッション期間が8時間（28800秒）
-        assert response_data["session_duration"] == 28800
+        # レスポンスボディの検証
+        assert "session_duration" in response_data
+        assert response_data["session_duration"] == 28800  # 8時間（28800秒）
 
         # トークンをデコードして期限を確認
-        token = response_data["access_token"]
+        token = response.cookies.get("access_token")
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = decode_access_token(token)
 
@@ -129,7 +131,10 @@ class TestAuthSessionPersistence:
         }
 
         response = await async_client.post("/api/v1/auth/token", data=login_data)
-        token = response.json()["access_token"]
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in response.cookies
+        token = response.cookies.get("access_token")
 
         # トークンをデコードしてカスタムクレームを確認
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
@@ -143,7 +148,10 @@ class TestAuthSessionPersistence:
         # 1時間セッションでログイン
         login_data["rememberMe"] = False
         response = await async_client.post("/api/v1/auth/token", data=login_data)
-        token = response.json()["access_token"]
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in response.cookies
+        token = response.cookies.get("access_token")
 
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = decode_access_token(token)
@@ -248,7 +256,9 @@ class TestAuthSessionPersistence:
 
         assert refresh_response.status_code == 200
 
-        new_token = refresh_response.json()["access_token"]
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in refresh_response.cookies
+        new_token = refresh_response.cookies.get("access_token")
         payload = decode_access_token(new_token)
 
         # 新しいトークンも8時間セッション
@@ -267,7 +277,10 @@ class TestAuthSessionPersistence:
         }
 
         login_response = await async_client.post("/api/v1/auth/token", data=login_data)
-        token = login_response.json()["access_token"]
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in login_response.cookies
+        token = login_response.cookies.get("access_token")
 
         # ログアウト
         headers = {"Authorization": f"Bearer {token}"}
@@ -278,6 +291,8 @@ class TestAuthSessionPersistence:
 
         # 注意: JWTトークンはステートレスなので、ログアウト後もサーバー側では技術的に有効
         # 実際のアプリケーションではクライアント側でトークンを削除する
+        # Cookie削除はresponse.delete_cookie()で実行されるが、テスト環境ではCookieの削除を
+        # 直接検証することは難しいため、ログアウトエンドポイントが正常に動作することのみ確認
 
     async def test_concurrent_different_session_types(
         self, async_client: AsyncClient, test_staff_user, test_admin_user, test_password
@@ -291,9 +306,11 @@ class TestAuthSessionPersistence:
         }
         staff_response = await async_client.post("/api/v1/auth/token", data=staff_login_data)
         assert staff_response.status_code == 200, f"staff token endpoint failed: {staff_response.status_code} {staff_response.text}"
-        staff_token = staff_response.json().get("access_token")
-        assert staff_token, f"staff token missing in response: {staff_response.text}"
-    
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in staff_response.cookies, f"staff token missing in cookies: {staff_response.cookies}"
+        staff_token = staff_response.cookies.get("access_token")
+
         # 管理者ユーザーは8時間セッション
         admin_login_data = {
             "username": test_admin_user.email,
@@ -302,13 +319,15 @@ class TestAuthSessionPersistence:
         }
         admin_response = await async_client.post("/api/v1/auth/token", data=admin_login_data)
         assert admin_response.status_code == 200, f"admin token endpoint failed: {admin_response.status_code} {admin_response.text}"
-        admin_token = admin_response.json().get("access_token")
-        assert admin_token, f"admin token missing in response: {admin_response.text}"
-    
+
+        # Cookie認証: access_tokenはCookieに設定される
+        assert "access_token" in admin_response.cookies, f"admin token missing in cookies: {admin_response.cookies}"
+        admin_token = admin_response.cookies.get("access_token")
+
         # 両方のトークンが有効
         staff_headers = {"Authorization": f"Bearer {staff_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
-    
+
         staff_check = await async_client.get("/api/v1/staffs/me", headers=staff_headers)
         admin_check = await async_client.get("/api/v1/staffs/me", headers=admin_headers)
 

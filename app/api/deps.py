@@ -1,9 +1,9 @@
 import uuid
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # OAuth2PasswordBearerは、指定されたURL(tokenUrl)からトークンを取得する"callable"クラスです。
 # FastAPIはこれを使って、Swagger UI上で認証を試すためのUIを生成します。
-reusable_oauth2 = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+reusable_oauth2 = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -31,18 +31,35 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    db: AsyncSession = Depends(get_db), token: str = Depends(reusable_oauth2)
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    token: Optional[str] = Depends(reusable_oauth2)
 ) -> Staff:
     """
-    リクエストのAuthorizationヘッダーからJWTトークンを検証し、
+    リクエストのCookieまたはAuthorizationヘッダーからJWTトークンを検証し、
     対応するユーザーをDBから取得する依存性注入関数。
     認証が必要なエンドポイントで使用します。
+
+    優先順位:
+    1. Cookie (access_token)
+    2. Authorization ヘッダー (Bearer token)
     """
     print("\n" + "="*80)
     print("=== get_current_user called ===")
-    print(f"Token received: {token[:20]}..." if token else "No token")
+
+    # まずCookieからトークンを取得
+    cookie_token = request.cookies.get("access_token")
+
+    # Cookieが優先、なければAuthorizationヘッダーから
+    final_token = cookie_token if cookie_token else token
+
+    print(f"Cookie token: {cookie_token[:20]}..." if cookie_token else "No cookie token")
+    print(f"Header token: {token[:20]}..." if token else "No header token")
+    print(f"Using token: {final_token[:20]}..." if final_token else "No token")
     logger.info("=== get_current_user called ===")
-    logger.info(f"Token received: {token[:20]}..." if token else "No token")
+    logger.info(f"Cookie token: {'present' if cookie_token else 'absent'}")
+    logger.info(f"Header token: {'present' if token else 'absent'}")
+    logger.info(f"Using token from: {'cookie' if cookie_token else 'header' if token else 'none'}")
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -50,7 +67,12 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    payload = decode_access_token(token)
+    if not final_token:
+        print("No token provided - raising 401")
+        logger.warning("No token provided - raising 401")
+        raise credentials_exception
+
+    payload = decode_access_token(final_token)
     print(f"Decoded payload: {payload}")
     logger.info(f"Decoded payload: {payload}")
 
