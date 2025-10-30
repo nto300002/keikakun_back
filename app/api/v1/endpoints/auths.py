@@ -434,6 +434,7 @@ async def logout(
 
     delete_cookie_options = {
         "key": "access_token",
+        "path": "/",  # Cookie設定時と同じpathを明示的に指定
         # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
         # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
         "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),

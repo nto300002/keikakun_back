@@ -52,7 +52,8 @@ if is_production:
     # 本番環境: 必要最小限のオリジン・メソッド・ヘッダーのみ許可
     allowed_origins = [
         "https://keikakun-front.vercel.app",
-        "https://www.keikakun.com"
+        "https://www.keikakun.com",
+        "https://api.keikakun.com",  # サブドメイン構成のため追加
     ]
     allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     allowed_headers = [
