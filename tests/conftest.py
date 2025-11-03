@@ -72,6 +72,9 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
     テスト用のDBセッションフィクスチャ。
     ネストされたトランザクション（セーブポイント）を利用して、テスト終了時に
     全ての変更がロールバックされることを保証する。
+
+    重要: このセッションでは commit() ではなく flush() を使用すること。
+    commit() を呼ぶとトランザクションがコミットされ、ロールバックできなくなる。
     """
     async with engine.connect() as connection:
         try:
@@ -102,9 +105,10 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
             except Exception as e:
                 logger.warning(f"Error closing session: {e}")
 
-            # 接続のロールバック
+            # 接続のロールバック（テストデータを確実に削除）
             try:
                 await connection.rollback()
+                logger.debug("Transaction rolled back successfully")
             except Exception as e:
                 logger.warning(f"Error rolling back connection: {e}")
 
@@ -357,7 +361,7 @@ async def office_factory(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def normal_user_token_headers(employee_user_factory, db_session: AsyncSession) -> dict[str, str]:
     employee = await employee_user_factory()
-    await db_session.commit()  # Ensure user and associations are committed
+    await db_session.flush()  # Flush changes without committing (allows rollback)
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
@@ -388,7 +392,7 @@ async def normal_user_token_headers(employee_user_factory, db_session: AsyncSess
 @pytest_asyncio.fixture
 async def manager_user_token_headers(manager_user_factory, db_session: AsyncSession) -> dict[str, str]:
     manager = await manager_user_factory()
-    await db_session.commit()  # Ensure user and associations are committed
+    await db_session.flush()  # Flush changes without committing (allows rollback)
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
@@ -557,7 +561,7 @@ async def setup_recipient(
 
     # マネージャーを作成（事業所も自動作成される）
     manager = await manager_user_factory(session=db_session)
-    await db_session.commit()  # コミットして確実にDBに保存
+    await db_session.flush()  # Flush changes without committing (allows rollback)
     print(f"Manager created: {manager.email}, id: {manager.id}")
     logger.info(f"Manager created: {manager.email}, id: {manager.id}")
 
@@ -643,7 +647,7 @@ async def setup_other_office_staff(
 
     # 別のマネージャーを作成（新しい事業所が自動作成される）
     other_manager = await manager_user_factory(session=db_session)
-    await db_session.commit()  # コミットして確実にDBに保存
+    await db_session.flush()  # Flush changes without committing (allows rollback)
 
     # トークンを生成
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
