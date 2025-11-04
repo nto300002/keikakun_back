@@ -17,15 +17,31 @@ class Staff(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # DEPRECATED: 名前フィールド（後方互換性のため残す。新規コードではfirst_name/last_name/full_nameを使用すること）
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # 新しい名前フィールド
+    last_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    last_name_furigana: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    first_name_furigana: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)  # 姓名を結合したもの（last_name + スペース + first_name）
+
     role: Mapped[StaffRole] = mapped_column(SQLAlchemyEnum(StaffRole), nullable=False)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    
+
     # MFA関連フィールド
     is_mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mfa_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # 暗号化されたTOTPシークレット
     mfa_backup_codes_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 使用済みバックアップコード数
-    
+
+    # パスワード変更関連
+    password_changed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_password_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    locked_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
