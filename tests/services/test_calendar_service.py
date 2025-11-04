@@ -27,7 +27,9 @@ async def setup_staff_and_office(db_session: AsyncSession):
         tuple: (staff, office, staff_id, office_id) のタプル
     """
     staff = Staff(
-        name="テスト管理者",
+        first_name="管理者",
+        last_name="テスト",
+        full_name="テスト 管理者",
         email=f"test_admin_{uuid4()}@example.com",
         hashed_password=get_password_hash("password"),
         role=StaffRole.owner,

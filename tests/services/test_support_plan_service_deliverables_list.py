@@ -37,7 +37,7 @@ def mock_current_user():
     """モックカレントユーザー"""
     user = Mock(spec=Staff)
     user.id = uuid4()
-    user.name = "テストユーザー"
+    user.full_name = "テストユーザー"
     user.role = StaffRole.owner
     return user
 
@@ -68,7 +68,7 @@ def sample_deliverables_data():
     # モックStaff
     mock_staff = Mock(spec=Staff)
     mock_staff.id = staff_id
-    mock_staff.name = "アップロード者"
+    mock_staff.full_name = "アップロード者"
     mock_staff.role = StaffRole.employee
 
     # モックPlanDeliverable
@@ -349,7 +349,7 @@ class TestGetDeliverablesList:
 
             mock_staff = Mock(spec=Staff)
             mock_staff.id = uuid4()
-            mock_staff.name = "スタッフ"
+            mock_staff.full_name = "スタッフ"
             mock_staff.role = StaffRole.employee
 
             deliverable = Mock(spec=PlanDeliverable)

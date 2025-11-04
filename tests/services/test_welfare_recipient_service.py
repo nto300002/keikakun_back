@@ -58,7 +58,9 @@ def full_registration_data() -> UserRegistrationRequest:
 async def setup_staff_and_office(db: AsyncSession) -> tuple[Staff, Office]:
     """テスト用のスタッフと事業所を作成して返すフィクスチャ（非同期）"""
     staff = Staff(
-        name="テスト管理者",
+        first_name="管理者",
+        last_name="テスト",
+        full_name="テスト 管理者",
         email=f"test_admin_{uuid4()}@example.com",
         hashed_password=get_password_hash("password"),
         role=StaffRole.owner,
@@ -297,7 +299,9 @@ async def test_delete_recipient_also_deletes_calendar_events(db: AsyncSession):
 
     # スタッフと事業所を作成
     staff = Staff(
-        name="テスト管理者",
+        first_name="管理者",
+        last_name="テスト",
+        full_name="テスト 管理者",
         email=f"test_{uuid4()}@example.com",
         hashed_password=get_password_hash("password"),
         role=StaffRole.owner
