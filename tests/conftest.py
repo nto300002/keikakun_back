@@ -134,7 +134,9 @@ async def service_admin_user_factory(db_session: AsyncSession):
     counter = {"count": 0}  # ローカルカウンター
 
     async def _create_user(
-        name: str = "テスト管理者",
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "管理者",
+        last_name: str = "テスト",
         email: Optional[str] = None,
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.owner,
@@ -146,6 +148,18 @@ async def service_admin_user_factory(db_session: AsyncSession):
         from sqlalchemy.orm import selectinload
         import time
 
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
         # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
         if email is None:
             counter["count"] += 1
@@ -154,7 +168,9 @@ async def service_admin_user_factory(db_session: AsyncSession):
 
         active_session = session or db_session
         new_user = Staff(
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
@@ -213,7 +229,9 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
     counter = {"count": 0}  # ローカルカウンター
 
     async def _create_user(
-        name: str = "テスト従業員",
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "従業員",
+        last_name: str = "テスト",
         email: Optional[str] = None,
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.employee,
@@ -228,6 +246,18 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
         from app.models.office import OfficeStaff
         import time
 
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
         # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
         if email is None:
             counter["count"] += 1
@@ -236,7 +266,9 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
 
         active_session = session or db_session
         new_user = Staff(
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
@@ -277,7 +309,9 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
     counter = {"count": 0}  # ローカルカウンター
 
     async def _create_user(
-        name: str = "テストマネージャー",
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "マネージャー",
+        last_name: str = "テスト",
         email: Optional[str] = None,
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.manager,
@@ -292,6 +326,18 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
         from app.models.office import OfficeStaff
         import time
 
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
         # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
         if email is None:
             counter["count"] += 1
@@ -300,7 +346,9 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
 
         active_session = session or db_session
         new_user = Staff(
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
