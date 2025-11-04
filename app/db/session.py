@@ -24,6 +24,8 @@ async_engine = create_async_engine(
     echo=False,             # 本番環境ではSQLログを無効化
 )
 AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_engine)
+# Alias for backward compatibility
+async_session_maker = AsyncSessionLocal
 
 sync_engine = create_engine(
     SYNC_DATABASE_URL,
