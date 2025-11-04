@@ -82,7 +82,7 @@ async def get_dashboard(
     max_user_count = service._get_max_user_count(office.billing_status)
     
     return schemas.dashboard.DashboardData(
-        staff_name=staff.name,
+        staff_name=staff.full_name,
         staff_role=staff.role,
         office_id=office.id,
         office_name=office.name,
