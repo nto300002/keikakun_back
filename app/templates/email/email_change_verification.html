@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #f4f4f4; border-radius: 5px; padding: 20px;">
+        <h1 style="color: #2c3e50; margin-bottom: 20px;">メールアドレス変更の確認</h1>
+
+        <p>{{ staff_name }} 様</p>
+
+        <p>ケイカくんのメールアドレス変更リクエストを受け付けました。</p>
+
+        <div style="background-color: #fff; border-left: 4px solid #3498db; padding: 15px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>変更前:</strong> {{ old_email }}</p>
+            <p style="margin: 10px 0 0 0;"><strong>変更後:</strong> {{ new_email }}</p>
+        </div>
+
+        <p>以下のボタンをクリックして、メールアドレスの変更を完了してください。</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{{ verification_url }}"
+               style="background-color: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                メールアドレス変更を確認する
+            </a>
+        </div>
+
+        <div style="background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px; padding: 12px; margin: 20px 0;">
+            <p style="margin: 0; color: #856404;">
+                <strong>⚠️ 重要:</strong> このリンクの有効期限は<strong>{{ expire_minutes }}分間</strong>です。
+            </p>
+        </div>
+
+        <p style="font-size: 14px; color: #666;">
+            ボタンがクリックできない場合は、以下のURLをコピーしてブラウザに貼り付けてください：<br>
+            <a href="{{ verification_url }}" style="color: #3498db; word-break: break-all;">{{ verification_url }}</a>
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+        <p style="font-size: 14px; color: #666;">
+            もしこのメールに心当たりがない場合は、誰かがあなたのメールアドレスを誤って入力した可能性があります。<br>
+            その場合は、このメールを無視してください。
+        </p>
+
+        <p style="font-size: 12px; color: #999; margin-top: 20px;">
+            このメールは自動送信されています。返信しないでください。
+        </p>
+    </div>
+</body>
+</html>
