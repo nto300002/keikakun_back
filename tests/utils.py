@@ -52,7 +52,9 @@ async def create_random_staff(
     db: AsyncSession,
     *,
     email: Optional[str] = None,
-    name: Optional[str] = None,
+    name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
     role: Optional[StaffRole] = None,
     is_email_verified: bool = True,
     is_mfa_enabled: bool = False,
@@ -61,22 +63,41 @@ async def create_random_staff(
     """テスト用のランダムなStaffを作成"""
     if email is None:
         email = random_email()
-    if name is None:
-        name = f"Test User {random_string(5)}"
+
+    # 後方互換性: nameが指定されている場合は分割
+    if name is not None and first_name is None and last_name is None:
+        parts = name.split(maxsplit=1)
+        if len(parts) == 2:
+            last_name, first_name = parts
+        else:
+            first_name = parts[0]
+            last_name = "テスト"
+
+    if first_name is None:
+        first_name = "太郎"
+    if last_name is None:
+        # 日本語のみのバリデーションがあるため、ランダムな数字の代わりにランダムなひらがなを使用
+        random_suffix = ''.join(random.choices('あいうえおかきくけこさしすせそたちつてと', k=3))
+        last_name = f"テスト{random_suffix}"
+
+    full_name = f"{last_name} {first_name}"
+
     if role is None:
         role = StaffRole.employee
     if password is None:
         password = random_password()
-        
+
     staff = Staff(
         email=email,
         hashed_password=get_password_hash(password),
-        name=name,
+        first_name=first_name,
+        last_name=last_name,
+        full_name=full_name,
         role=role,
         is_email_verified=is_email_verified,
         is_mfa_enabled=is_mfa_enabled,
     )
-    
+
     db.add(staff)
     # Note: commitは呼び出し元で行う
     return staff
@@ -86,7 +107,9 @@ async def create_admin_staff(
     db: AsyncSession,
     *,
     email: Optional[str] = None,
-    name: Optional[str] = None,
+    name: Optional[str] = None,  # DEPRECATED
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
     is_mfa_enabled: bool = False,
     password: Optional[str] = None,
 ) -> Staff:
@@ -95,6 +118,8 @@ async def create_admin_staff(
         db,
         email=email,
         name=name,
+        first_name=first_name,
+        last_name=last_name,
         role=StaffRole.owner,
         is_mfa_enabled=is_mfa_enabled,
         password=password,
@@ -105,7 +130,9 @@ async def create_manager_staff(
     db: AsyncSession,
     *,
     email: Optional[str] = None,
-    name: Optional[str] = None,
+    name: Optional[str] = None,  # DEPRECATED
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
     is_mfa_enabled: bool = False,
     password: Optional[str] = None,
 ) -> Staff:
@@ -114,6 +141,8 @@ async def create_manager_staff(
         db,
         email=email,
         name=name,
+        first_name=first_name,
+        last_name=last_name,
         role=StaffRole.manager,
         is_mfa_enabled=is_mfa_enabled,
         password=password,
