@@ -206,7 +206,9 @@ async def test_create_employment_related(db_session: AsyncSession):
 
     # スタッフを作成（就労関係情報の作成者として必要）
     staff = Staff(
-        name="管理一郎",
+        first_name="一郎",
+        last_name="管理",
+        full_name="管理 一郎",
         email="manager@example.com",
         hashed_password="dummy_hash",
         role=StaffRole.manager,
@@ -271,7 +273,9 @@ async def test_create_issue_analysis(db_session: AsyncSession):
 
     # スタッフを作成
     staff = Staff(
-        name="支援花子",
+        first_name="花子",
+        last_name="支援",
+        full_name="支援 花子",
         email="shien@example.com",
         hashed_password="dummy_hash",
         role=StaffRole.employee,
@@ -330,7 +334,9 @@ async def test_full_assessment_with_relationships(db_session: AsyncSession):
 
     # スタッフと事業所を作成
     staff = Staff(
-        name="統合太郎",
+        first_name="太郎",
+        last_name="統合",
+        full_name="統合 太郎",
         email="togo@example.com",
         hashed_password="dummy_hash",
         role=StaffRole.owner,

@@ -19,7 +19,9 @@ class TestStaffMFAFields:
         staff = Staff(
             email="test@example.com",
             hashed_password="hashed_password",
-            name="Test User",
+            first_name="太郎",
+            last_name="テスト",
+            full_name="テスト 太郎",
             role=StaffRole.employee
         )
         db_session.add(staff)
@@ -37,7 +39,9 @@ class TestStaffMFAFields:
         staff = Staff(
             email="test@example.com",
             hashed_password="hashed_password",
-            name="Test User",
+            first_name="花子",
+            last_name="テスト",
+            full_name="テスト 花子",
             role=StaffRole.employee,
             is_mfa_enabled=True,
             mfa_secret="TESTSECRET123456789012345",
@@ -58,7 +62,9 @@ class TestStaffMFAFields:
         staff = Staff(
             email="test@example.com",
             hashed_password="hashed_password",
-            name="Test User",
+            first_name="次郎",
+            last_name="テスト",
+            full_name="テスト 次郎",
             role=StaffRole.employee
         )
         
