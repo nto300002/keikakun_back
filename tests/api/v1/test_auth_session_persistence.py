@@ -18,12 +18,12 @@ async def test_password() -> str:
 @pytest_asyncio.fixture
 async def test_staff_user(employee_user_factory, test_password):
     # employee_user_factory は conftest に定義済みの async factory
-    return await employee_user_factory(email="staff@example.com", name="Test Staff", password=test_password)
+    return await employee_user_factory(email="staff@example.com", first_name="スタッフ", last_name="テスト", password=test_password)
 
 @pytest_asyncio.fixture
 async def test_admin_user(manager_user_factory, test_password):
     # manager_user_factory は conftest に定義済みの async factory
-    return await manager_user_factory(email="admin@example.com", name="Test Admin", password=test_password)
+    return await manager_user_factory(email="admin@example.com", first_name="管理者", last_name="テスト", password=test_password)
 
 # 非同期テストであることを明示
 pytestmark = pytest.mark.asyncio

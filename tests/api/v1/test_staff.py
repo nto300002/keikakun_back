@@ -15,7 +15,7 @@ pytestmark = pytest.mark.asyncio
 # service_admin_user_factoryフィクスチャで作成したユーザーをテストに渡す
 @pytest_asyncio.fixture
 async def test_admin_user(service_admin_user_factory):
-    return await service_admin_user_factory(email="me@example.com", name="MySelf")
+    return await service_admin_user_factory(email="me@example.com", first_name="太郎", last_name="自分")
 
 @pytest.mark.parametrize("mock_current_user", ["test_admin_user"], indirect=True)
 async def test_get_me_success(async_client: AsyncClient, mock_current_user):
@@ -31,7 +31,7 @@ async def test_get_me_success(async_client: AsyncClient, mock_current_user):
     assert response.status_code == 200
     data = response.json()
     assert data["email"] == mock_current_user.email
-    assert data["name"] == mock_current_user.name
+    assert data["full_name"] == mock_current_user.full_name
     assert "hashed_password" not in data
 
 async def test_get_me_no_token(async_client: AsyncClient):

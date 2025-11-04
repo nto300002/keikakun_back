@@ -26,7 +26,8 @@ async def test_register_admin_success(async_client: AsyncClient, db_session: Asy
     email = "admin.success@example.com"
     password = "Test-password123!"
     payload = {
-        "name": "テスト管理者",
+        "first_name": "太郎",
+        "last_name": "管理",
         "email": email,
         "password": password,
     }
@@ -38,13 +39,16 @@ async def test_register_admin_success(async_client: AsyncClient, db_session: Asy
     assert response.status_code == 201
     data = response.json()
     assert data["email"] == email
-    assert data["name"] == payload["name"]
+    assert data["first_name"] == payload["first_name"]
+    assert data["last_name"] == payload["last_name"]
+    assert data["full_name"] == f"{payload['last_name']} {payload['first_name']}"
     assert data["role"] == "owner"
 
     # Assert: DBの状態を検証
     user = await crud.staff.get_by_email(db_session, email=email)
     assert user is not None
-    assert user.name == payload["name"]
+    assert user.first_name == payload["first_name"]
+    assert user.last_name == payload["last_name"]
     assert verify_password(password, user.hashed_password)
     assert user.is_email_verified is False # 登録直後は未検証のはず
 
@@ -53,10 +57,11 @@ async def test_register_admin_sends_verification_email(async_client: AsyncClient
     """正常系: ユーザー登録時に確認メール送信処理が呼び出されることをテスト"""
     # Arrange: メール送信関数をモック化
     mock_send_email = mocker.patch("app.api.v1.endpoints.auths.send_verification_email", new_callable=mocker.AsyncMock)
-    
+
     email = "send.email.test@example.com"
     payload = {
-        "name": "メール送信テスト",
+        "first_name": "太郎",
+        "last_name": "送信",
         "email": email,
         "password": "Test-password123!",
     }
@@ -82,7 +87,8 @@ async def test_register_admin_duplicate_email(async_client: AsyncClient, service
     await service_admin_user_factory(email=existing_user_email, password="Test-password123!")
 
     payload = {
-        "name": "別ユーザー",
+        "first_name": "花子",
+        "last_name": "別",
         "email": existing_user_email,
         "password": "Another-password123!",
     }
@@ -103,8 +109,10 @@ async def test_register_staff_success(async_client: AsyncClient, db_session: Asy
     # Arrange
     email = f"{role.value}.success@example.com"
     password = "Test-password123!"
+    role_name = "従業員" if role == StaffRole.employee else "管理者"
     payload = {
-        "name": f"テスト{role.value}",
+        "first_name": "太郎",
+        "last_name": f"テスト{role_name}",
         "email": email,
         "password": password,
         "role": role.value,
@@ -117,7 +125,9 @@ async def test_register_staff_success(async_client: AsyncClient, db_session: Asy
     assert response.status_code == 201
     data = response.json()
     assert data["email"] == email
-    assert data["name"] == payload["name"]
+    assert data["first_name"] == payload["first_name"]
+    assert data["last_name"] == payload["last_name"]
+    assert data["full_name"] == f"{payload['last_name']} {payload['first_name']}"
     assert data["role"] == role.value
 
     # Assert: DB
@@ -131,7 +141,8 @@ async def test_register_staff_failure_as_owner(async_client: AsyncClient):
     """異常系: /register エンドポイントで owner として登録しようとすると失敗することをテスト"""
     # Arrange
     payload = {
-        "name": "不正なオーナー",
+        "first_name": "太郎",
+        "last_name": "不正",
         "email": "invalid.owner@example.com",
         "password": "Test-password123!",
         "role": StaffRole.owner.value,
@@ -149,7 +160,7 @@ async def test_register_staff_failure_as_owner(async_client: AsyncClient):
     [
         ({"email": "not-an-email"}, 422),
         ({"password": None}, 422),
-        ({"name": None}, 422),
+        ({"first_name": None}, 422),
     ],
 )
 async def test_register_admin_invalid_data(
@@ -157,7 +168,7 @@ async def test_register_admin_invalid_data(
 ):
     """異常系: 不正な形式のデータでの登録が失敗することをテスト"""
     # Arrange: 基本のペイロードに差分をマージ
-    payload = {"name": "Test", "email": "test@test.com", "password": "pass"}
+    payload = {"first_name": "太郎", "last_name": "テスト", "email": "test@test.com", "password": "pass"}
     payload.update(payload_diff)
     # Noneのキーを削除
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -301,13 +312,15 @@ async def test_security_xss_on_signup_and_get(
     async_client: AsyncClient, db_session: AsyncSession  # db_sessionを追加
 ):
     """セキュリティ: 登録時のXSSペイロードが、レスポンスで無害化されることをテスト"""
-    # Arrange (Part 1): XSSペイロードを含むユーザーを登録
-    xss_payload = "<script>alert('XSS')</script>"
+    # Arrange (Part 1): 日本語のXSSペイロードを含むユーザーを登録
+    # 注: 日本語のみのバリデーションがあるため、日本語文字を使用
+    xss_payload = "あいうえお・スクリプト"
     # Eメールが一意になるようにランダムな接尾辞を追加
     random_suffix = __import__("uuid").uuid4().hex[:6]
     email = f"xss-{random_suffix}@example.com"
     user_payload = {
-        "name": xss_payload,
+        "first_name": xss_payload,
+        "last_name": "テスト",
         "email": email,
         "password": "Test-password123!",
     }
@@ -320,7 +333,7 @@ async def test_security_xss_on_signup_and_get(
     user.is_email_verified = True
     db_session.add(user)
     await db_session.flush()
-    
+
     # Arrange (Part 3): 登録したユーザーとしてログインし、トークンを取得
     login_resp = await async_client.post(
         "/api/v1/auth/token",
@@ -337,8 +350,8 @@ async def test_security_xss_on_signup_and_get(
     # Assert
     assert response.status_code == 200
     data = response.json()
-    # レスポンスのnameフィールドが、スクリプトとして解釈されない文字列そのものであることを確認
-    assert data["name"] == xss_payload
+    # レスポンスのfirst_nameフィールドが、スクリプトとして解釈されない文字列そのものであることを確認
+    assert data["first_name"] == xss_payload
 
 
 # --- 発展: リフレッシュトークンのテスト ---
@@ -436,7 +449,8 @@ async def test_register_admin_weak_password(
     # Eメールが一意になるようにランダムな接尾辞を追加
     random_suffix = __import__("uuid").uuid4().hex[:6]
     payload = {
-        "name": "Weak Password User",
+        "first_name": "太郎",
+        "last_name": "弱パス",
         "email": f"weak-password-{random_suffix}@example.com",
         "password": password,
     }
@@ -526,7 +540,8 @@ async def test_login_unverified_email(async_client: AsyncClient, db_session: Asy
     email = f"unverified-{random_suffix}@example.com"
     password = "Test-password123!"
     payload = {
-        "name": "Unverified User",
+        "first_name": "太郎",
+        "last_name": "未検証",
         "email": email,
         "password": password,
     }
