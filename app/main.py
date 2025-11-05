@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import uvicorn
@@ -7,6 +9,7 @@ import logging
 import sys
 import atexit
 import os
+import html
 
 from app.core.limiter import limiter  # 新しいファイルからインポート
 from app.core.config import settings # settingsをインポート
@@ -28,6 +31,51 @@ logger.info("Application starting...")
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    バリデーションエラーのカスタムハンドラー
+    XSS攻撃対策として、エラーレスポンスから危険な文字をサニタイズする
+    """
+    def sanitize_value(value):
+        """危険な文字をHTMLエスケープ"""
+        if isinstance(value, str):
+            return html.escape(value)
+        elif isinstance(value, dict):
+            return {k: sanitize_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [sanitize_value(v) for v in value]
+        elif isinstance(value, Exception):
+            # Exception オブジェクトは文字列に変換
+            return str(value)
+        return value
+
+    # エラー詳細をサニタイズ
+    errors = []
+    for error in exc.errors():
+        sanitized_error = {}
+        for key, value in error.items():
+            if key == "input":
+                sanitized_error[key] = sanitize_value(value)
+            elif key == "ctx" and isinstance(value, dict):
+                # ctx 内の error オブジェクトを文字列化
+                sanitized_ctx = {}
+                for ctx_key, ctx_value in value.items():
+                    if isinstance(ctx_value, Exception):
+                        sanitized_ctx[ctx_key] = str(ctx_value)
+                    else:
+                        sanitized_ctx[ctx_key] = sanitize_value(ctx_value)
+                sanitized_error[key] = sanitized_ctx
+            else:
+                sanitized_error[key] = value
+        errors.append(sanitized_error)
+
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors}
+    )
 
 
 @app.on_event("startup")

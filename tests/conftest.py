@@ -72,6 +72,9 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
     テスト用のDBセッションフィクスチャ。
     ネストされたトランザクション（セーブポイント）を利用して、テスト終了時に
     全ての変更がロールバックされることを保証する。
+
+    重要: このセッションでは commit() ではなく flush() を使用すること。
+    commit() を呼ぶとトランザクションがコミットされ、ロールバックできなくなる。
     """
     async with engine.connect() as connection:
         try:
@@ -102,9 +105,10 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
             except Exception as e:
                 logger.warning(f"Error closing session: {e}")
 
-            # 接続のロールバック
+            # 接続のロールバック（テストデータを確実に削除）
             try:
                 await connection.rollback()
+                logger.debug("Transaction rolled back successfully")
             except Exception as e:
                 logger.warning(f"Error rolling back connection: {e}")
 
@@ -130,7 +134,9 @@ async def service_admin_user_factory(db_session: AsyncSession):
     counter = {"count": 0}  # ローカルカウンター
 
     async def _create_user(
-        name: str = "テスト管理者",
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "管理者",
+        last_name: str = "テスト",
         email: Optional[str] = None,
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.owner,
@@ -142,6 +148,18 @@ async def service_admin_user_factory(db_session: AsyncSession):
         from sqlalchemy.orm import selectinload
         import time
 
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
         # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
         if email is None:
             counter["count"] += 1
@@ -150,7 +168,9 @@ async def service_admin_user_factory(db_session: AsyncSession):
 
         active_session = session or db_session
         new_user = Staff(
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
@@ -209,7 +229,9 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
     counter = {"count": 0}  # ローカルカウンター
 
     async def _create_user(
-        name: str = "テスト従業員",
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "従業員",
+        last_name: str = "テスト",
         email: Optional[str] = None,
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.employee,
@@ -224,6 +246,18 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
         from app.models.office import OfficeStaff
         import time
 
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
         # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
         if email is None:
             counter["count"] += 1
@@ -232,7 +266,9 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
 
         active_session = session or db_session
         new_user = Staff(
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
@@ -273,7 +309,9 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
     counter = {"count": 0}  # ローカルカウンター
 
     async def _create_user(
-        name: str = "テストマネージャー",
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "マネージャー",
+        last_name: str = "テスト",
         email: Optional[str] = None,
         password: str = "a-very-secure-password",
         role: StaffRole = StaffRole.manager,
@@ -288,6 +326,18 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
         from app.models.office import OfficeStaff
         import time
 
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
         # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
         if email is None:
             counter["count"] += 1
@@ -296,7 +346,9 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
 
         active_session = session or db_session
         new_user = Staff(
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
             email=email,
             hashed_password=get_password_hash(password),
             role=role,
@@ -357,7 +409,7 @@ async def office_factory(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def normal_user_token_headers(employee_user_factory, db_session: AsyncSession) -> dict[str, str]:
     employee = await employee_user_factory()
-    await db_session.commit()  # Ensure user and associations are committed
+    await db_session.flush()  # Flush changes without committing (allows rollback)
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
@@ -388,7 +440,7 @@ async def normal_user_token_headers(employee_user_factory, db_session: AsyncSess
 @pytest_asyncio.fixture
 async def manager_user_token_headers(manager_user_factory, db_session: AsyncSession) -> dict[str, str]:
     manager = await manager_user_factory()
-    await db_session.commit()  # Ensure user and associations are committed
+    await db_session.flush()  # Flush changes without committing (allows rollback)
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     # get_current_user は token.sub を UUID として期待するため user.id を subject に渡す
@@ -557,7 +609,7 @@ async def setup_recipient(
 
     # マネージャーを作成（事業所も自動作成される）
     manager = await manager_user_factory(session=db_session)
-    await db_session.commit()  # コミットして確実にDBに保存
+    await db_session.flush()  # Flush changes without committing (allows rollback)
     print(f"Manager created: {manager.email}, id: {manager.id}")
     logger.info(f"Manager created: {manager.email}, id: {manager.id}")
 
@@ -643,7 +695,7 @@ async def setup_other_office_staff(
 
     # 別のマネージャーを作成（新しい事業所が自動作成される）
     other_manager = await manager_user_factory(session=db_session)
-    await db_session.commit()  # コミットして確実にDBに保存
+    await db_session.flush()  # Flush changes without committing (allows rollback)
 
     # トークンを生成
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

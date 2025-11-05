@@ -243,7 +243,9 @@ async def test_get_support_plan_cycles_unauthorized_office(
     other_staff = Staff(
         email="other@example.com",
         hashed_password="hashed",
-        name="他のスタッフ",
+        last_name="他の",
+        first_name="スタッフ",
+        full_name="他の スタッフ",
         role="employee",
     )
     db_session.add(other_staff)

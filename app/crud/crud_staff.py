@@ -29,7 +29,9 @@ class CRUDStaff:
         db_obj = Staff(
             email=obj_in.email,
             hashed_password=get_password_hash(obj_in.password),
-            name=obj_in.name,
+            first_name=obj_in.first_name,
+            last_name=obj_in.last_name,
+            full_name=f"{obj_in.last_name} {obj_in.first_name}",
             role=StaffRole.owner,
         )
         db.add(db_obj)
@@ -41,7 +43,9 @@ class CRUDStaff:
         db_obj = Staff(
             email=obj_in.email,
             hashed_password=get_password_hash(obj_in.password),
-            name=obj_in.name,
+            first_name=obj_in.first_name,
+            last_name=obj_in.last_name,
+            full_name=f"{obj_in.last_name} {obj_in.first_name}",
             role=obj_in.role,
         )
         db.add(db_obj)

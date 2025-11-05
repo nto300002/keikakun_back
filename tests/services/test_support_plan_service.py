@@ -52,7 +52,9 @@ async def db() -> AsyncSession:
 async def setup_staff_and_office(db: AsyncSession) -> Tuple[UUID, UUID]:
     """テスト用のスタッフと事業所を作成してIDを返すフィクスチャ"""
     staff = Staff(
-        name="テスト管理者",
+        first_name="管理者",
+        last_name="テスト",
+        full_name="テスト 管理者",
         email=f"test_admin_{uuid4().hex[:8]}@example.com",
         hashed_password=get_password_hash("password"),
         role=StaffRole.owner,
@@ -651,7 +653,9 @@ class TestCalendarEventDeletionHooks:
 
         # スタッフと事業所を作成
         staff = Staff(
-            name="テスト管理者",
+            first_name="管理者",
+            last_name="テスト",
+            full_name="テスト 管理者",
             email=f"test_{uuid4()}@example.com",
             hashed_password=get_password_hash("password"),
             role=StaffRole.owner
@@ -769,7 +773,9 @@ class TestCalendarEventDeletionHooks:
 
         # スタッフと事業所を作成
         staff = Staff(
-            name="テスト管理者",
+            first_name="管理者",
+            last_name="テスト",
+            full_name="テスト 管理者",
             email=f"test_{uuid4()}@example.com",
             hashed_password=get_password_hash("password"),
             role=StaffRole.owner

@@ -258,7 +258,7 @@ async def test_get_notices_by_office_id(
                 "recipient_staff_id": staff.id,
                 "office_id": office.id,
                 "type": "calendar_event",
-                "title": f"お知らせ for {staff.name}",
+                "title": f"お知らせ for {staff.full_name}",
                 "content": f"内容{i}",
                 "is_read": False
             }

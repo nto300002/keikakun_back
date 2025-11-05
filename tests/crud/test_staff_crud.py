@@ -21,7 +21,8 @@ async def test_create_admin_user(db_session: AsyncSession) -> None:
     # AdminCreateを使用し、roleは含めない
     user_in = AdminCreate(
         email=f"test_crud_{random_suffix}@example.com",
-        name="CRUD Test User",
+        first_name="太郎",
+        last_name="山田",
         password="Test-password123!",
     )
 
@@ -32,7 +33,9 @@ async def test_create_admin_user(db_session: AsyncSession) -> None:
     # Assert
     assert created_user is not None
     assert created_user.email == user_in.email
-    assert created_user.name == user_in.name
+    assert created_user.first_name == user_in.first_name
+    assert created_user.last_name == user_in.last_name
+    assert created_user.full_name == f"{user_in.last_name} {user_in.first_name}"
     assert created_user.role == StaffRole.owner # create_admin内で設定されることを確認
 
 
@@ -46,7 +49,7 @@ async def test_get_staff_with_office(db_session: AsyncSession, employee_user_fac
     # Arrange
     # 1. テスト用のスタッフと、そのスタッフが作成者となる事業所を作成
     test_staff = await employee_user_factory(email="relation_test@example.com", with_office=False)
-    print(f"\n[DEBUG] Created test_staff: id={test_staff.id}, name={test_staff.name}")
+    print(f"\n[DEBUG] Created test_staff: id={test_staff.id}, full_name={test_staff.full_name}")
 
     test_office = await office_factory(name="リレーションテスト事業所", creator=test_staff)
     print(f"[DEBUG] Created test_office: id={test_office.id}, name={test_office.name}")

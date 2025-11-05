@@ -732,7 +732,7 @@ class SupportPlanService:
                 ),
                 uploaded_by=StaffBrief(
                     id=deliverable.uploaded_by_staff.id,
-                    name=deliverable.uploaded_by_staff.name,
+                    name=deliverable.uploaded_by_staff.full_name,
                     role=deliverable.uploaded_by_staff.role.value,
                 ),
                 uploaded_at=deliverable.uploaded_at,

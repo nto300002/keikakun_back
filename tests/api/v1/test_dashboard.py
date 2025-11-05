@@ -22,7 +22,7 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture
 async def dashboard_fixtures(db_session: AsyncSession, service_admin_user_factory, office_factory):
     """ダッシュボードテスト用の基本フィクスチャ"""
-    staff = await service_admin_user_factory(name="ダッシュボードテスト管理者", email="dashboard@example.com", role=StaffRole.owner)
+    staff = await service_admin_user_factory(first_name="管理者", last_name="ダッシュボードテスト", email="dashboard@example.com", role=StaffRole.owner)
     office = await office_factory(creator=staff, name="テストダッシュボード事業所", type=OfficeType.type_A_office)
     office_staff = OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True)
     db_session.add(office_staff)
@@ -98,7 +98,7 @@ class TestDashboardAPI:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["staff_name"] == staff.name
+        assert data["staff_name"] == staff.full_name
         assert data["office_name"] == dashboard_fixtures['office'].name
         assert data["current_user_count"] == 3
         assert len(data["recipients"]) == 3
@@ -112,7 +112,7 @@ class TestDashboardAPI:
         assert recipient_with_monitoring["monitoring_deadline"] == 7
 
     async def test_get_dashboard_empty_recipients(self, async_client: AsyncClient, db_session: AsyncSession, service_admin_user_factory, office_factory):
-        staff = await service_admin_user_factory(name="空の事業所管理者", email="empty@example.com")
+        staff = await service_admin_user_factory(first_name="管理者", last_name="空の事業所", email="empty@example.com")
         office = await office_factory(creator=staff, name="空のテスト事業所")
         office_staff = OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True)
         db_session.add(office_staff)
@@ -133,7 +133,7 @@ class TestDashboardAPI:
         assert response.status_code == 401
 
     async def test_get_dashboard_no_office_association(self, async_client: AsyncClient, db_session: AsyncSession, service_admin_user_factory):
-        staff = await service_admin_user_factory(name="無所属スタッフ", email="nooffice@example.com")
+        staff = await service_admin_user_factory(first_name="スタッフ", last_name="無所属", email="nooffice@example.com")
         await db_session.commit()
         
         app.dependency_overrides[get_current_user] = lambda: staff

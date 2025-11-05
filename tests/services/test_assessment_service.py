@@ -36,7 +36,9 @@ pytestmark = pytest.mark.asyncio
 async def setup_staff_and_office(db_session: AsyncSession):
     """テスト用のスタッフと事業所を作成"""
     staff = Staff(
-        name="テスト管理者",
+        first_name="管理者",
+        last_name="テスト",
+        full_name="テスト 管理者",
         email=f"test_admin_{uuid4()}@example.com",
         hashed_password=get_password_hash("password"),
         role=StaffRole.owner,
@@ -99,7 +101,9 @@ async def setup_recipient(db_session: AsyncSession, setup_staff_and_office):
 async def setup_other_office_staff(db_session: AsyncSession):
     """別の事業所のスタッフを作成（権限テスト用）"""
     staff = Staff(
-        name="別事業所スタッフ",
+        first_name="スタッフ",
+        last_name="別事業所",
+        full_name="別事業所 スタッフ",
         email=f"other_staff_{uuid4()}@example.com",
         hashed_password=get_password_hash("password"),
         role=StaffRole.employee,
