@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class Notice(Base):
-    """お知らせ"""
+    """通知（既存テーブルを使用）"""
     __tablename__ = 'notices'
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -31,11 +31,18 @@ class Notice(Base):
         ForeignKey('offices.id', ondelete="CASCADE"),
         nullable=False
     )
-    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[Optional[str]] = mapped_column(Text)
     link_url: Mapped[Optional[str]] = mapped_column(String(255))
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_read: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now()
@@ -47,5 +54,21 @@ class Notice(Base):
     )
 
     # Relationships
-    recipient_staff: Mapped["Staff"] = relationship("Staff", foreign_keys=[recipient_staff_id])
-    office: Mapped["Office"] = relationship("Office", foreign_keys=[office_id])
+    recipient_staff: Mapped["Staff"] = relationship(
+        "Staff",
+        foreign_keys=[recipient_staff_id]
+    )
+    office: Mapped["Office"] = relationship(
+        "Office",
+        foreign_keys=[office_id]
+    )
+
+    @property
+    def notice_type(self) -> str:
+        """通知タイプへのエイリアス（後方互換性のため）"""
+        return self.type
+
+    @property
+    def notice_title(self) -> str:
+        """通知タイトルへのエイリアス（後方互換性のため）"""
+        return self.title

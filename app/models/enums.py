@@ -205,3 +205,30 @@ class WorkOutsideFacility(str, enum.Enum):
     hope = "hope"              # 希望する
     not_hope = "not_hope"      # 希望しない
     undecided = "undecided"    # 未定
+
+class RequestStatus(str, enum.Enum):
+    """リクエストステータス"""
+    pending = 'pending'      # 承認待ち
+    approved = 'approved'    # 承認済み
+    rejected = 'rejected'    # 却下
+
+class NoticeType(str, enum.Enum):
+    """通知タイプ"""
+    role_change_pending = 'role_change_pending'  # 承認待ちのRole変更リクエスト
+    role_change_approved = 'role_change_approved'
+    role_change_rejected = 'role_change_rejected'
+    employee_action_pending = 'employee_action_pending'  # 承認待ちのEmployee制限リクエスト
+    employee_action_approved = 'employee_action_approved'
+    employee_action_rejected = 'employee_action_rejected'
+
+class ActionType(str, enum.Enum):
+    """アクションタイプ"""
+    create = 'create'
+    update = 'update'
+    delete = 'delete'
+
+class ResourceType(str, enum.Enum):
+    """リソースタイプ"""
+    welfare_recipient = 'welfare_recipient'
+    support_plan_cycle = 'support_plan_cycle'
+    support_plan_status = 'support_plan_status'
