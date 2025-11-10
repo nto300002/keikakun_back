@@ -81,15 +81,17 @@ async def test_create_recipient_as_employee_forbidden(
     async_client: AsyncClient, normal_user_token_headers: dict
 ):
     """
-    テスト: 従業員は新しい受信者を作成できない。 将来的に,manager以上の権限のroleに作成,編集,削除申請を行うことで実行可能とする。
-    期待: 403 Forbidden.
+    テスト: 従業員は新しい受信者を作成するリクエストを送信できる（Employee制限機能により）。
+    期待: 202 Accepted（リクエスト作成成功）.
     """
     response = await async_client.post(
         f"{settings.API_V1_STR}/welfare-recipients/",
         headers=normal_user_token_headers,
         json=RECIPIENT_CREATE_DATA,
     )
-    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    # レスポンスにrequest_idが含まれることを確認
+    assert "request_id" in response.json()
 
 
 @pytest.mark.asyncio
@@ -340,8 +342,8 @@ async def test_update_recipient_as_employee_forbidden(
     async_client: AsyncClient, office_factory, manager_user_factory, employee_user_factory, db_session: AsyncSession
 ):
     """
-    テスト: 従業員は利用者を更新できない。
-    期待: 403 Forbidden。
+    テスト: 従業員は利用者を更新するリクエストを送信できる（Employee制限機能により）。
+    期待: 202 Accepted（リクエスト作成成功）。
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
@@ -409,7 +411,9 @@ async def test_update_recipient_as_employee_forbidden(
         headers=employee_headers,
         json=update_data,
     )
-    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    # レスポンスにrequest_idが含まれることを確認
+    assert "request_id" in response.json()
 
     # クリーンアップ
     app.dependency_overrides.clear()
@@ -420,8 +424,8 @@ async def test_delete_recipient_as_employee_forbidden(
     async_client: AsyncClient, office_factory, manager_user_factory, employee_user_factory, db_session: AsyncSession
 ):
     """
-    テスト: 従業員は利用者を削除できない。
-    期待: 403 Forbidden。
+    テスト: 従業員は利用者を削除するリクエストを送信できる（Employee制限機能により）。
+    期待: 202 Accepted（リクエスト作成成功）。
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
@@ -485,7 +489,9 @@ async def test_delete_recipient_as_employee_forbidden(
         f"{settings.API_V1_STR}/welfare-recipients/{recipient_id}",
         headers=employee_headers,
     )
-    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    # レスポンスにrequest_idが含まれることを確認
+    assert "request_id" in response.json()
 
     # クリーンアップ
     app.dependency_overrides.clear()
