@@ -152,17 +152,31 @@ async def test_employee_create_welfare_recipient_request(
     """employeeがWelfareRecipient作成リクエスト"""
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエストデータ
+    # リクエストデータ（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -247,17 +261,31 @@ async def test_approve_create_request_executes_action(
     """作成リクエストの承認で実際に作成される"""
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -300,13 +328,15 @@ async def test_approve_update_request_executes_action(
     office_id, manager_id, employee_id = setup_office_with_staff
     recipient_id = setup_welfare_recipient
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.update,
         resource_id=recipient_id,
         request_data={
-            "first_name": "更新後"
+            "basic_info": {
+                "firstName": "更新後"
+            }
         }
     )
 
@@ -381,17 +411,31 @@ async def test_reject_request_no_action(
     """却下時はアクションが実行されない"""
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -466,17 +510,31 @@ async def test_no_missing_greenlet_after_approve_action(
     """
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -517,17 +575,31 @@ async def test_no_missing_greenlet_after_reject_action(
     """
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -566,17 +638,31 @@ async def test_create_employee_action_request_creates_notification(
     """
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -616,17 +702,31 @@ async def test_approve_employee_action_request_creates_notification(
     """
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
@@ -673,17 +773,31 @@ async def test_reject_employee_action_request_creates_notification(
     """
     office_id, manager_id, employee_id = setup_office_with_staff
 
-    # リクエスト作成
+    # リクエスト作成（実際のAPI形式に合わせる）
     request_data = EmployeeActionRequestCreate(
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={
-            "first_name": "新規",
-            "last_name": "利用者",
-            "first_name_furigana": "シンキ",
-            "last_name_furigana": "リヨウシャ",
-            "birth_day": "2000-01-01",
-            "gender": "male"
+            "basic_info": {
+                "firstName": "新規",
+                "lastName": "利用者",
+                "firstNameFurigana": "シンキ",
+                "lastNameFurigana": "リヨウシャ",
+                "birthDay": "2000-01-01",
+                "gender": "male"
+            },
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
+            "emergency_contacts": [],
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
+            "disability_details": []
         }
     )
 
