@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -14,6 +15,7 @@ from app.core import storage
 from app.schemas.support_plan import DeliverableType, SortBy, SortOrder
 from app.models.support_plan_cycle import SupportPlanCycle, PlanDeliverable
 from app.models.welfare_recipient import OfficeWelfareRecipient
+from app.models.enums import ResourceType, ActionType, StaffRole
 from app.services.support_plan_service import support_plan_service
 from app.core.exceptions import NotFoundException, ForbiddenException
 
@@ -189,14 +191,21 @@ async def upload_plan_deliverable(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException("この利用者の個別支援計画にアクセスする権限がありません。")
 
-    # 3. ファイル内容を読み取る
+    # 3. Employee権限チェック - PDFアップロードはEmployee権限では不可
+    if current_user.role == StaffRole.employee:
+        raise ForbiddenException(
+            "Employee権限では個別支援計画のPDFをアップロードできません。"
+            "Manager/Owner権限のスタッフにアップロードを依頼してください。"
+        )
+
+    # 4. ファイル内容を読み取る
     file_content = await file.read()
 
-    # 4. ファイル名の衝突を避けるためにUUIDを付与
+    # 5. ファイル名の衝突を避けるためにUUIDを付与
     unique_filename = f"{uuid_lib.uuid4()}_{file.filename or 'unknown.pdf'}"
     object_name = f"plan-deliverables/{plan_cycle_id}/{deliverable_type}/{unique_filename}"
 
-    # 5. ファイルをBinaryIOに変換してS3にアップロード
+    # 6. ファイルをBinaryIOに変換してS3にアップロード
     file_like = io.BytesIO(file_content)
     s3_url = await storage.upload_file(file=file_like, object_name=object_name)
 
@@ -206,7 +215,7 @@ async def upload_plan_deliverable(
             detail="ファイルのアップロードに失敗しました。"
         )
 
-    # 6. サービス層を呼び出して、成果物の登録とステータス更新を行う
+    # 7. サービス層を呼び出して、成果物の登録とステータス更新を行う
     deliverable_create = schemas.support_plan.PlanDeliverableCreate(
         plan_cycle_id=plan_cycle_id,
         deliverable_type=DeliverableType(deliverable_type),
@@ -316,14 +325,39 @@ async def update_plan_deliverable(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException("この成果物を更新する権限がありません。")
 
-    # 4. ファイル内容を読み取る
+    # 4. Employee restriction check
+    employee_request = await deps.check_employee_restriction(
+        db=db,
+        current_staff=current_user,
+        resource_type=ResourceType.support_plan_cycle,
+        action_type=ActionType.update,
+        resource_id=None,  # plan_cycle_id は int なので None
+        request_data={
+            "plan_cycle_id": deliverable.plan_cycle_id,
+            "deliverable_id": deliverable_id,
+            "original_filename": file.filename or "unknown.pdf"
+        }
+    )
+
+    if employee_request:
+        # Employee case: return request created response (file is not uploaded)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "message": "Request created and pending approval",
+                "request_id": str(employee_request.id),
+                "note": "File will be uploaded after approval by Manager/Owner"
+            }
+        )
+
+    # 5. ファイル内容を読み取る
     file_content = await file.read()
 
-    # 5. ファイル名の衝突を避けるためにUUIDを付与
+    # 6. ファイル名の衝突を避けるためにUUIDを付与
     unique_filename = f"{uuid_lib.uuid4()}_{file.filename or 'unknown.pdf'}"
     object_name = f"plan-deliverables/{deliverable.plan_cycle_id}/{deliverable.deliverable_type.value}/{unique_filename}"
 
-    # 6. ファイルをBinaryIOに変換してS3にアップロード
+    # 7. ファイルをBinaryIOに変換してS3にアップロード
     file_like = io.BytesIO(file_content)
     s3_url = await storage.upload_file(file=file_like, object_name=object_name)
 
@@ -333,7 +367,7 @@ async def update_plan_deliverable(
             detail="ファイルのアップロードに失敗しました。"
         )
 
-    # 7. サービス層を呼び出して成果物を更新
+    # 8. サービス層を呼び出して成果物を更新
     updated_deliverable = await support_plan_service.handle_deliverable_update(
         db=db,
         deliverable_id=deliverable_id,
@@ -378,7 +412,30 @@ async def delete_plan_deliverable(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException("この成果物を削除する権限がありません。")
 
-    # 3. サービス層を呼び出して成果物を削除
+    # 3. Employee restriction check
+    employee_request = await deps.check_employee_restriction(
+        db=db,
+        current_staff=current_user,
+        resource_type=ResourceType.support_plan_cycle,
+        action_type=ActionType.delete,
+        resource_id=None,  # plan_cycle_id は int なので None
+        request_data={
+            "plan_cycle_id": deliverable.plan_cycle_id,
+            "deliverable_id": deliverable_id
+        }
+    )
+
+    if employee_request:
+        # Employee case: return request created response
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "message": "Request created and pending approval",
+                "request_id": str(employee_request.id)
+            }
+        )
+
+    # 4. サービス層を呼び出して成果物を削除
     await support_plan_service.handle_deliverable_delete(db=db, deliverable_id=deliverable_id)
 
 

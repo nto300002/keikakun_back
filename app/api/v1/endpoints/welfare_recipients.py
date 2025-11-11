@@ -3,12 +3,14 @@ from uuid import UUID
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from psycopg import errors as psycopg_errors
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
 from app.models.staff import Staff
+from app.models.enums import ResourceType, ActionType
 from app.schemas.welfare_recipient import (
     WelfareRecipientResponse,
     WelfareRecipientCreate,
@@ -49,10 +51,6 @@ async def create_welfare_recipient(
     try:
         logger.info("[ENDPOINT DEBUG] create_welfare_recipient START")
 
-        # Check role permissions - only manager and owner can create
-        if current_staff.role.value not in ["manager", "owner"]:
-            raise ForbiddenException("マネージャーとオーナーのみが福祉受給者を作成,編集できます")
-
         # Load office associations explicitly to avoid lazy loading issues
         office_associations = getattr(current_staff, 'office_associations', None)
 
@@ -61,6 +59,28 @@ async def create_welfare_recipient(
 
         office_id = office_associations[0].office_id
         logger.info(f"[ENDPOINT DEBUG] office_id={office_id}")
+
+        # Employee restriction check
+        employee_request = await deps.check_employee_restriction(
+            db=db,
+            current_staff=current_staff,
+            resource_type=ResourceType.welfare_recipient,
+            action_type=ActionType.create,
+            request_data=registration_data.model_dump(mode='json')
+        )
+
+        if employee_request:
+            # Employee case: return request created response
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "success": True,
+                    "message": "Request created and pending approval",
+                    "recipient_id": None,
+                    "support_plan_created": False,
+                    "request_id": str(employee_request.id)
+                }
+            )
 
         logger.info("[ENDPOINT DEBUG] Calling WelfareRecipientService.create_recipient_with_details...")
         welfare_recipient_id = await WelfareRecipientService.create_recipient_with_details(
@@ -216,10 +236,6 @@ async def update_welfare_recipient(
     緊急連絡先や障害の詳細を含む関連する全記録を更新します。
     受給者情報の更新はownerおよびmanagerのみが可能です。
     """
-    # Check permissions - only manager and owner can update
-    if current_staff.role.value not in ["manager", "owner"]:
-        raise ForbiddenException("Only managers and owners can update welfare recipients")
-
     # Get existing recipient
     welfare_recipient = await crud_welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
@@ -234,6 +250,29 @@ async def update_welfare_recipient(
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
         raise ForbiddenException("Access denied to this welfare recipient")
+
+    # Employee restriction check
+    employee_request = await deps.check_employee_restriction(
+        db=db,
+        current_staff=current_staff,
+        resource_type=ResourceType.welfare_recipient,
+        action_type=ActionType.update,
+        resource_id=recipient_id,
+        request_data=registration_data.model_dump(mode='json')
+    )
+
+    if employee_request:
+        # Employee case: return request created response
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "success": True,
+                "message": "Request created and pending approval",
+                "recipient_id": str(recipient_id),
+                "support_plan_created": False,
+                "request_id": str(employee_request.id)
+            }
+        )
 
     try:
         updated_recipient = await crud_welfare_recipient.update_comprehensive(
@@ -270,10 +309,6 @@ async def delete_welfare_recipient(
     This will cascade delete all related records.
     """
 
-    # Check permissions - only managers and owners can delete
-    if current_staff.role.value not in ["manager", "owner"]:
-        raise ForbiddenException("Only managers and owners can delete welfare recipients")
-
     # Get existing recipient with only office associations (lightweight query for delete)
     welfare_recipient = await crud_welfare_recipient.get_with_office_associations(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
@@ -288,6 +323,25 @@ async def delete_welfare_recipient(
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
         raise ForbiddenException("Access denied to this welfare recipient")
+
+    # Employee restriction check
+    employee_request = await deps.check_employee_restriction(
+        db=db,
+        current_staff=current_staff,
+        resource_type=ResourceType.welfare_recipient,
+        action_type=ActionType.delete,
+        resource_id=recipient_id
+    )
+
+    if employee_request:
+        # Employee case: return request created response
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "message": "Request created and pending approval",
+                "request_id": str(employee_request.id)
+            }
+        )
 
     try:
         success = await crud_welfare_recipient.delete_with_cascade(db=db, recipient_id=recipient_id)
