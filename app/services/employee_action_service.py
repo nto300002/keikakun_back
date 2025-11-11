@@ -190,13 +190,17 @@ class EmployeeActionService:
         )
         approved_request = result.scalar_one()
 
-        # 既存の承認待ち通知のtypeを更新（承認済みに変更）※commitはしない
+        # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
+        # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
         link_url = f"/employee-action-requests/{approved_request.id}"
-        await crud_notice.update_type_by_link_url(
-            db=db,
-            link_url=link_url,
-            new_type=NoticeType.employee_action_approved.value
+        delete_stmt = select(crud_notice.model).where(
+            crud_notice.model.link_url == link_url,
+            crud_notice.model.type == NoticeType.employee_action_pending.value
         )
+        delete_result = await db.execute(delete_stmt)
+        notices_to_delete = delete_result.scalars().all()
+        for notice in notices_to_delete:
+            await db.delete(notice)
 
         # 通知を作成（リクエスト作成者に送信）※commitはしない
         await self._create_approval_notification(db, approved_request)
@@ -266,13 +270,17 @@ class EmployeeActionService:
         )
         rejected_request = result.scalar_one()
 
-        # 既存の承認待ち通知のtypeを更新（却下済みに変更）※commitはしない
+        # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
+        # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
         link_url = f"/employee-action-requests/{rejected_request.id}"
-        await crud_notice.update_type_by_link_url(
-            db=db,
-            link_url=link_url,
-            new_type=NoticeType.employee_action_rejected.value
+        delete_stmt = select(crud_notice.model).where(
+            crud_notice.model.link_url == link_url,
+            crud_notice.model.type == NoticeType.employee_action_pending.value
         )
+        delete_result = await db.execute(delete_stmt)
+        notices_to_delete = delete_result.scalars().all()
+        for notice in notices_to_delete:
+            await db.delete(notice)
 
         # 通知を作成（リクエスト作成者に送信）※commitはしない
         await self._create_rejection_notification(db, rejected_request)
@@ -340,9 +348,8 @@ class EmployeeActionService:
         request_data = request.request_data or {}
 
         if action_type == ActionType.create:
-            # form_dataから基本情報を取得
-            form_data = request_data.get("form_data", {})
-            basic_info = form_data.get("basicInfo", {})
+            # 実際のAPI形式に合わせてbasic_infoを取得
+            basic_info = request_data.get("basic_info", {})
 
             # 新規作成
             recipient = WelfareRecipient(
@@ -363,7 +370,7 @@ class EmployeeActionService:
             logger.info("Creating related data for recipient")
 
             # 住所・連絡先情報
-            contact_address = form_data.get("contactAddress", {})
+            contact_address = request_data.get("contact_address", {})
 
             # 空文字列をNoneに変換
             form_of_residence_other_text = contact_address.get("formOfResidenceOtherText")
@@ -388,7 +395,7 @@ class EmployeeActionService:
             detail_id = detail.id
 
             # 緊急連絡先
-            emergency_contacts = form_data.get("emergencyContacts", [])
+            emergency_contacts = request_data.get("emergency_contacts", [])
             for contact_data in emergency_contacts:
                 # 空文字列をNoneに変換
                 address = contact_data.get("address")
@@ -414,7 +421,7 @@ class EmployeeActionService:
                 db.add(emergency_contact)
 
             # 障害情報
-            disability_info = form_data.get("disabilityInfo", {})
+            disability_info = request_data.get("disability_info", {})
 
             # 空文字列をNoneに変換
             special_remarks = disability_info.get("specialRemarks")
@@ -432,7 +439,7 @@ class EmployeeActionService:
             disability_status_id = disability_status.id
 
             # 障害詳細
-            disability_details = form_data.get("disabilityDetails", [])
+            disability_details = request_data.get("disability_details", [])
             for detail_data in disability_details:
                 # 空文字列をNoneに変換（Enum型フィールド対策）
                 physical_disability_type = detail_data.get("physicalDisabilityType")
@@ -493,9 +500,8 @@ class EmployeeActionService:
             if not recipient:
                 raise ValueError(f"WelfareRecipient {recipient_id} not found")
 
-            # form_dataから基本情報を取得
-            form_data = request_data.get("form_data", {})
-            basic_info = form_data.get("basicInfo", {})
+            # 実際のAPI形式に合わせてbasic_infoを取得
+            basic_info = request_data.get("basic_info", {})
 
             # 更新するフィールドを適用
             if "firstName" in basic_info:
@@ -563,12 +569,48 @@ class EmployeeActionService:
         db: AsyncSession,
         request: EmployeeActionRequest
     ) -> Dict[str, Any]:
-        """SupportPlanStatusに対するアクションを実行（TODO: 実装予定）"""
-        # TODO: Phase 7で実装
+        """SupportPlanStatusに対するアクションを実行"""
+        action_type = request.action_type
+        request_data = request.request_data or {}
+
+        logger.info(f"Executing support_plan_status action: {action_type}")
+        logger.info(f"Request data: {request_data}")
+
+        # deliverable_idを取得
+        deliverable_id = request_data.get("deliverable_id")
+
+        if not deliverable_id:
+            logger.warning("No deliverable_id found in request_data")
+            return {
+                "success": False,
+                "action": str(action_type),
+                "error": "deliverable_id is required"
+            }
+
+        # deliverableが存在するか確認
+        from app.models.support_plan_cycle import PlanDeliverable
+        deliverable_stmt = select(PlanDeliverable).where(PlanDeliverable.id == deliverable_id)
+        deliverable_result = await db.execute(deliverable_stmt)
+        deliverable = deliverable_result.scalar_one_or_none()
+
+        if not deliverable:
+            logger.error(f"Deliverable {deliverable_id} not found")
+            return {
+                "success": False,
+                "action": str(action_type),
+                "error": f"Deliverable {deliverable_id} not found"
+            }
+
+        logger.info(f"Deliverable {deliverable_id} found. No further action needed (already uploaded).")
+
+        # deliverableは既にアップロード済みなので、特に何もしない
+        # 将来的に承認フラグなどを追加する場合はここで更新
+
         return {
             "success": True,
-            "action": str(request.action_type),
-            "message": "SupportPlanStatus actions not yet implemented"
+            "action": str(action_type),
+            "deliverable_id": str(deliverable_id),
+            "message": "PDF deliverable already uploaded and verified"
         }
 
     async def _create_request_notification(
