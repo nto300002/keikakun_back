@@ -92,9 +92,17 @@ async def test_employee_create_request_manager_approve_flow(
                 "birthDay": "1990-01-01",
                 "gender": "male"
             },
-            "contact_address": {},
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
             "emergency_contacts": [],
-            "disability_info": {},
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
             "disability_details": []
         }
     )
@@ -455,9 +463,17 @@ async def test_employee_restriction_all_resources(
                 "birthDay": "1995-05-15",
                 "gender": "female"
             },
-            "contact_address": {},
+            "contact_address": {
+                "address": "東京都テスト区1-2-3",
+                "formOfResidence": "home_with_family",
+                "meansOfTransportation": "public_transport",
+                "tel": "0312345678"
+            },
             "emergency_contacts": [],
-            "disability_info": {},
+            "disability_info": {
+                "disabilityOrDiseaseName": "テスト障害",
+                "livelihoodProtection": "not_receiving"
+            },
             "disability_details": []
         }
     )
