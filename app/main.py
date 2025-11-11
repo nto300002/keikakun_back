@@ -81,9 +81,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.on_event("startup")
 async def startup_event():
     """アプリケーション起動時の処理"""
-    logger.info("Starting calendar sync scheduler...")
-    calendar_sync_scheduler.start()
-    logger.info("Calendar sync scheduler started successfully")
+    # テスト環境ではスケジューラーを起動しない
+    if os.getenv("TESTING") != "1":
+        logger.info("Starting calendar sync scheduler...")
+        calendar_sync_scheduler.start()
+        logger.info("Calendar sync scheduler started successfully")
+    else:
+        logger.info("Test environment detected - skipping scheduler startup")
 
 
 @app.on_event("shutdown")
