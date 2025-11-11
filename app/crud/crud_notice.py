@@ -123,6 +123,33 @@ class CRUDNotice(CRUDBase[Notice, NoticeCreate, NoticeUpdate]):
         await db.commit()
         return result.rowcount
 
+    async def update_type_by_link_url(
+        self,
+        db: AsyncSession,
+        link_url: str,
+        new_type: str
+    ) -> int:
+        """
+        link_urlで通知を検索してtypeを更新
+
+        Args:
+            db: データベースセッション
+            link_url: 検索するlink_url
+            new_type: 新しいtype値
+
+        Returns:
+            更新された件数
+
+        Note:
+            このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
+        """
+        result = await db.execute(
+            update(self.model)
+            .where(self.model.link_url == link_url)
+            .values(type=new_type, updated_at=datetime.now())
+        )
+        return result.rowcount
+
 
 # インスタンス化
 crud_notice = CRUDNotice(Notice)
