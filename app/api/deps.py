@@ -139,3 +139,118 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+# --- 権限チェック依存関数 ---
+
+async def require_manager_or_owner(
+    current_staff: Staff = Depends(get_current_user)
+) -> Staff:
+    """
+    Manager または Owner のみアクセス可能
+    Employee権限のスタッフがアクセスした場合は403エラーを返す
+    """
+    from app.models.enums import StaffRole
+
+    if current_staff.role not in [StaffRole.manager, StaffRole.owner]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Manager or Owner role required"
+        )
+    return current_staff
+
+
+async def require_owner(
+    current_staff: Staff = Depends(get_current_user)
+) -> Staff:
+    """
+    Owner のみアクセス可能
+    Manager、Employee権限のスタッフがアクセスした場合は403エラーを返す
+    """
+    from app.models.enums import StaffRole
+
+    if current_staff.role != StaffRole.owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner role required"
+        )
+    return current_staff
+
+
+async def check_employee_restriction(
+    db: AsyncSession,
+    current_staff: Staff,
+    resource_type: "ResourceType",
+    action_type: "ActionType",
+    resource_id: Optional[uuid.UUID] = None,
+    request_data: Optional[dict] = None
+) -> Optional["EmployeeActionRequest"]:
+    """
+    Employee制限チェック
+    - Manager/Owner: None を返す（制限なし、直接実行可能）
+    - Employee: EmployeeActionRequest を作成して返す（承認が必要）
+
+    Args:
+        db: データベースセッション
+        current_staff: 現在のスタッフ
+        resource_type: リソースタイプ（welfare_recipient, support_plan_cycle, etc.）
+        action_type: アクションタイプ（create, update, delete）
+        resource_id: リソースID（updateまたはdeleteの場合）
+        request_data: リクエストデータ（createまたはupdateの場合）
+
+    Returns:
+        EmployeeActionRequest: Employeeの場合は作成されたリクエスト
+        None: Manager/Ownerの場合は制限なし
+    """
+    from app.models.enums import StaffRole
+    from app.schemas.employee_action_request import EmployeeActionRequestCreate
+    from app.services import employee_action_service
+
+    # Manager/Ownerは制限なし
+    if current_staff.role in [StaffRole.manager, StaffRole.owner]:
+        return None
+
+    # Employeeの場合、リクエストを作成
+    # office_idを取得（office_associations経由）
+    office_id = None
+    if current_staff.office:
+        office_id = current_staff.office.id
+    elif current_staff.office_associations:
+        # プライマリ事業所を優先
+        primary_office = next(
+            (assoc.office for assoc in current_staff.office_associations if assoc.is_primary),
+            None
+        )
+        if primary_office:
+            office_id = primary_office.id
+        elif current_staff.office_associations:
+            # プライマリがなければ最初の事業所
+            office_id = current_staff.office_associations[0].office_id
+
+    if not office_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Staff must be associated with an office"
+        )
+
+    # スキーマオブジェクトを作成
+    obj_in = EmployeeActionRequestCreate(
+        resource_type=resource_type,
+        action_type=action_type,
+        resource_id=resource_id,
+        request_data=request_data
+    )
+
+    # リクエストを作成
+    request = await employee_action_service.create_request(
+        db=db,
+        requester_staff_id=current_staff.id,
+        office_id=office_id,
+        obj_in=obj_in
+    )
+
+    return request
+
+
+# 型ヒント用のインポート
+get_current_staff = get_current_user  # エイリアス（get_current_staffという名前でも使えるようにする）
