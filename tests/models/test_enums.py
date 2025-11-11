@@ -57,10 +57,10 @@ class TestNoticeType:
 
     def test_notice_type_values(self):
         """NoticeTypeの値が正しいことを確認"""
-        assert NoticeType.role_change_request.value == 'role_change_request'
+        assert NoticeType.role_change_pending.value == 'role_change_pending'
         assert NoticeType.role_change_approved.value == 'role_change_approved'
         assert NoticeType.role_change_rejected.value == 'role_change_rejected'
-        assert NoticeType.employee_action_request.value == 'employee_action_request'
+        assert NoticeType.employee_action_pending.value == 'employee_action_pending'
         assert NoticeType.employee_action_approved.value == 'employee_action_approved'
         assert NoticeType.employee_action_rejected.value == 'employee_action_rejected'
 
@@ -70,7 +70,7 @@ class TestNoticeType:
 
     def test_notice_type_from_string(self):
         """文字列からNoticeTypeを取得できることを確認"""
-        assert NoticeType('role_change_request') == NoticeType.role_change_request
+        assert NoticeType('role_change_pending') == NoticeType.role_change_pending
         assert NoticeType('employee_action_approved') == NoticeType.employee_action_approved
 
     def test_notice_type_invalid_value(self):
