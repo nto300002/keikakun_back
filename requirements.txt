@@ -26,6 +26,7 @@ jwt
 
 # テスト用
 httpx
+pytest-order
 
 # Google Calendar
 google-api-python-client
