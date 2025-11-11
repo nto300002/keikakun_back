@@ -7,6 +7,9 @@ import uuid
 from datetime import timedelta
 import logging
 
+# テスト環境であることを示すフラグを設定（スケジューラーなどを無効化するため）
+os.environ.setdefault("TESTING", "1")
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -34,7 +37,137 @@ from app.main import app
 from app.api.deps import get_db, get_current_user
 from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
-from app.models.enums import StaffRole, OfficeType
+from app.models.enums import StaffRole, OfficeType, GenderType
+
+
+# --- データベースクリーンアップ（セッション全体） ---
+
+async def safe_cleanup_test_database(engine: AsyncEngine):
+    """
+    ファクトリ関数で生成されたテストデータのみを安全にクリーンアップ
+
+    Args:
+        engine: データベースエンジン
+    """
+    from tests.utils.safe_cleanup import SafeTestDataCleanup
+
+    # テスト環境であることを確認
+    if not SafeTestDataCleanup.verify_test_environment():
+        print("⚠️  Not in test environment - skipping cleanup")
+        return
+
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+
+        # AsyncSessionを作成してクリーンアップ実行
+        async_session_factory = sessionmaker(
+            bind=connection,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+        session = async_session_factory()
+
+        try:
+            result = await SafeTestDataCleanup.delete_factory_generated_data(session)
+            # トランザクションをコミット（重要！）
+            await transaction.commit()
+
+            if result:
+                total = sum(result.values())
+                print(f"  🧹 Deleted {total} factory-generated records:")
+                for table, count in sorted(result.items(), key=lambda x: x[1], reverse=True):
+                    print(f"    - {table}: {count}")
+            else:
+                print("  ✓ No factory-generated data found")
+        except Exception as e:
+            print(f"  ❌ Safe cleanup failed: {e}")
+            await transaction.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def cleanup_database_session():
+    """
+    全テストセッションの前後でファクトリ生成データをクリーンアップ
+
+    autouse=True により、pytest実行時に自動的に実行される
+
+    安全性:
+    - ファクトリ関数で生成されたデータのみを削除
+    - TEST_DATABASE_URLが設定されている場合のみ実行
+    - 本番環境では実行されない
+    """
+    # テスト実行前: ファクトリ生成データをクリーンアップ
+    TEST_DATABASE_URL_VAR = os.getenv("TEST_DATABASE_URL")
+    DATABASE_URL_VAR = os.getenv("DATABASE_URL")
+    DATABASE_URL = TEST_DATABASE_URL_VAR or DATABASE_URL_VAR
+
+    if DATABASE_URL:
+        if "?sslmode" in DATABASE_URL:
+            DATABASE_URL = DATABASE_URL.split("?")[0]
+
+        # データベース接続情報をログ出力（デバッグ用）
+        def get_db_branch_name(url: str) -> str:
+            """URLからデータベースブランチ名を抽出"""
+            if "keikakun_dev_test" in url:
+                return "dev_test"
+            elif "keikakun_dev" in url:
+                return "dev"
+            elif "keikakun_prod_test" in url:
+                return "prod_test"
+            elif "keikakun_prod" in url:
+                return "prod"
+            else:
+                return "unknown"
+
+        branch_name = get_db_branch_name(DATABASE_URL)
+        print("\n" + "=" * 80)
+        print("🔍 DATABASE CONNECTION INFO (cleanup_database_session)")
+        print("=" * 80)
+        print(f"  TEST_DATABASE_URL set: {'Yes' if TEST_DATABASE_URL_VAR else 'No'}")
+        print(f"  DATABASE_URL set: {'Yes' if DATABASE_URL_VAR else 'No'}")
+        print(f"  Using: {'TEST_DATABASE_URL' if TEST_DATABASE_URL_VAR else 'DATABASE_URL (FALLBACK)'}")
+        print(f"  Database branch: {branch_name}")
+        if TEST_DATABASE_URL_VAR:
+            print(f"  Connection string: {DATABASE_URL[:50]}...")
+        else:
+            print(f"  ⚠️  WARNING: TEST_DATABASE_URL not set, falling back to DATABASE_URL!")
+        print("=" * 80)
+
+        temp_engine = create_async_engine(DATABASE_URL, echo=False)
+
+        try:
+            print("\n" + "=" * 60)
+            print("🧪 Starting test session - safe cleanup...")
+            print("=" * 60)
+            await safe_cleanup_test_database(temp_engine)
+            print("✅ Pre-test cleanup completed")
+            print("=" * 60 + "\n")
+        except Exception as e:
+            print(f"⚠️  Pre-test safe cleanup failed: {e}")
+        finally:
+            await temp_engine.dispose()
+
+    # テストを実行
+    yield
+
+    # テスト実行後: ファクトリ生成データをクリーンアップ
+    if DATABASE_URL:
+        temp_engine = create_async_engine(DATABASE_URL, echo=False)
+
+        try:
+            print("\n" + "=" * 60)
+            print("🧪 Test session completed - safe cleanup...")
+            print("=" * 60)
+            await safe_cleanup_test_database(temp_engine)
+            print("✅ Post-test cleanup completed")
+            print("=" * 60 + "\n")
+        except Exception as e:
+            print(f"⚠️  Post-test safe cleanup failed: {e}")
+        finally:
+            await temp_engine.dispose()
 
 
 # --- データベースフィクスチャ ---
@@ -121,7 +254,7 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test", follow_redirects=True) as client:
         try:
             yield client
         finally:
@@ -384,17 +517,122 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
 
 
 @pytest_asyncio.fixture
+async def owner_user_factory(db_session: AsyncSession, office_factory):
+    """オーナーロールのユーザーを作成するFactory（事業所に関連付け）"""
+    counter = {"count": 0}  # ローカルカウンター
+
+    async def _create_user(
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "オーナー",
+        last_name: str = "テスト",
+        email: Optional[str] = None,
+        password: str = "a-very-secure-password",
+        role: StaffRole = StaffRole.owner,
+        is_email_verified: bool = True,
+        is_mfa_enabled: bool = False,
+        session: Optional[AsyncSession] = None,
+        office: Optional[Office] = None,  # 事業所を外部から受け取れるようにする
+        with_office: bool = True,
+    ) -> Staff:
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.models.office import OfficeStaff
+        import time
+
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
+        # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
+        if email is None:
+            counter["count"] += 1
+            timestamp = int(time.time() * 1000000)  # マイクロ秒単位
+            email = f"owner_{uuid.uuid4().hex}_{timestamp}_{counter['count']}@example.com"
+
+        active_session = session or db_session
+        new_user = Staff(
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
+            email=email,
+            hashed_password=get_password_hash(password),
+            role=role,
+            is_email_verified=is_email_verified,
+            is_mfa_enabled=is_mfa_enabled,
+        )
+        active_session.add(new_user)
+        await active_session.flush()
+
+        # 事業所に関連付け
+        if with_office:
+            target_office = office
+            if not target_office:
+                target_office = await office_factory(creator=new_user, session=active_session)
+
+            association = OfficeStaff(
+                staff_id=new_user.id,
+                office_id=target_office.id,
+                is_primary=True
+            )
+            active_session.add(association)
+            await active_session.flush()
+
+        # リレーションシップをeager loadしてからrefresh
+        stmt = select(Staff).where(Staff.id == new_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await active_session.execute(stmt)
+        new_user = result.scalars().first()
+
+        return new_user
+    yield _create_user
+
+
+@pytest_asyncio.fixture
 async def office_factory(db_session: AsyncSession):
     """事業所を作成するFactory"""
+    counter = {"count": 0}
+
     async def _create_office(
-        creator: Staff,
-        name: str = "テスト事業所",
+        creator: Optional[Staff] = None,
+        name: Optional[str] = None,
         type: OfficeType = OfficeType.type_A_office,
         session: Optional[AsyncSession] = None,
     ) -> Office:
+        from sqlalchemy import select
+
         active_session = session or db_session
+        counter["count"] += 1
+
+        # creatorが指定されていない場合、デフォルトのスタッフを作成
+        if creator is None:
+            last_name = f"テスト{counter['count']}"
+            first_name = "管理者"
+            creator = Staff(
+                first_name=first_name,
+                last_name=last_name,
+                full_name=f"{last_name} {first_name}",
+                email=f"admin{counter['count']}@test.com",
+                hashed_password=get_password_hash("password"),
+                role=StaffRole.owner,
+                is_email_verified=True,
+            )
+            active_session.add(creator)
+            await active_session.flush()
+
+        # nameが指定されていない場合、一意な名前を生成
+        office_name = name or f"テスト事業所{counter['count']}"
+
         new_office = Office(
-            name=name,
+            name=office_name,
             type=type,
             created_by=creator.id,
             last_modified_by=creator.id,
@@ -404,6 +642,112 @@ async def office_factory(db_session: AsyncSession):
         await active_session.refresh(new_office)
         return new_office
     yield _create_office
+
+
+@pytest_asyncio.fixture
+async def staff_factory(db_session: AsyncSession):
+    """スタッフを作成するFactory"""
+    counter = {"count": 0}
+
+    async def _create_staff(
+        office_id: uuid.UUID,
+        first_name: str = "スタッフ",
+        last_name: Optional[str] = None,
+        email: Optional[str] = None,
+        role: StaffRole = StaffRole.employee,
+        password: str = "password",
+        is_email_verified: bool = True,
+        session: Optional[AsyncSession] = None,
+    ) -> Staff:
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        active_session = session or db_session
+        counter["count"] += 1
+
+        # 一意な値を生成
+        staff_last_name = last_name or f"テスト{counter['count']}"
+        staff_email = email or f"staff{counter['count']}@test.com"
+
+        new_staff = Staff(
+            first_name=first_name,
+            last_name=staff_last_name,
+            full_name=f"{staff_last_name} {first_name}",
+            email=staff_email,
+            hashed_password=get_password_hash(password),
+            role=role,
+            is_email_verified=is_email_verified,
+        )
+        active_session.add(new_staff)
+        await active_session.flush()
+
+        # OfficeStaffアソシエーションを作成
+        office_staff = OfficeStaff(
+            staff_id=new_staff.id,
+            office_id=office_id,
+            is_primary=True,
+        )
+        active_session.add(office_staff)
+        await active_session.flush()
+
+        # リレーションシップをロードして返す
+        stmt = select(Staff).where(Staff.id == new_staff.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await active_session.execute(stmt)
+        staff = result.scalars().first()
+
+        return staff
+    yield _create_staff
+
+
+@pytest_asyncio.fixture
+async def welfare_recipient_factory(db_session: AsyncSession):
+    """福祉受給者を作成するFactory"""
+    from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
+    from datetime import date
+
+    counter = {"count": 0}
+
+    async def _create_welfare_recipient(
+        office_id: uuid.UUID,
+        first_name: str = "太郎",
+        last_name: Optional[str] = None,
+        first_name_furigana: str = "たろう",
+        last_name_furigana: Optional[str] = None,
+        birth_day: date = date(1990, 1, 1),
+        gender: GenderType = GenderType.male,
+        session: Optional[AsyncSession] = None,
+    ) -> WelfareRecipient:
+        active_session = session or db_session
+        counter["count"] += 1
+
+        # 一意な値を生成
+        recipient_last_name = last_name or f"テスト{counter['count']}"
+        recipient_last_name_furigana = last_name_furigana or f"テスト{counter['count']}"
+
+        new_recipient = WelfareRecipient(
+            first_name=first_name,
+            last_name=recipient_last_name,
+            first_name_furigana=first_name_furigana,
+            last_name_furigana=recipient_last_name_furigana,
+            birth_day=birth_day,
+            gender=gender,
+        )
+        active_session.add(new_recipient)
+        await active_session.flush()
+
+        # OfficeWelfareRecipientアソシエーションを作成
+        office_recipient = OfficeWelfareRecipient(
+            office_id=office_id,
+            welfare_recipient_id=new_recipient.id,
+        )
+        active_session.add(office_recipient)
+        await active_session.flush()
+        await active_session.refresh(new_recipient)
+
+        return new_recipient
+    yield _create_welfare_recipient
 
 
 @pytest_asyncio.fixture
