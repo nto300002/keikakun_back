@@ -359,3 +359,102 @@ async def test_delete_old_read_notices(
     )
 
     assert deleted_count >= 1
+
+
+async def test_delete_old_notices_over_limit(
+    db_session: AsyncSession,
+    office_factory,
+    employee_user_factory
+) -> None:
+    """
+    事務所の通知数が制限を超えた場合、古いものから削除されることを確認するテスト
+    """
+    from datetime import datetime, timedelta
+    from app.models.notice import Notice
+
+    staff = await employee_user_factory()
+    office = staff.office_associations[0].office if staff.office_associations else None
+
+    # 55件の通知を作成（50件制限を超える）
+    for i in range(55):
+        notice = Notice(
+            recipient_staff_id=staff.id,
+            office_id=office.id,
+            type="employee_action_pending",
+            title=f"通知{i}",
+            content=f"内容{i}",
+            is_read=False
+        )
+        db_session.add(notice)
+        await db_session.flush()
+
+        # created_atを設定（古い順に作成）
+        notice.created_at = datetime.now() - timedelta(days=55-i)
+        db_session.add(notice)
+        await db_session.flush()
+
+    # 削除前の通知数を確認
+    notices_before = await crud.notice.get_by_office_id(db=db_session, office_id=office.id)
+    assert len(notices_before) == 55
+
+    # 50件を超える通知を削除
+    deleted_count = await crud.notice.delete_old_notices_over_limit(
+        db=db_session,
+        office_id=office.id,
+        limit=50
+    )
+    await db_session.commit()
+
+    # 削除後の通知数を確認
+    notices_after = await crud.notice.get_by_office_id(db=db_session, office_id=office.id)
+    assert len(notices_after) == 50
+    assert deleted_count == 5
+
+    # 最も古い通知が削除され、新しい通知が残っていることを確認
+    # 残っている通知のタイトルを確認（通知50～54が残るはず）
+    notice_titles = [n.title for n in notices_after]
+    assert "通知54" in notice_titles  # 最新の通知
+    assert "通知50" in notice_titles  # 50番目の通知
+    assert "通知4" not in notice_titles  # 削除される通知
+    assert "通知0" not in notice_titles  # 最も古い通知（削除される）
+
+
+async def test_delete_old_notices_under_limit(
+    db_session: AsyncSession,
+    office_factory,
+    employee_user_factory
+) -> None:
+    """
+    事務所の通知数が制限以下の場合、削除されないことを確認するテスト
+    """
+    staff = await employee_user_factory()
+    office = staff.office_associations[0].office if staff.office_associations else None
+
+    # 30件の通知を作成（50件制限以下）
+    for i in range(30):
+        notice_data = {
+            "recipient_staff_id": staff.id,
+            "office_id": office.id,
+            "type": "employee_action_pending",
+            "title": f"通知{i}",
+            "content": f"内容{i}",
+            "is_read": False
+        }
+        await crud.notice.create(db=db_session, obj_in=notice_data)
+
+    # 削除前の通知数を確認
+    notices_before = await crud.notice.get_by_office_id(db=db_session, office_id=office.id)
+    assert len(notices_before) == 30
+
+    # 50件を超える通知を削除（何も削除されないはず）
+    deleted_count = await crud.notice.delete_old_notices_over_limit(
+        db=db_session,
+        office_id=office.id,
+        limit=50
+    )
+    await db_session.commit()
+
+    # 削除後の通知数を確認（変わらないはず）
+    notices_after = await crud.notice.get_by_office_id(db=db_session, office_id=office.id)
+    assert len(notices_after) == 30
+    assert deleted_count == 0

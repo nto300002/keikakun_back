@@ -225,6 +225,27 @@ async def login_for_access_token(
     cookie_domain = os.getenv("COOKIE_DOMAIN", None)
     cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
 
+    # 環境変数の値を検証（コメントや日本語が含まれていないかチェック）
+    if cookie_domain:
+        cookie_domain = cookie_domain.strip()
+        # コメント記号で始まる、または空の場合はNoneに設定
+        if cookie_domain.startswith('#') or not cookie_domain:
+            cookie_domain = None
+        else:
+            # latin-1でエンコード可能かチェック（日本語等を除外）
+            try:
+                cookie_domain.encode('latin-1')
+            except UnicodeEncodeError:
+                logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_DOMAIN (contains non-latin-1 characters): {cookie_domain}")
+                cookie_domain = None
+
+    if cookie_samesite:
+        cookie_samesite = cookie_samesite.strip().lower()
+        # 有効な値のみを許可
+        if cookie_samesite not in ['none', 'lax', 'strict']:
+            logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_SAMESITE value: {cookie_samesite}")
+            cookie_samesite = None
+
     # デバッグログ
     logger.info(f"[LOGIN COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
     logger.info(f"[LOGIN COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")

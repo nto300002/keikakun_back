@@ -8,9 +8,15 @@ from sqlalchemy.orm import declarative_base
 dotenv.load_dotenv()
 
 # For asynchronous operations
-ASYNC_DATABASE_URL = os.getenv("DATABASE_URL")
-if not ASYNC_DATABASE_URL:
-    raise ValueError("No DATABASE_URL environment variable set for async connection")
+# テスト実行時のみTEST_DATABASE_URLを使用、それ以外はDATABASE_URLを使用
+if os.getenv("TESTING") == "1":
+    ASYNC_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+    if not ASYNC_DATABASE_URL:
+        raise ValueError("TEST_DATABASE_URL environment variable is not set for test environment")
+else:
+    ASYNC_DATABASE_URL = os.getenv("DATABASE_URL")
+    if not ASYNC_DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is not set")
 
 # For synchronous operations
 SYNC_DATABASE_URL = ASYNC_DATABASE_URL.replace("+psycopg", "").replace("+asyncpg", "")

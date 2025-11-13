@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -9,7 +10,7 @@ from app.api import deps
 from app.models.staff import Staff
 from app.models.support_plan_cycle import SupportPlanStatus, SupportPlanCycle
 from app.models.welfare_recipient import OfficeWelfareRecipient
-from app.models.enums import SupportPlanStep
+from app.models.enums import SupportPlanStep, ResourceType, ActionType
 from app.schemas.support_plan import SupportPlanCycleUpdate, SupportPlanStatusResponse
 from app.core.exceptions import NotFoundException, ForbiddenException
 
@@ -72,7 +73,30 @@ async def update_monitoring_deadline(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException("このステータスにアクセスする権限がありません。")
 
-    # 4. 前のサイクルのfinal_plan_signed完了日を取得
+    # 4. Employee restriction check
+    employee_request = await deps.check_employee_restriction(
+        db=db,
+        current_staff=current_user,
+        resource_type=ResourceType.support_plan_status,
+        action_type=ActionType.update,
+        resource_id=None,  # status_id は int なので None
+        request_data={
+            "status_id": status_id,
+            "monitoring_deadline": update_data.monitoring_deadline
+        }
+    )
+
+    if employee_request:
+        # Employee case: return request created response
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "message": "Request created and pending approval",
+                "request_id": str(employee_request.id)
+            }
+        )
+
+    # 5. 前のサイクルのfinal_plan_signed完了日を取得
     # 現在のサイクルの前のサイクルを取得
     prev_cycle_stmt = (
         select(SupportPlanCycle)
@@ -95,10 +119,10 @@ async def update_monitoring_deadline(
         if final_plan_status and final_plan_status.completed_at:
             final_plan_completed_at = final_plan_status.completed_at.date()
 
-    # 5. monitoring_deadlineを更新 (SupportPlanCycleに設定)
+    # 6. monitoring_deadlineを更新 (SupportPlanCycleに設定)
     plan_status.plan_cycle.monitoring_deadline = update_data.monitoring_deadline
 
-    # 6. due_dateを再計算
+    # 7. due_dateを再計算
     if final_plan_completed_at:
         plan_status.due_date = final_plan_completed_at + timedelta(days=update_data.monitoring_deadline)
 

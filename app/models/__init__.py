@@ -6,7 +6,8 @@ from .enums import (
     CalendarEventType, CalendarSyncStatus,
     ReminderPatternType, EventInstanceStatus,
     Household, MedicalCareInsurance, AidingType,
-    WorkConditions, WorkOutsideFacility
+    WorkConditions, WorkOutsideFacility,
+    RequestStatus, NoticeType, ActionType, ResourceType
 )
 from .office import Office, OfficeStaff
 from .staff import Staff #, PasswordResetToken
@@ -14,6 +15,8 @@ from .mfa import MFABackupCode, MFAAuditLog
 from .welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from .support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 from .notice import Notice
+from .role_change_request import RoleChangeRequest
+from .employee_action_request import EmployeeActionRequest
 from .calendar_account import OfficeCalendarAccount, StaffCalendarAccount
 from .calendar_events import (
     CalendarEvent, NotificationPattern,

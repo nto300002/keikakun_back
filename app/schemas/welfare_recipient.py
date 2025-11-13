@@ -200,5 +200,6 @@ class UserRegistrationResponse(BaseModel):
     """Response after successful user registration"""
     success: bool = True
     message: str = "利用者の登録が完了しました"
-    recipient_id: uuid.UUID
+    recipient_id: Optional[uuid.UUID] = None
     support_plan_created: bool = True
+    request_id: Optional[uuid.UUID] = None  # For employee requests pending approval

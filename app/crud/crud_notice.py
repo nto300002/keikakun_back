@@ -123,6 +123,77 @@ class CRUDNotice(CRUDBase[Notice, NoticeCreate, NoticeUpdate]):
         await db.commit()
         return result.rowcount
 
+    async def update_type_by_link_url(
+        self,
+        db: AsyncSession,
+        link_url: str,
+        new_type: str,
+        old_type: Optional[str] = None
+    ) -> int:
+        """
+        link_urlで通知を検索してtypeを更新
+
+        Args:
+            db: データベースセッション
+            link_url: 検索するlink_url
+            new_type: 新しいtype値
+            old_type: 更新対象の古いtype値（オプション）。指定した場合、このtypeの通知のみ更新
+
+        Returns:
+            更新された件数
+
+        Note:
+            このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
+        """
+        stmt = update(self.model).where(self.model.link_url == link_url)
+
+        # old_typeが指定されている場合は、そのtypeの通知のみ更新
+        if old_type is not None:
+            stmt = stmt.where(self.model.type == old_type)
+
+        stmt = stmt.values(type=new_type, updated_at=datetime.now())
+        result = await db.execute(stmt)
+        return result.rowcount
+
+    async def delete_old_notices_over_limit(
+        self,
+        db: AsyncSession,
+        office_id: UUID,
+        limit: int = 50
+    ) -> int:
+        """
+        事務所の通知数が制限を超えた場合、古いものから削除
+
+        Args:
+            db: データベースセッション
+            office_id: 事務所ID
+            limit: 保持する最大通知数（デフォルト50件）
+
+        Returns:
+            削除された件数
+
+        Note:
+            このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
+        """
+        # 事務所の全通知を作成日時降順で取得
+        result = await db.execute(
+            select(self.model)
+            .where(self.model.office_id == office_id)
+            .order_by(self.model.created_at.desc())
+        )
+        notices = list(result.scalars().all())
+
+        # 制限を超える通知を削除
+        if len(notices) > limit:
+            notices_to_delete = notices[limit:]
+            delete_count = 0
+            for notice in notices_to_delete:
+                await db.delete(notice)
+                delete_count += 1
+            return delete_count
+
+        return 0
+
 
 # インスタンス化
 crud_notice = CRUDNotice(Notice)

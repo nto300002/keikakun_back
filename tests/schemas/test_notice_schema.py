@@ -132,8 +132,8 @@ def test_notice_response_valid():
     }
     notice_response = NoticeResponse(**response_data)
     assert notice_response.id == uuid.UUID(response_data["id"])
-    assert notice_response.type == "plan_deadline"
-    assert notice_response.title == "通知タイトル"
+    assert notice_response.notice_type == "plan_deadline"
+    assert notice_response.notice_title == "通知タイトル"
     assert notice_response.is_read is False
 
 

@@ -25,15 +25,15 @@ class NoticeUpdate(BaseModel):
 
 class NoticeResponse(BaseModel):
     """通知レスポンススキーマ"""
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: uuid.UUID
     recipient_staff_id: uuid.UUID
     office_id: uuid.UUID
-    type: str
-    title: str
-    content: Optional[str]
-    link_url: Optional[str]
+    notice_type: str = Field(alias="type")
+    notice_title: str = Field(alias="title")
+    notice_description: Optional[str] = Field(alias="content")
+    link_url: Optional[str] = None
     is_read: bool
     created_at: datetime
     updated_at: datetime
