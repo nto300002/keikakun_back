@@ -111,14 +111,25 @@ async def cleanup_database_session():
         # データベース接続情報をログ出力（デバッグ用）
         def get_db_branch_name(url: str) -> str:
             """URLからデータベースブランチ名を抽出"""
-            if "keikakun_dev_test" in url:
+            url_lower = url.lower()
+
+            # main_testブランチ（新しい命名規則）
+            if "main_test" in url_lower:
+                return "main_test"
+            # 旧命名規則との互換性維持
+            elif "keikakun_dev_test" in url_lower:
                 return "dev_test"
-            elif "keikakun_dev" in url:
+            elif "keikakun_dev" in url_lower:
                 return "dev"
-            elif "keikakun_prod_test" in url:
+            elif "keikakun_prod_test" in url_lower or "prod_test" in url_lower:
                 return "prod_test"
-            elif "keikakun_prod" in url:
+            elif "keikakun_prod" in url_lower:
                 return "prod"
+            # 一般的なテスト環境キーワード
+            elif "test" in url_lower:
+                return "test"
+            elif "dev" in url_lower or "development" in url_lower:
+                return "dev"
             else:
                 return "unknown"
 
