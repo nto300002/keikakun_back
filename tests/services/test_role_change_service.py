@@ -631,3 +631,192 @@ async def test_reject_request_creates_notification(
     assert notice.office_id == office_id
     assert notice.is_read is False
     assert "却下" in notice.content or "rejected" in notice.content.lower()
+
+
+# ===== 送信者向け通知テスト（新機能） =====
+
+async def test_create_request_sends_notification_to_requester(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    TDD: リクエスト作成時に送信者にも通知が作成される
+    送信者向け通知は role_change_request_sent タイプで作成される
+    """
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # リクエスト作成
+    request_data = RoleChangeRequestCreate(
+        requested_role=StaffRole.manager,
+        request_notes="昇格希望"
+    )
+    request = await role_change_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    # 通知が作成されているか確認
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 送信者（Employee）宛の通知を確認
+    employee_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+
+    # role_change_request_sent 通知を探す
+    sent_notices = [n for n in employee_notices if n.type == NoticeType.role_change_request_sent.value]
+    assert len(sent_notices) == 1, "送信者にrole_change_request_sent通知が1件作成されるべき"
+
+    # 通知の内容を確認
+    notice = sent_notices[0]
+    assert notice.recipient_staff_id == employee_id
+    assert notice.office_id == office_id
+    assert notice.is_read is False
+    assert "送信" in notice.title or "sent" in notice.title.lower()
+    assert "承認をお待ちください" in notice.content or "待ち" in notice.content
+    assert f"/role-change-requests/{request.id}" in notice.link_url
+
+
+async def test_create_request_sends_notifications_to_both_requester_and_approvers(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    TDD: リクエスト作成時に送信者と承認者の両方に通知が作成される
+    - 送信者: role_change_request_sent
+    - 承認者: role_change_pending
+    """
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # リクエスト作成
+    request_data = RoleChangeRequestCreate(
+        requested_role=StaffRole.manager,
+        request_notes="昇格希望"
+    )
+    request = await role_change_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 1. 送信者への通知を確認
+    employee_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+    sent_notices = [n for n in employee_notices if n.type == NoticeType.role_change_request_sent.value]
+    assert len(sent_notices) == 1, "送信者にrole_change_request_sent通知が作成されるべき"
+    assert sent_notices[0].recipient_staff_id == employee_id
+
+    # 2. 承認者（Manager）への通知を確認
+    manager_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=manager_id)
+    pending_notices = [n for n in manager_notices if n.type == NoticeType.role_change_pending.value]
+    assert len(pending_notices) >= 1, "承認者にrole_change_pending通知が作成されるべき"
+
+    manager_pending = [n for n in pending_notices if n.recipient_staff_id == manager_id]
+    assert len(manager_pending) >= 1
+
+    # 3. Ownerへの通知も確認
+    owner_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=owner_id)
+    owner_pending_notices = [n for n in owner_notices if n.type == NoticeType.role_change_pending.value]
+    assert len(owner_pending_notices) >= 1, "Ownerにもrole_change_pending通知が作成されるべき"
+
+
+async def test_approve_request_updates_requester_notification_type(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    TDD: 承認時に送信者の role_change_request_sent 通知が role_change_approved に更新される
+    """
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # リクエスト作成
+    request_data = RoleChangeRequestCreate(
+        requested_role=StaffRole.manager,
+        request_notes="昇格希望"
+    )
+    request = await role_change_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 承認前: role_change_request_sent が存在することを確認
+    employee_notices_before = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+    sent_notices = [n for n in employee_notices_before if n.type == NoticeType.role_change_request_sent.value]
+    assert len(sent_notices) == 1, "承認前に送信者通知が存在するべき"
+
+    # 承認処理
+    await role_change_service.approve_request(
+        db=db,
+        request_id=request.id,
+        reviewer_staff_id=manager_id,
+        reviewer_notes="承認します"
+    )
+
+    # 承認後: role_change_request_sent が role_change_approved に更新されていることを確認
+    employee_notices_after = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+
+    # もう role_change_request_sent は存在しないはず
+    sent_notices_after = [n for n in employee_notices_after if n.type == NoticeType.role_change_request_sent.value]
+    assert len(sent_notices_after) == 0, "承認後はrole_change_request_sent通知は存在しないべき"
+
+    # role_change_approved が存在するはず
+    approved_notices = [n for n in employee_notices_after if n.type == NoticeType.role_change_approved.value]
+    assert len(approved_notices) >= 1, "承認後はrole_change_approved通知が存在するべき"
+
+
+async def test_reject_request_updates_requester_notification_type(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    TDD: 却下時に送信者の role_change_request_sent 通知が role_change_rejected に更新される
+    """
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # リクエスト作成
+    request_data = RoleChangeRequestCreate(
+        requested_role=StaffRole.manager,
+        request_notes="昇格希望"
+    )
+    request = await role_change_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 却下前: role_change_request_sent が存在することを確認
+    employee_notices_before = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+    sent_notices = [n for n in employee_notices_before if n.type == NoticeType.role_change_request_sent.value]
+    assert len(sent_notices) == 1, "却下前に送信者通知が存在するべき"
+
+    # 却下処理
+    await role_change_service.reject_request(
+        db=db,
+        request_id=request.id,
+        reviewer_staff_id=manager_id,
+        reviewer_notes="まだ早い"
+    )
+
+    # 却下後: role_change_request_sent が role_change_rejected に更新されていることを確認
+    employee_notices_after = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+
+    # もう role_change_request_sent は存在しないはず
+    sent_notices_after = [n for n in employee_notices_after if n.type == NoticeType.role_change_request_sent.value]
+    assert len(sent_notices_after) == 0, "却下後はrole_change_request_sent通知は存在しないべき"
+
+    # role_change_rejected が存在するはず
+    rejected_notices = [n for n in employee_notices_after if n.type == NoticeType.role_change_rejected.value]
+    assert len(rejected_notices) >= 1, "却下後はrole_change_rejected通知が存在するべき"

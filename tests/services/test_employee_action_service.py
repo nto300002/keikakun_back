@@ -1083,3 +1083,216 @@ async def test_notification_includes_support_plan_status_step_type_variations(
 
         # 利用者名も含まれていることを確認
         assert "テスト 利用者" in latest_notice.content or "テスト利用者" in latest_notice.content
+
+
+# ===== 送信者向け通知テスト（新機能） =====
+
+async def test_create_request_sends_notification_to_requester(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID],
+    setup_welfare_recipient: UUID
+):
+    """
+    TDD: リクエスト作成時に送信者にも通知が作成される
+    送信者向け通知は employee_action_request_sent タイプで作成される
+    """
+    office_id, manager_id, employee_id = setup_office_with_staff
+    recipient_id = setup_welfare_recipient
+
+    # リクエスト作成
+    request_data = EmployeeActionRequestCreate(
+        resource_type=ResourceType.welfare_recipient,
+        action_type=ActionType.create,
+        request_data={
+            "full_name": "テスト 太郎",
+            "date_of_birth": "1990-01-01",
+            "gender": "male"
+        }
+    )
+
+    request = await employee_action_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    # 通知が作成されているか確認
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 送信者（Employee）宛の通知を確認
+    employee_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+
+    # employee_action_request_sent 通知を探す
+    sent_notices = [n for n in employee_notices if n.type == NoticeType.employee_action_request_sent.value]
+    assert len(sent_notices) == 1, "送信者にemployee_action_request_sent通知が1件作成されるべき"
+
+    # 通知の内容を確認
+    notice = sent_notices[0]
+    assert notice.recipient_staff_id == employee_id
+    assert notice.office_id == office_id
+    assert notice.is_read is False
+    assert "送信" in notice.title or "sent" in notice.title.lower()
+    assert "承認をお待ちください" in notice.content or "待ち" in notice.content
+    assert f"/employee-action-requests/{request.id}" in notice.link_url
+
+
+async def test_create_request_sends_notifications_to_both_requester_and_approvers(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID],
+    setup_welfare_recipient: UUID
+):
+    """
+    TDD: リクエスト作成時に送信者と承認者の両方に通知が作成される
+    - 送信者: employee_action_request_sent
+    - 承認者: employee_action_pending
+    """
+    office_id, manager_id, employee_id = setup_office_with_staff
+    recipient_id = setup_welfare_recipient
+
+    # リクエスト作成
+    request_data = EmployeeActionRequestCreate(
+        resource_type=ResourceType.welfare_recipient,
+        action_type=ActionType.create,
+        request_data={
+            "full_name": "テスト 花子",
+            "date_of_birth": "1985-05-15",
+            "gender": "female"
+        }
+    )
+
+    request = await employee_action_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 1. 送信者への通知を確認
+    employee_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+    sent_notices = [n for n in employee_notices if n.type == NoticeType.employee_action_request_sent.value]
+    assert len(sent_notices) == 1, "送信者にemployee_action_request_sent通知が作成されるべき"
+    assert sent_notices[0].recipient_staff_id == employee_id
+
+    # 2. 承認者（Manager）への通知を確認
+    manager_notices = await crud_notice.get_unread_by_staff_id(db, staff_id=manager_id)
+    pending_notices = [n for n in manager_notices if n.type == NoticeType.employee_action_pending.value]
+    assert len(pending_notices) >= 1, "承認者にemployee_action_pending通知が作成されるべき"
+
+
+async def test_approve_request_updates_requester_notification_type(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID],
+    setup_welfare_recipient: UUID
+):
+    """
+    TDD: 承認時に送信者の employee_action_request_sent 通知が employee_action_approved に更新される
+    """
+    office_id, manager_id, employee_id = setup_office_with_staff
+    recipient_id = setup_welfare_recipient
+
+    # リクエスト作成
+    request_data = EmployeeActionRequestCreate(
+        resource_type=ResourceType.welfare_recipient,
+        action_type=ActionType.create,
+        request_data={
+            "full_name": "承認テスト 太郎",
+            "date_of_birth": "1992-03-20",
+            "gender": "male"
+        }
+    )
+
+    request = await employee_action_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 承認前: employee_action_request_sent が存在することを確認
+    employee_notices_before = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+    sent_notices = [n for n in employee_notices_before if n.type == NoticeType.employee_action_request_sent.value]
+    assert len(sent_notices) == 1, "承認前に送信者通知が存在するべき"
+
+    # 承認処理
+    await employee_action_service.approve_request(
+        db=db,
+        request_id=request.id,
+        approver_staff_id=manager_id,
+        approver_notes="承認します"
+    )
+
+    # 承認後: employee_action_request_sent が employee_action_approved に更新されていることを確認
+    employee_notices_after = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+
+    # もう employee_action_request_sent は存在しないはず
+    sent_notices_after = [n for n in employee_notices_after if n.type == NoticeType.employee_action_request_sent.value]
+    assert len(sent_notices_after) == 0, "承認後はemployee_action_request_sent通知は存在しないべき"
+
+    # employee_action_approved が存在するはず
+    approved_notices = [n for n in employee_notices_after if n.type == NoticeType.employee_action_approved.value]
+    assert len(approved_notices) >= 1, "承認後はemployee_action_approved通知が存在するべき"
+
+
+async def test_reject_request_updates_requester_notification_type(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID],
+    setup_welfare_recipient: UUID
+):
+    """
+    TDD: 却下時に送信者の employee_action_request_sent 通知が employee_action_rejected に更新される
+    """
+    office_id, manager_id, employee_id = setup_office_with_staff
+    recipient_id = setup_welfare_recipient
+
+    # リクエスト作成
+    request_data = EmployeeActionRequestCreate(
+        resource_type=ResourceType.welfare_recipient,
+        action_type=ActionType.create,
+        request_data={
+            "full_name": "却下テスト 花子",
+            "date_of_birth": "1988-07-10",
+            "gender": "female"
+        }
+    )
+
+    request = await employee_action_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=request_data
+    )
+
+    from app.crud.crud_notice import crud_notice
+    from app.models.enums import NoticeType
+
+    # 却下前: employee_action_request_sent が存在することを確認
+    employee_notices_before = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+    sent_notices = [n for n in employee_notices_before if n.type == NoticeType.employee_action_request_sent.value]
+    assert len(sent_notices) == 1, "却下前に送信者通知が存在するべき"
+
+    # 却下処理
+    await employee_action_service.reject_request(
+        db=db,
+        request_id=request.id,
+        approver_staff_id=manager_id,
+        approver_notes="まだ情報が不足しています"
+    )
+
+    # 却下後: employee_action_request_sent が employee_action_rejected に更新されていることを確認
+    employee_notices_after = await crud_notice.get_unread_by_staff_id(db, staff_id=employee_id)
+
+    # もう employee_action_request_sent は存在しないはず
+    sent_notices_after = [n for n in employee_notices_after if n.type == NoticeType.employee_action_request_sent.value]
+    assert len(sent_notices_after) == 0, "却下後はemployee_action_request_sent通知は存在しないべき"
+
+    # employee_action_rejected が存在するはず
+    rejected_notices = [n for n in employee_notices_after if n.type == NoticeType.employee_action_rejected.value]
+    assert len(rejected_notices) >= 1, "却下後はemployee_action_rejected通知が存在するべき"
