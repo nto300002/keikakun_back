@@ -325,29 +325,11 @@ async def update_plan_deliverable(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException("この成果物を更新する権限がありません。")
 
-    # 4. Employee restriction check
-    employee_request = await deps.check_employee_restriction(
-        db=db,
-        current_staff=current_user,
-        resource_type=ResourceType.support_plan_cycle,
-        action_type=ActionType.update,
-        resource_id=None,  # plan_cycle_id は int なので None
-        request_data={
-            "plan_cycle_id": deliverable.plan_cycle_id,
-            "deliverable_id": deliverable_id,
-            "original_filename": file.filename or "unknown.pdf"
-        }
-    )
-
-    if employee_request:
-        # Employee case: return request created response (file is not uploaded)
-        return JSONResponse(
-            status_code=status.HTTP_202_ACCEPTED,
-            content={
-                "message": "Request created and pending approval",
-                "request_id": str(employee_request.id),
-                "note": "File will be uploaded after approval by Manager/Owner"
-            }
+    # 4. Employee権限チェック - PDFアップロードはEmployee権限では不可
+    if current_user.role == StaffRole.employee:
+        raise ForbiddenException(
+            "Employee権限では個別支援計画のPDFをアップロードできません。"
+            "Manager/Owner権限のスタッフにアップロードを依頼してください。"
         )
 
     # 5. ファイル内容を読み取る
@@ -412,27 +394,11 @@ async def delete_plan_deliverable(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException("この成果物を削除する権限がありません。")
 
-    # 3. Employee restriction check
-    employee_request = await deps.check_employee_restriction(
-        db=db,
-        current_staff=current_user,
-        resource_type=ResourceType.support_plan_cycle,
-        action_type=ActionType.delete,
-        resource_id=None,  # plan_cycle_id は int なので None
-        request_data={
-            "plan_cycle_id": deliverable.plan_cycle_id,
-            "deliverable_id": deliverable_id
-        }
-    )
-
-    if employee_request:
-        # Employee case: return request created response
-        return JSONResponse(
-            status_code=status.HTTP_202_ACCEPTED,
-            content={
-                "message": "Request created and pending approval",
-                "request_id": str(employee_request.id)
-            }
+    # 3. Employee権限チェック - PDFアップロードはEmployee権限では不可
+    if current_user.role == StaffRole.employee:
+        raise ForbiddenException(
+            "Employee権限では個別支援計画のPDFを削除できません。"
+            "Manager/Owner権限のスタッフに削除を依頼してください。"
         )
 
     # 4. サービス層を呼び出して成果物を削除
