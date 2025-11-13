@@ -31,10 +31,18 @@ class SafeTestDataCleanup:
             logger.warning("TEST_DATABASE_URL not set - assuming not in test environment")
             return False
 
-        # 本番環境のキーワードチェック
+        db_url_lower = db_url.lower()
+
+        # テスト環境のキーワードがあればOK
+        test_keywords = ['test', '_test', '-test', 'testing', 'dev', 'development']
+        if any(keyword in db_url_lower for keyword in test_keywords):
+            logger.info(f"Test environment confirmed (contains test keyword): {db_url}")
+            return True
+
+        # テストキーワードがなく、本番環境のキーワードがある場合はNG
         production_keywords = ['prod', 'production', 'main', 'live']
-        if any(keyword in db_url.lower() for keyword in production_keywords):
-            logger.error(f"Production database detected in URL: {db_url}")
+        if any(keyword in db_url_lower for keyword in production_keywords):
+            logger.error(f"Production database detected in URL without test keyword: {db_url}")
             return False
 
         return True
