@@ -117,13 +117,13 @@ def create_mock_pdf_file():
 # POST /plan-deliverables (CREATE) のテスト
 # ============================================================================
 
-async def test_employee_upload_plan_deliverable_creates_request(
+async def test_employee_upload_plan_deliverable_forbidden(
     async_client: AsyncClient,
     db_session: AsyncSession,
     service_admin_user_factory,
     office_factory
 ):
-    """Employee が PlanDeliverable アップロードを試みると、EmployeeActionRequest が作成される"""
+    """Employee が PlanDeliverable アップロードを試みると、403 Forbidden エラーが返される"""
     # Arrange
     employee, office_id = await setup_staff_with_office(
         db_session, service_admin_user_factory, office_factory, StaffRole.employee
@@ -142,23 +142,12 @@ async def test_employee_upload_plan_deliverable_creates_request(
     response = await async_client.post("/api/v1/support-plans/plan-deliverables", files=files, data=data)
 
     # Assert
-    assert response.status_code == 202  # Accepted
+    assert response.status_code == 403  # Forbidden
     response_data = response.json()
-    assert "message" in response_data
-    assert "Request created and pending approval" in response_data["message"]
-    assert "request_id" in response_data
+    assert "detail" in response_data
+    assert "Employee権限では個別支援計画のPDFをアップロードできません" in response_data["detail"]
 
-    # EmployeeActionRequest が作成されていることを確認
-    request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
-    assert request is not None
-    assert request.requester_staff_id == employee.id
-    assert request.office_id == office_id
-    assert request.resource_type == ResourceType.support_plan_cycle
-    assert request.action_type == ActionType.create
-    assert request.status == RequestStatus.pending
-
-    # PlanDeliverable は作成されていないことを確認（承認待ち）
+    # PlanDeliverable は作成されていないことを確認
     result = await db_session.execute(
         select(PlanDeliverable).where(PlanDeliverable.plan_cycle_id == cycle.id)
     )
@@ -255,14 +244,14 @@ async def test_owner_upload_plan_deliverable_direct(
 # PUT /deliverables/{deliverable_id} (UPDATE) のテスト
 # ============================================================================
 
-async def test_employee_update_plan_deliverable_creates_request(
+async def test_employee_update_plan_deliverable_forbidden(
     async_client: AsyncClient,
     db_session: AsyncSession,
     service_admin_user_factory,
     office_factory,
     mocker
 ):
-    """Employee が PlanDeliverable 更新を試みると、EmployeeActionRequest が作成される"""
+    """Employee が PlanDeliverable 更新を試みると、403 Forbidden エラーが返される"""
     # S3アップロードをモック
     mock_upload = mocker.patch("app.core.storage.upload_file")
     mock_upload.return_value = "s3://test-bucket/test-file.pdf"
@@ -300,17 +289,10 @@ async def test_employee_update_plan_deliverable_creates_request(
     response = await async_client.put(f"/api/v1/support-plans/deliverables/{deliverable_id}", files=update_files)
 
     # Assert
-    assert response.status_code == 202  # Accepted
+    assert response.status_code == 403  # Forbidden
     response_data = response.json()
-    assert "Request created and pending approval" in response_data["message"]
-    assert "request_id" in response_data
-
-    # EmployeeActionRequest が作成されていることを確認
-    request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
-    assert request is not None
-    assert request.resource_type == ResourceType.support_plan_cycle
-    assert request.action_type == ActionType.update
+    assert "detail" in response_data
+    # UPDATEエンドポイントは既にEmployee制限チェックがあるので、同じエラーメッセージが返る
 
     # Cleanup
     app.dependency_overrides.clear()
@@ -360,14 +342,14 @@ async def test_manager_update_plan_deliverable_direct(
 # DELETE /deliverables/{deliverable_id} (DELETE) のテスト
 # ============================================================================
 
-async def test_employee_delete_plan_deliverable_creates_request(
+async def test_employee_delete_plan_deliverable_forbidden(
     async_client: AsyncClient,
     db_session: AsyncSession,
     service_admin_user_factory,
     office_factory,
     mocker
 ):
-    """Employee が PlanDeliverable 削除を試みると、EmployeeActionRequest が作成される"""
+    """Employee が PlanDeliverable 削除を試みると、403 Forbidden エラーが返される"""
     # S3アップロードをモック
     mock_upload = mocker.patch("app.core.storage.upload_file")
     mock_upload.return_value = "s3://test-bucket/test-file.pdf"
@@ -403,17 +385,12 @@ async def test_employee_delete_plan_deliverable_creates_request(
     response = await async_client.delete(f"/api/v1/support-plans/deliverables/{deliverable_id}")
 
     # Assert
-    assert response.status_code == 202  # Accepted
+    assert response.status_code == 403  # Forbidden
     response_data = response.json()
-    assert "Request created and pending approval" in response_data["message"]
+    assert "detail" in response_data
+    # DELETEエンドポイントは既にEmployee制限チェックがあるので、同じエラーメッセージが返る
 
-    # EmployeeActionRequest が作成されていることを確認
-    request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
-    assert request is not None
-    assert request.action_type == ActionType.delete
-
-    # Deliverable は削除されていないことを確認（承認待ち）
+    # Deliverable は削除されていないことを確認
     deliverable = await db_session.get(PlanDeliverable, deliverable_id)
     assert deliverable is not None
 
