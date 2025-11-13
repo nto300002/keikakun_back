@@ -60,13 +60,15 @@ class TestNoticeType:
         assert NoticeType.role_change_pending.value == 'role_change_pending'
         assert NoticeType.role_change_approved.value == 'role_change_approved'
         assert NoticeType.role_change_rejected.value == 'role_change_rejected'
+        assert NoticeType.role_change_request_sent.value == 'role_change_request_sent'
         assert NoticeType.employee_action_pending.value == 'employee_action_pending'
         assert NoticeType.employee_action_approved.value == 'employee_action_approved'
         assert NoticeType.employee_action_rejected.value == 'employee_action_rejected'
+        assert NoticeType.employee_action_request_sent.value == 'employee_action_request_sent'
 
     def test_notice_type_members(self):
-        """NoticeTypeのメンバーが6つであることを確認"""
-        assert len(NoticeType) == 6
+        """NoticeTypeのメンバーが8つであることを確認"""
+        assert len(NoticeType) == 8
 
     def test_notice_type_from_string(self):
         """文字列からNoticeTypeを取得できることを確認"""
