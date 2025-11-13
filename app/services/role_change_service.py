@@ -337,7 +337,7 @@ class RoleChangeService:
         request: RoleChangeRequest
     ) -> None:
         """
-        Role変更リクエスト作成時の通知を承認者に送信
+        Role変更リクエスト作成時の通知を承認者と送信者に送信
 
         Args:
             db: データベースセッション
@@ -352,10 +352,11 @@ class RoleChangeService:
         from_role = request.from_role
         requested_role = request.requested_role
         requester_full_name = request.requester.full_name
+        requester_staff_id = request.requester_staff_id
         request_id = request.id
         request_notes = request.request_notes
 
-        # 承認可能なスタッフ（manager/owner）を取得
+        # 1. 承認可能なスタッフ（manager/owner）に通知を作成
         approvers = await self._get_approvers(db, office_id, from_role)
 
         # 各承認者に通知を作成
@@ -379,6 +380,20 @@ class RoleChangeService:
             )
             await crud_notice.create(db, obj_in=notice_data)
 
+        # 2. リクエスト作成者（送信者）にも通知を作成
+        requester_notice_data = NoticeCreate(
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
+            type=NoticeType.role_change_request_sent.value,
+            title="役割、権限変更リクエストを送信しました",
+            content=f"あなたの{from_role.value}から{requested_role.value}への変更リクエストを送信しました。承認をお待ちください。",
+            link_url=f"/role-change-requests/{request_id}"
+        )
+        await crud_notice.create(db, obj_in=requester_notice_data)
+
+        # 3. 事務所の通知数が50件を超えた場合、古いものから削除
+        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+
         # commitしない（親メソッドで最後に1回だけcommitする）
 
     async def _create_approval_notification(
@@ -396,15 +411,26 @@ class RoleChangeService:
         Note:
             このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
         """
+        # リレーションシップの値を事前に変数に保存（MissingGreenlet対策）
+        office_id = request.office_id
+        requester_staff_id = request.requester_staff_id
+        request_id = request.id
+        from_role = request.from_role
+        requested_role = request.requested_role
+
         notice_data = NoticeCreate(
-            recipient_staff_id=request.requester_staff_id,
-            office_id=request.office_id,
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
             type=NoticeType.role_change_approved.value,
             title="役割、権限変更リクエストが承認されました",
-            content=f"あなたの{request.from_role.value}から{request.requested_role.value}への変更リクエストが承認されました。",
-            link_url=f"/role-change-requests/{request.id}"
+            content=f"あなたの{from_role.value}から{requested_role.value}への変更リクエストが承認されました。",
+            link_url=f"/role-change-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=notice_data)
+
+        # 事務所の通知数が50件を超えた場合、古いものから削除
+        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+
         # commitしない（親メソッドで最後に1回だけcommitする）
 
     async def _create_rejection_notification(
@@ -422,15 +448,26 @@ class RoleChangeService:
         Note:
             このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
         """
+        # リレーションシップの値を事前に変数に保存（MissingGreenlet対策）
+        office_id = request.office_id
+        requester_staff_id = request.requester_staff_id
+        request_id = request.id
+        from_role = request.from_role
+        requested_role = request.requested_role
+
         notice_data = NoticeCreate(
-            recipient_staff_id=request.requester_staff_id,
-            office_id=request.office_id,
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
             type=NoticeType.role_change_rejected.value,
             title="役割、権限変更リクエストが却下されました",
-            content=f"あなたの{request.from_role.value}から{request.requested_role.value}への変更リクエストが却下されました。",
-            link_url=f"/role-change-requests/{request.id}"
+            content=f"あなたの{from_role.value}から{requested_role.value}への変更リクエストが却下されました。",
+            link_url=f"/role-change-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=notice_data)
+
+        # 事務所の通知数が50件を超えた場合、古いものから削除
+        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+
         # commitしない（親メソッドで最後に1回だけcommitする）
 
     async def _get_approvers(

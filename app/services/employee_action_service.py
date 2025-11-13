@@ -34,6 +34,25 @@ from app.schemas.notice import NoticeCreate
 logger = logging.getLogger(__name__)
 
 
+def _parse_birth_day(birth_day_value: Any) -> Optional[date]:
+    """
+    birthDay値を安全にdateオブジェクトに変換
+
+    Args:
+        birth_day_value: 文字列、dateオブジェクト、またはNone
+
+    Returns:
+        dateオブジェクトまたはNone
+    """
+    if birth_day_value is None:
+        return None
+    if isinstance(birth_day_value, date):
+        return birth_day_value
+    if isinstance(birth_day_value, str):
+        return date.fromisoformat(birth_day_value)
+    return None
+
+
 class EmployeeActionService:
     """Employee制限リクエストのビジネスロジックを管理するサービス"""
 
@@ -159,6 +178,9 @@ class EmployeeActionService:
                 f"request_id={request_id}, error={str(e)}"
             )
 
+            # トランザクションがロールバック状態になっているため、明示的にrollbackを実行
+            await db.rollback()
+
             # エラー情報を記録
             execution_result = {
                 "success": False,
@@ -190,6 +212,15 @@ class EmployeeActionService:
         )
         approved_request = result.scalar_one()
 
+        # 通知作成用の詳細情報を事前に取得（MissingGreenlet対策）
+        detail_info = self._extract_detail_from_request_data(approved_request)
+        office_id = approved_request.office_id
+        requester_full_name = approved_request.requester.full_name
+        requester_staff_id = approved_request.requester_staff_id
+
+        # 承認者のIDリストを取得（_get_approversメソッドを使用）
+        approver_staff_ids = await self._get_approvers(db, office_id)
+
         # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
         # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
         link_url = f"/employee-action-requests/{approved_request.id}"
@@ -199,11 +230,43 @@ class EmployeeActionService:
         )
         delete_result = await db.execute(delete_stmt)
         notices_to_delete = delete_result.scalars().all()
+
         for notice in notices_to_delete:
             await db.delete(notice)
 
-        # 通知を作成（リクエスト作成者に送信）※commitはしない
-        await self._create_approval_notification(db, approved_request)
+        # 送信者向けの既存通知も削除（employee_action_request_sent）
+        delete_sender_stmt = select(crud_notice.model).where(
+            crud_notice.model.link_url == link_url,
+            crud_notice.model.type == NoticeType.employee_action_request_sent.value
+        )
+        delete_sender_result = await db.execute(delete_sender_stmt)
+        sender_notices_to_delete = delete_sender_result.scalars().all()
+
+        for notice in sender_notices_to_delete:
+            await db.delete(notice)
+
+        # 送信者向けの新しい通知を作成（employee_action_approved）
+        sender_notice_data = NoticeCreate(
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
+            type=NoticeType.employee_action_approved.value,
+            title="作成、編集、削除リクエストが承認されました",
+            content=f"あなたの{detail_info}リクエストが承認されました。",
+            link_url=link_url
+        )
+        await crud_notice.create(db, obj_in=sender_notice_data)
+
+        # 承認者向けの通知を再作成
+        for approver_id in approver_staff_ids:
+            approver_notice_data = NoticeCreate(
+                recipient_staff_id=approver_id,
+                office_id=office_id,
+                type=NoticeType.employee_action_approved.value,
+                title="作成、編集、削除リクエストが承認されました",
+                content=f"{requester_full_name}さんの{detail_info}リクエストを承認しました。",
+                link_url=link_url
+            )
+            await crud_notice.create(db, obj_in=approver_notice_data)
 
         # 最後に1回だけcommit
         await db.commit()
@@ -270,6 +333,15 @@ class EmployeeActionService:
         )
         rejected_request = result.scalar_one()
 
+        # 通知作成用の詳細情報を事前に取得（MissingGreenlet対策）
+        detail_info = self._extract_detail_from_request_data(rejected_request)
+        office_id = rejected_request.office_id
+        requester_full_name = rejected_request.requester.full_name
+        requester_staff_id = rejected_request.requester_staff_id
+
+        # 承認者のIDリストを取得（_get_approversメソッドを使用）
+        approver_staff_ids = await self._get_approvers(db, office_id)
+
         # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
         # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
         link_url = f"/employee-action-requests/{rejected_request.id}"
@@ -279,11 +351,43 @@ class EmployeeActionService:
         )
         delete_result = await db.execute(delete_stmt)
         notices_to_delete = delete_result.scalars().all()
+
         for notice in notices_to_delete:
             await db.delete(notice)
 
-        # 通知を作成（リクエスト作成者に送信）※commitはしない
-        await self._create_rejection_notification(db, rejected_request)
+        # 送信者向けの既存通知も削除（employee_action_request_sent）
+        delete_sender_stmt = select(crud_notice.model).where(
+            crud_notice.model.link_url == link_url,
+            crud_notice.model.type == NoticeType.employee_action_request_sent.value
+        )
+        delete_sender_result = await db.execute(delete_sender_stmt)
+        sender_notices_to_delete = delete_sender_result.scalars().all()
+
+        for notice in sender_notices_to_delete:
+            await db.delete(notice)
+
+        # 送信者向けの新しい通知を作成（employee_action_rejected）
+        sender_notice_data = NoticeCreate(
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
+            type=NoticeType.employee_action_rejected.value,
+            title="作成、編集、削除リクエストが却下されました",
+            content=f"あなたの{detail_info}リクエストが却下されました。",
+            link_url=link_url
+        )
+        await crud_notice.create(db, obj_in=sender_notice_data)
+
+        # 承認者向けの通知を再作成
+        for approver_id in approver_staff_ids:
+            approver_notice_data = NoticeCreate(
+                recipient_staff_id=approver_id,
+                office_id=office_id,
+                type=NoticeType.employee_action_rejected.value,
+                title="作成、編集、削除リクエストが却下されました",
+                content=f"{requester_full_name}さんの{detail_info}リクエストを却下しました。",
+                link_url=link_url
+            )
+            await crud_notice.create(db, obj_in=approver_notice_data)
 
         # 最後に1回だけcommit
         await db.commit()
@@ -348,17 +452,32 @@ class EmployeeActionService:
         request_data = request.request_data or {}
 
         if action_type == ActionType.create:
-            # 実際のAPI形式に合わせてbasic_infoを取得
-            basic_info = request_data.get("basic_info", {})
+            # form_data階層を取得（後方互換性のために3つの形式をサポート）
+            # 1. 新形式: request_data.form_data.basicInfo (camelCase)
+            # 2. 旧形式: request_data.basic_info (snake_case)
+            # 3. 最古形式: request_data に直接フィールド (snake_case)
+            form_data = request_data.get("form_data", {})
+            basic_info = form_data.get("basicInfo", {})
+
+            # 旧形式の場合、direct_dataから取得
+            if not basic_info:
+                basic_info = request_data.get("basic_info", {})
+
+            # 最古形式の場合、request_dataから直接取得
+            if not basic_info and "first_name" in request_data:
+                basic_info = request_data
+                form_data = request_data  # 最古形式の場合、form_dataもrequest_dataとして扱う
 
             # 新規作成
+            # フィールド名は camelCase と snake_case の両方をサポート
+            gender_value = basic_info.get("gender")
             recipient = WelfareRecipient(
-                first_name=basic_info.get("firstName"),
-                last_name=basic_info.get("lastName"),
-                first_name_furigana=basic_info.get("firstNameFurigana"),
-                last_name_furigana=basic_info.get("lastNameFurigana"),
-                birth_day=date.fromisoformat(basic_info.get("birthDay")),
-                gender=GenderType(basic_info.get("gender"))
+                first_name=basic_info.get("firstName") or basic_info.get("first_name"),
+                last_name=basic_info.get("lastName") or basic_info.get("last_name"),
+                first_name_furigana=basic_info.get("firstNameFurigana") or basic_info.get("first_name_furigana"),
+                last_name_furigana=basic_info.get("lastNameFurigana") or basic_info.get("last_name_furigana"),
+                birth_day=_parse_birth_day(basic_info.get("birthDay") or basic_info.get("birth_day")),
+                gender=GenderType(gender_value) if gender_value else None
             )
             db.add(recipient)
             await db.flush()
@@ -370,99 +489,115 @@ class EmployeeActionService:
             logger.info("Creating related data for recipient")
 
             # 住所・連絡先情報
-            contact_address = request_data.get("contact_address", {})
+            contact_address = form_data.get("contactAddress", {})
+            if not contact_address:
+                contact_address = request_data.get("contact_address", {})
 
-            # 空文字列をNoneに変換
-            form_of_residence_other_text = contact_address.get("formOfResidenceOtherText")
-            if form_of_residence_other_text == "":
-                form_of_residence_other_text = None
-
-            means_of_transportation_other_text = contact_address.get("meansOfTransportationOtherText")
-            if means_of_transportation_other_text == "":
-                means_of_transportation_other_text = None
-
-            detail = ServiceRecipientDetail(
-                welfare_recipient_id=recipient_id,
-                address=contact_address.get("address"),
-                form_of_residence=contact_address.get("formOfResidence"),
-                form_of_residence_other_text=form_of_residence_other_text,
-                means_of_transportation=contact_address.get("meansOfTransportation"),
-                means_of_transportation_other_text=means_of_transportation_other_text,
-                tel=contact_address.get("tel")
-            )
-            db.add(detail)
-            await db.flush()
-            detail_id = detail.id
-
-            # 緊急連絡先
-            emergency_contacts = request_data.get("emergency_contacts", [])
-            for contact_data in emergency_contacts:
+            # ServiceRecipientDetail は必須フィールド（address, tel, form_of_residence, means_of_transportation）が
+            # 全て存在する場合のみ作成する
+            detail_id = None
+            if contact_address and contact_address.get("address") and contact_address.get("tel"):
                 # 空文字列をNoneに変換
-                address = contact_data.get("address")
-                if address == "":
-                    address = None
+                form_of_residence_other_text = contact_address.get("formOfResidenceOtherText")
+                if form_of_residence_other_text == "":
+                    form_of_residence_other_text = None
 
-                notes = contact_data.get("notes")
-                if notes == "":
-                    notes = None
+                means_of_transportation_other_text = contact_address.get("meansOfTransportationOtherText")
+                if means_of_transportation_other_text == "":
+                    means_of_transportation_other_text = None
 
-                emergency_contact = EmergencyContact(
-                    service_recipient_detail_id=detail_id,
-                    first_name=contact_data.get("firstName"),
-                    last_name=contact_data.get("lastName"),
-                    first_name_furigana=contact_data.get("firstNameFurigana"),
-                    last_name_furigana=contact_data.get("lastNameFurigana"),
-                    relationship=contact_data.get("relationship"),
-                    tel=contact_data.get("tel"),
-                    address=address,
-                    notes=notes,
-                    priority=contact_data.get("priority")
+                detail = ServiceRecipientDetail(
+                    welfare_recipient_id=recipient_id,
+                    address=contact_address.get("address"),
+                    form_of_residence=contact_address.get("formOfResidence"),
+                    form_of_residence_other_text=form_of_residence_other_text,
+                    means_of_transportation=contact_address.get("meansOfTransportation"),
+                    means_of_transportation_other_text=means_of_transportation_other_text,
+                    tel=contact_address.get("tel")
                 )
-                db.add(emergency_contact)
+                db.add(detail)
+                await db.flush()
+                detail_id = detail.id
 
-            # 障害情報
-            disability_info = request_data.get("disability_info", {})
+            # 緊急連絡先（detail_id が存在する場合のみ作成）
+            if detail_id:
+                emergency_contacts = form_data.get("emergencyContacts", [])
+                if not emergency_contacts:
+                    emergency_contacts = request_data.get("emergency_contacts", [])
+                for contact_data in emergency_contacts:
+                    # 空文字列をNoneに変換
+                    address = contact_data.get("address")
+                    if address == "":
+                        address = None
 
-            # 空文字列をNoneに変換
-            special_remarks = disability_info.get("specialRemarks")
-            if special_remarks == "":
-                special_remarks = None
+                    notes = contact_data.get("notes")
+                    if notes == "":
+                        notes = None
 
-            disability_status = DisabilityStatus(
-                welfare_recipient_id=recipient_id,
-                disability_or_disease_name=disability_info.get("disabilityOrDiseaseName"),
-                livelihood_protection=disability_info.get("livelihoodProtection"),
-                special_remarks=special_remarks
-            )
-            db.add(disability_status)
-            await db.flush()
-            disability_status_id = disability_status.id
+                    emergency_contact = EmergencyContact(
+                        service_recipient_detail_id=detail_id,
+                        first_name=contact_data.get("firstName") or contact_data.get("first_name"),
+                        last_name=contact_data.get("lastName") or contact_data.get("last_name"),
+                        first_name_furigana=contact_data.get("firstNameFurigana") or contact_data.get("first_name_furigana"),
+                        last_name_furigana=contact_data.get("lastNameFurigana") or contact_data.get("last_name_furigana"),
+                        relationship=contact_data.get("relationship"),
+                        tel=contact_data.get("tel"),
+                        address=address,
+                        notes=notes,
+                        priority=contact_data.get("priority")
+                    )
+                    db.add(emergency_contact)
 
-            # 障害詳細
-            disability_details = request_data.get("disability_details", [])
-            for detail_data in disability_details:
-                # 空文字列をNoneに変換（Enum型フィールド対策）
-                physical_disability_type = detail_data.get("physicalDisabilityType")
-                if physical_disability_type == "":
-                    physical_disability_type = None
+            # 障害情報（必須フィールドが存在する場合のみ作成）
+            disability_info = form_data.get("disabilityInfo", {})
+            if not disability_info:
+                disability_info = request_data.get("disability_info", {})
 
-                grade_or_level = detail_data.get("gradeOrLevel")
-                if grade_or_level == "":
-                    grade_or_level = None
+            disability_status_id = None
+            if disability_info and disability_info.get("disabilityOrDiseaseName") and disability_info.get("livelihoodProtection"):
+                # 空文字列をNoneに変換
+                special_remarks = disability_info.get("specialRemarks") or disability_info.get("special_remarks")
+                if special_remarks == "":
+                    special_remarks = None
 
-                physical_disability_type_other_text = detail_data.get("physicalDisabilityTypeOtherText")
-                if physical_disability_type_other_text == "":
-                    physical_disability_type_other_text = None
-
-                disability_detail = DisabilityDetail(
-                    disability_status_id=disability_status_id,
-                    category=detail_data.get("category"),
-                    grade_or_level=grade_or_level,
-                    physical_disability_type=physical_disability_type,
-                    physical_disability_type_other_text=physical_disability_type_other_text,
-                    application_status=detail_data.get("applicationStatus")
+                disability_status = DisabilityStatus(
+                    welfare_recipient_id=recipient_id,
+                    disability_or_disease_name=disability_info.get("disabilityOrDiseaseName") or disability_info.get("disability_or_disease_name"),
+                    livelihood_protection=disability_info.get("livelihoodProtection") or disability_info.get("livelihood_protection"),
+                    special_remarks=special_remarks
                 )
-                db.add(disability_detail)
+                db.add(disability_status)
+                await db.flush()
+                disability_status_id = disability_status.id
+
+            # 障害詳細（disability_status_id が存在する場合のみ作成）
+            if disability_status_id:
+                disability_details = form_data.get("disabilityDetails", [])
+                if not disability_details:
+                    disability_details = request_data.get("disability_details", [])
+                for detail_data in disability_details:
+                    # 空文字列をNoneに変換（Enum型フィールド対策）
+                    physical_disability_type = detail_data.get("physicalDisabilityType") or detail_data.get("physical_disability_type")
+                    if physical_disability_type == "":
+                        physical_disability_type = None
+
+                    grade_or_level = detail_data.get("gradeOrLevel") or detail_data.get("grade_or_level")
+                    if grade_or_level == "":
+                        grade_or_level = None
+
+                    physical_disability_type_other_text = detail_data.get("physicalDisabilityTypeOtherText") or detail_data.get("physical_disability_type_other_text")
+                    if physical_disability_type_other_text == "":
+                        physical_disability_type_other_text = None
+
+                    disability_detail = DisabilityDetail(
+                        disability_status_id=disability_status_id,
+                        category=detail_data.get("category"),
+                        grade_or_level=grade_or_level,
+                        physical_disability_type=physical_disability_type,
+                        physical_disability_type_other_text=physical_disability_type_other_text,
+                        application_status=detail_data.get("applicationStatus") or detail_data.get("application_status")
+                    )
+                    db.add(disability_detail)
 
             # 事業所との関連付け
             association = OfficeWelfareRecipient(
@@ -500,22 +635,35 @@ class EmployeeActionService:
             if not recipient:
                 raise ValueError(f"WelfareRecipient {recipient_id} not found")
 
-            # 実際のAPI形式に合わせてbasic_infoを取得
-            basic_info = request_data.get("basic_info", {})
+            # form_data階層を取得（後方互換性のために3つの形式をサポート）
+            # 1. 新形式: request_data.form_data.basicInfo (camelCase)
+            # 2. 旧形式: request_data.basic_info (snake_case)
+            # 3. 最古形式: request_data に直接フィールド (snake_case)
+            form_data = request_data.get("form_data", {})
+            basic_info = form_data.get("basicInfo", {})
 
-            # 更新するフィールドを適用
-            if "firstName" in basic_info:
-                recipient.first_name = basic_info["firstName"]
-            if "lastName" in basic_info:
-                recipient.last_name = basic_info["lastName"]
-            if "firstNameFurigana" in basic_info:
-                recipient.first_name_furigana = basic_info["firstNameFurigana"]
-            if "lastNameFurigana" in basic_info:
-                recipient.last_name_furigana = basic_info["lastNameFurigana"]
-            if "birthDay" in basic_info:
-                recipient.birth_day = date.fromisoformat(basic_info["birthDay"])
+            # 旧形式の場合、direct_dataから取得
+            if not basic_info:
+                basic_info = request_data.get("basic_info", {})
+
+            # 最古形式の場合、request_dataから直接取得
+            if not basic_info and "first_name" in request_data:
+                basic_info = request_data
+
+            # 更新するフィールドを適用（camelCase と snake_case の両方をサポート）
+            if "firstName" in basic_info or "first_name" in basic_info:
+                recipient.first_name = basic_info.get("firstName") or basic_info.get("first_name")
+            if "lastName" in basic_info or "last_name" in basic_info:
+                recipient.last_name = basic_info.get("lastName") or basic_info.get("last_name")
+            if "firstNameFurigana" in basic_info or "first_name_furigana" in basic_info:
+                recipient.first_name_furigana = basic_info.get("firstNameFurigana") or basic_info.get("first_name_furigana")
+            if "lastNameFurigana" in basic_info or "last_name_furigana" in basic_info:
+                recipient.last_name_furigana = basic_info.get("lastNameFurigana") or basic_info.get("last_name_furigana")
+            if "birthDay" in basic_info or "birth_day" in basic_info:
+                recipient.birth_day = _parse_birth_day(basic_info.get("birthDay") or basic_info.get("birth_day"))
             if "gender" in basic_info:
-                recipient.gender = GenderType(basic_info["gender"])
+                gender_value = basic_info["gender"]
+                recipient.gender = GenderType(gender_value) if gender_value else None
 
             await db.flush()
 
@@ -619,7 +767,7 @@ class EmployeeActionService:
         request: EmployeeActionRequest
     ) -> None:
         """
-        Employee制限リクエスト作成時の通知を承認者に送信
+        Employee制限リクエスト作成時の通知を承認者と送信者に送信
 
         Args:
             db: データベースセッション
@@ -628,23 +776,44 @@ class EmployeeActionService:
         Note:
             このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
         """
-        # 承認可能なスタッフ（manager/owner）を取得
-        approvers = await self._get_approvers(db, request.office_id)
+        # _get_approvers呼び出し前に必要な値を変数に格納
+        # (_get_approvers内のdb.execute()でrequestオブジェクトがexpireされるため)
+        office_id = request.office_id
+        requester_full_name = request.requester.full_name
+        requester_staff_id = request.requester_staff_id
+        request_id = request.id
 
         # request_dataから詳細情報を抽出
         detail_info = self._extract_detail_from_request_data(request)
+
+        # 1. 承認可能なスタッフ（manager/owner）に通知を作成
+        approvers = await self._get_approvers(db, office_id)
 
         # 各承認者に通知を作成
         for approver_id in approvers:
             notice_data = NoticeCreate(
                 recipient_staff_id=approver_id,
-                office_id=request.office_id,
+                office_id=office_id,
                 type=NoticeType.employee_action_pending.value,
                 title="作成、編集、削除リクエストが作成されました",
-                content=f"{request.requester.full_name}さんが{detail_info}をリクエストしました。",
-                link_url=f"/employee-action-requests/{request.id}"
+                content=f"{requester_full_name}さんが{detail_info}をリクエストしました。",
+                link_url=f"/employee-action-requests/{request_id}"
             )
             await crud_notice.create(db, obj_in=notice_data)
+
+        # 2. リクエスト作成者（送信者）にも通知を作成
+        requester_notice_data = NoticeCreate(
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
+            type=NoticeType.employee_action_request_sent.value,
+            title="作成、編集、削除リクエストを送信しました",
+            content=f"あなたの{detail_info}リクエストを送信しました。承認をお待ちください。",
+            link_url=f"/employee-action-requests/{request_id}"
+        )
+        await crud_notice.create(db, obj_in=requester_notice_data)
+
+        # 3. 事務所の通知数が50件を超えた場合、古いものから削除
+        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 
@@ -663,18 +832,27 @@ class EmployeeActionService:
         Note:
             このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
         """
+        # リレーションシップの値を事前に変数に保存（MissingGreenlet対策）
+        office_id = request.office_id
+        requester_staff_id = request.requester_staff_id
+        request_id = request.id
+
         # request_dataから詳細情報を抽出
         detail_info = self._extract_detail_from_request_data(request)
 
         notice_data = NoticeCreate(
-            recipient_staff_id=request.requester_staff_id,
-            office_id=request.office_id,
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
             type=NoticeType.employee_action_approved.value,
             title="作成、編集、削除リクエストが承認されました",
             content=f"あなたの{detail_info}リクエストが承認されました。",
-            link_url=f"/employee-action-requests/{request.id}"
+            link_url=f"/employee-action-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=notice_data)
+
+        # 事務所の通知数が50件を超えた場合、古いものから削除
+        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+
         # commitしない（親メソッドで最後に1回だけcommitする）
 
     async def _create_rejection_notification(
@@ -692,18 +870,27 @@ class EmployeeActionService:
         Note:
             このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
         """
+        # リレーションシップの値を事前に変数に保存（MissingGreenlet対策）
+        office_id = request.office_id
+        requester_staff_id = request.requester_staff_id
+        request_id = request.id
+
         # request_dataから詳細情報を抽出
         detail_info = self._extract_detail_from_request_data(request)
 
         notice_data = NoticeCreate(
-            recipient_staff_id=request.requester_staff_id,
-            office_id=request.office_id,
+            recipient_staff_id=requester_staff_id,
+            office_id=office_id,
             type=NoticeType.employee_action_rejected.value,
             title="作成、編集、削除リクエストが却下されました",
             content=f"あなたの{detail_info}リクエストが却下されました。",
-            link_url=f"/employee-action-requests/{request.id}"
+            link_url=f"/employee-action-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=notice_data)
+
+        # 事務所の通知数が50件を超えた場合、古いものから削除
+        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+
         # commitしない（親メソッドで最後に1回だけcommitする）
 
     async def _get_approvers(
