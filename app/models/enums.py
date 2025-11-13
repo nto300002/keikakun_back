@@ -214,12 +214,21 @@ class RequestStatus(str, enum.Enum):
 
 class NoticeType(str, enum.Enum):
     """通知タイプ"""
+    # Role変更リクエスト（承認者向け）
     role_change_pending = 'role_change_pending'  # 承認待ちのRole変更リクエスト
     role_change_approved = 'role_change_approved'
     role_change_rejected = 'role_change_rejected'
+
+    # Role変更リクエスト（送信者向け）
+    role_change_request_sent = 'role_change_request_sent'  # リクエスト送信完了通知
+
+    # Employee制限リクエスト（承認者向け）
     employee_action_pending = 'employee_action_pending'  # 承認待ちのEmployee制限リクエスト
     employee_action_approved = 'employee_action_approved'
     employee_action_rejected = 'employee_action_rejected'
+
+    # Employee制限リクエスト（送信者向け）
+    employee_action_request_sent = 'employee_action_request_sent'  # リクエスト送信完了通知
 
 class ActionType(str, enum.Enum):
     """アクションタイプ"""
