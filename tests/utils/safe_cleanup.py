@@ -47,7 +47,7 @@ class SafeTestDataCleanup:
         識別方法（命名規則ベース）:
         - Staff: email が '@test.com' で終わる、または 'テスト' を含む
         - Office: name が 'テスト事業所' を含む
-        - WelfareRecipient: first_name または last_name が 'テスト', '部分修復', '修復対象', 'エラー' を含む
+        - WelfareRecipient: first_name または last_name が 'テスト', '部分修復', '修復対象', 'エラー', '新規', '更新後' を含む
 
         Args:
             db: データベースセッション
@@ -242,6 +242,10 @@ class SafeTestDataCleanup:
                    OR last_name LIKE '%修復対象%'
                    OR first_name LIKE '%エラー%'
                    OR last_name LIKE '%エラー%'
+                   OR first_name LIKE '%新規%'
+                   OR last_name LIKE '%新規%'
+                   OR first_name LIKE '%更新後%'
+                   OR last_name LIKE '%更新後%'
             """)
             welfare_result = await db.execute(welfare_query)
             target_welfare_ids = [row[0] for row in welfare_result.fetchall()]
