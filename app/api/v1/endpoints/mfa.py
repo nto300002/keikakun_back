@@ -6,6 +6,7 @@ from app import crud, models, schemas
 from app.api import deps
 from app.core.security import create_access_token, verify_password
 from app.services.mfa import MfaService
+from app.messages import ja
 
 
 class MFACode(BaseModel):
@@ -41,7 +42,7 @@ async def enroll_mfa(
     if current_user.is_mfa_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFA is already enabled for this user.",
+            detail=ja.MFA_ALREADY_ENABLED,
         )
 
     mfa_service = MfaService(db)
@@ -78,13 +79,13 @@ async def verify_mfa(
     if not current_user.mfa_secret:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFA is not enrolled for this user.",
+            detail=ja.MFA_NOT_ENROLLED,
         )
 
     if current_user.is_mfa_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFA is already enabled.",
+            detail=ja.MFA_ALREADY_ENABLED,
         )
 
     mfa_service = MfaService(db)
@@ -94,10 +95,10 @@ async def verify_mfa(
 
     if not is_valid:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid TOTP code."
+            status_code=status.HTTP_400_BAD_REQUEST, detail=ja.MFA_INVALID_CODE
         )
 
-    return {"message": "MFA verification successful"}
+    return {"message": ja.MFA_VERIFICATION_SUCCESS}
 
 
 @router.post(
@@ -125,21 +126,21 @@ async def disable_mfa(
     if not current_user.is_mfa_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFA is not enabled for this user.",
+            detail=ja.MFA_NOT_ENABLED,
         )
 
     # パスワード確認
     if not verify_password(disable_data.password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password.",
+            detail=ja.MFA_INCORRECT_PASSWORD,
         )
 
     # MFAを無効化
     await current_user.disable_mfa(db)
     await db.commit()
 
-    return {"message": "MFA disabled successfully"}
+    return {"message": ja.MFA_DISABLED_SUCCESS}
 
 
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app import crud, models, schemas
 from app.api import deps
+from app.messages import ja
 
 router = APIRouter()
 
@@ -47,7 +48,7 @@ async def read_my_office(
     if not user or not user.office_associations:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="所属している事業所が見つかりません。",
+            detail=ja.OFFICE_NOT_FOUND_FOR_USER,
         )
 
     # ユーザーは複数の事業所に所属できる設計になっているが、
@@ -56,7 +57,7 @@ async def read_my_office(
     if not office:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="事業所情報が見つかりません。",
+            detail=ja.OFFICE_INFO_NOT_FOUND,
         )
 
     return office
@@ -75,7 +76,7 @@ async def setup_office(
     if current_user.role != models.StaffRole.owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="この操作を行う権限がありません。",
+            detail=ja.PERM_OPERATION_FORBIDDEN,
         )
 
     # DBから最新のユーザー情報を取得し、関連をロード
@@ -83,12 +84,12 @@ async def setup_office(
     result = await db.execute(stmt)
     user_in_db = result.scalar_one_or_none()
     if not user_in_db:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=ja.OFFICE_USER_NOT_FOUND)
 
     if user_in_db.office_associations:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ユーザーは既に事業所に所属しています。",
+            detail=ja.OFFICE_ALREADY_ASSOCIATED,
         )
 
     # 同じ名前の事業所が既に存在するかチェック
@@ -96,7 +97,7 @@ async def setup_office(
     if existing_office:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="すでにその名前の事務所は登録されています。",
+            detail=ja.OFFICE_NAME_ALREADY_EXISTS,
         )
 
     try:
@@ -105,7 +106,7 @@ async def setup_office(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="すでにその名前の事務所は登録されています。",
+            detail=ja.OFFICE_NAME_ALREADY_EXISTS,
         )
 
     return office

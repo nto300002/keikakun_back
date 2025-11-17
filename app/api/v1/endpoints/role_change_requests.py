@@ -21,6 +21,7 @@ from app.schemas.role_change_request import (
 )
 from app.services.role_change_service import role_change_service
 from app.crud.crud_role_change_request import crud_role_change_request
+from app.messages import ja
 
 router = APIRouter()
 
@@ -43,14 +44,14 @@ async def create_role_change_request(
     if current_user.role == obj_in.requested_role:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"You are already a {current_user.role.value}"
+            detail=ja.ROLE_ALREADY_ASSIGNED.format(role=current_user.role.value)
         )
 
     # 事業所IDを取得（プライマリ事業所を使用）
     if not current_user.office_associations:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You are not associated with any office"
+            detail=ja.ROLE_NO_OFFICE
         )
 
     office_id = current_user.office_associations[0].office_id
@@ -145,21 +146,21 @@ async def approve_role_change_request(
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found"
+            detail=ja.REQUEST_NOT_FOUND
         )
 
     # 既に処理済みかチェック
     if request.status != RequestStatus.pending:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Request is already {request.status.value}"
+            detail=ja.REQUEST_ALREADY_PROCESSED.format(status=request.status.value)
         )
 
     # 承認権限チェック
     if not role_change_service.validate_approval_permission(current_user.role, request):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to approve this request"
+            detail=ja.ROLE_NO_PERMISSION_TO_APPROVE
         )
 
     try:
@@ -197,21 +198,21 @@ async def reject_role_change_request(
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found"
+            detail=ja.REQUEST_NOT_FOUND
         )
 
     # 既に処理済みかチェック
     if request.status != RequestStatus.pending:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Request is already {request.status.value}"
+            detail=ja.REQUEST_ALREADY_PROCESSED.format(status=request.status.value)
         )
 
     # 却下権限チェック（承認権限と同じ）
     if not role_change_service.validate_approval_permission(current_user.role, request):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to reject this request"
+            detail=ja.ROLE_NO_PERMISSION_TO_REJECT
         )
 
     try:
@@ -249,21 +250,21 @@ async def delete_role_change_request(
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found"
+            detail=ja.REQUEST_NOT_FOUND
         )
 
     # 作成者チェック
     if request.requester_staff_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete your own requests"
+            detail=ja.REQUEST_DELETE_OWN_ONLY
         )
 
     # pending状態のみ削除可能
     if request.status != RequestStatus.pending:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot delete {request.status.value} request"
+            detail=ja.REQUEST_CANNOT_DELETE_PROCESSED.format(status=request.status.value)
         )
 
     await crud_role_change_request.remove(db=db, id=request_id)

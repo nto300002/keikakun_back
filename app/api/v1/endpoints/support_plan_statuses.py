@@ -13,6 +13,7 @@ from app.models.welfare_recipient import OfficeWelfareRecipient
 from app.models.enums import SupportPlanStep, ResourceType, ActionType
 from app.schemas.support_plan import SupportPlanCycleUpdate, SupportPlanStatusResponse
 from app.core.exceptions import NotFoundException, ForbiddenException
+from app.messages import ja
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,13 @@ async def update_monitoring_deadline(
     plan_status = result.scalar_one_or_none()
 
     if not plan_status:
-        raise NotFoundException(f"ステータスID {status_id} が見つかりません。")
+        raise NotFoundException(ja.SUPPORT_PLAN_STATUS_NOT_FOUND.format(status_id=status_id))
 
     # 2. モニタリングステータスであることを確認
     if plan_status.step_type != SupportPlanStep.monitoring:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="モニタリング期限はモニタリングステータスのみ設定できます。"
+            detail=ja.SUPPORT_PLAN_MONITORING_ONLY
         )
 
     # 3. 利用者へのアクセス権限を確認
@@ -71,7 +72,7 @@ async def update_monitoring_deadline(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("このステータスにアクセスする権限がありません。")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_ACCESS)
 
     # 4. Employee restriction check
     employee_request = await deps.check_employee_restriction(

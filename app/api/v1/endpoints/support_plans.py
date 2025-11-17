@@ -18,6 +18,7 @@ from app.models.welfare_recipient import OfficeWelfareRecipient
 from app.models.enums import ResourceType, ActionType, StaffRole
 from app.services.support_plan_service import support_plan_service
 from app.core.exceptions import NotFoundException, ForbiddenException
+from app.messages import ja
 
 router = APIRouter()
 
@@ -42,7 +43,7 @@ async def get_support_plan_cycles(
     recipient = result.scalar_one_or_none()
 
     if not recipient:
-        raise NotFoundException(f"Welfare recipient with ID {recipient_id} not found.")
+        raise NotFoundException(ja.SUPPORT_PLAN_RECIPIENT_NOT_FOUND.format(recipient_id=recipient_id))
 
     # 2. 権限チェック: ユーザーがこの利用者の情報にアクセスする権限を持っているかチェック
     user_office_ids = [assoc.office_id for assoc in current_staff.office_associations]
@@ -54,7 +55,7 @@ async def get_support_plan_cycles(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("You do not have permission to access this welfare recipient's support plan.")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_PERMISSION)
 
     # 3. サイクル一覧を取得
     cycles = await crud.support_plan.get_cycles_by_recipient(db=db, recipient_id=recipient_id)
@@ -166,7 +167,7 @@ async def upload_plan_deliverable(
     if not file.content_type == "application/pdf":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="アップロードできるファイルはPDF形式のみです。"
+            detail=ja.SUPPORT_PLAN_PDF_ONLY
         )
 
     # 2. plan_cycleの存在確認と権限チェック
@@ -179,7 +180,7 @@ async def upload_plan_deliverable(
     plan_cycle = result.scalar_one_or_none()
 
     if not plan_cycle:
-        raise NotFoundException(f"計画サイクルID {plan_cycle_id} が見つかりません。")
+        raise NotFoundException(ja.SUPPORT_PLAN_CYCLE_NOT_FOUND.format(cycle_id=plan_cycle_id))
 
     user_office_ids = [assoc.office_id for assoc in current_user.office_associations]
     recipient_office_stmt = select(OfficeWelfareRecipient).where(
@@ -189,14 +190,11 @@ async def upload_plan_deliverable(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("この利用者の個別支援計画にアクセスする権限がありません。")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_PERMISSION)
 
     # 3. Employee権限チェック - PDFアップロードはEmployee権限では不可
     if current_user.role == StaffRole.employee:
-        raise ForbiddenException(
-            "Employee権限では個別支援計画のPDFをアップロードできません。"
-            "Manager/Owner権限のスタッフにアップロードを依頼してください。"
-        )
+        raise ForbiddenException(ja.SUPPORT_PLAN_EMPLOYEE_CANNOT_UPLOAD)
 
     # 4. ファイル内容を読み取る
     file_content = await file.read()
@@ -212,7 +210,7 @@ async def upload_plan_deliverable(
     if not s3_url:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ファイルのアップロードに失敗しました。"
+            detail=ja.SUPPORT_PLAN_UPLOAD_FAILED
         )
 
     # 7. サービス層を呼び出して、成果物の登録とステータス更新を行う
@@ -253,7 +251,7 @@ async def download_plan_deliverable(
     deliverable = result.scalar_one_or_none()
 
     if not deliverable:
-        raise NotFoundException(f"成果物ID {deliverable_id} が見つかりません。")
+        raise NotFoundException(ja.SUPPORT_PLAN_DELIVERABLE_NOT_FOUND.format(deliverable_id=deliverable_id))
 
     # 2. 利用者へのアクセス権限を確認
     user_office_ids = [assoc.office_id for assoc in current_user.office_associations]
@@ -265,7 +263,7 @@ async def download_plan_deliverable(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("この成果物にアクセスする権限がありません。")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_DELIVERABLE_ACCESS)
 
     # 3. S3署名付きURLを生成
     from app.core.config import settings
@@ -277,7 +275,7 @@ async def download_plan_deliverable(
     if not presigned_url:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="署名付きURLの生成に失敗しました。"
+            detail=ja.SUPPORT_PLAN_PRESIGNED_URL_FAILED
         )
 
     return schemas.support_plan.PlanDeliverableDownloadResponse(presigned_url=presigned_url)
@@ -297,7 +295,7 @@ async def update_plan_deliverable(
     if not file.content_type == "application/pdf":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="アップロードできるファイルはPDF形式のみです。"
+            detail=ja.SUPPORT_PLAN_PDF_ONLY
         )
 
     # 2. deliverableを取得
@@ -312,7 +310,7 @@ async def update_plan_deliverable(
     deliverable = result.scalar_one_or_none()
 
     if not deliverable:
-        raise NotFoundException(f"成果物ID {deliverable_id} が見つかりません。")
+        raise NotFoundException(ja.SUPPORT_PLAN_DELIVERABLE_NOT_FOUND.format(deliverable_id=deliverable_id))
 
     # 3. 権限チェック
     user_office_ids = [assoc.office_id for assoc in current_user.office_associations]
@@ -323,14 +321,11 @@ async def update_plan_deliverable(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("この成果物を更新する権限がありません。")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_DELIVERABLE_UPDATE_ACCESS)
 
     # 4. Employee権限チェック - PDFアップロードはEmployee権限では不可
     if current_user.role == StaffRole.employee:
-        raise ForbiddenException(
-            "Employee権限では個別支援計画のPDFをアップロードできません。"
-            "Manager/Owner権限のスタッフにアップロードを依頼してください。"
-        )
+        raise ForbiddenException(ja.SUPPORT_PLAN_EMPLOYEE_CANNOT_UPLOAD)
 
     # 5. ファイル内容を読み取る
     file_content = await file.read()
@@ -346,7 +341,7 @@ async def update_plan_deliverable(
     if not s3_url:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ファイルのアップロードに失敗しました。"
+            detail=ja.SUPPORT_PLAN_UPLOAD_FAILED
         )
 
     # 8. サービス層を呼び出して成果物を更新
@@ -381,7 +376,7 @@ async def delete_plan_deliverable(
     deliverable = result.scalar_one_or_none()
 
     if not deliverable:
-        raise NotFoundException(f"成果物ID {deliverable_id} が見つかりません。")
+        raise NotFoundException(ja.SUPPORT_PLAN_DELIVERABLE_NOT_FOUND.format(deliverable_id=deliverable_id))
 
     # 2. 権限チェック
     user_office_ids = [assoc.office_id for assoc in current_user.office_associations]
@@ -392,14 +387,11 @@ async def delete_plan_deliverable(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("この成果物を削除する権限がありません。")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_DELIVERABLE_DELETE_ACCESS)
 
     # 3. Employee権限チェック - PDFアップロードはEmployee権限では不可
     if current_user.role == StaffRole.employee:
-        raise ForbiddenException(
-            "Employee権限では個別支援計画のPDFを削除できません。"
-            "Manager/Owner権限のスタッフに削除を依頼してください。"
-        )
+        raise ForbiddenException(ja.SUPPORT_PLAN_EMPLOYEE_CANNOT_DELETE)
 
     # 4. サービス層を呼び出して成果物を削除
     await support_plan_service.handle_deliverable_delete(db=db, deliverable_id=deliverable_id)
@@ -425,7 +417,7 @@ async def update_cycle_monitoring_deadline(
     cycle = result.scalar_one_or_none()
 
     if not cycle:
-        raise NotFoundException(f"サイクルID {cycle_id} が見つかりません。")
+        raise NotFoundException(ja.SUPPORT_PLAN_CYCLE_NOT_FOUND.format(cycle_id=cycle_id))
 
     # 2. 権限チェック
     user_office_ids = [assoc.office_id for assoc in current_user.office_associations]
@@ -436,7 +428,7 @@ async def update_cycle_monitoring_deadline(
     recipient_office_assoc = recipient_office_result.scalar_one_or_none()
 
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
-        raise ForbiddenException("このサイクルにアクセスする権限がありません。")
+        raise ForbiddenException(ja.SUPPORT_PLAN_NO_CYCLE_ACCESS)
 
     # 3. monitoring_deadlineを更新
     cycle.monitoring_deadline = update_data.monitoring_deadline
@@ -473,7 +465,7 @@ async def get_plan_deliverables_list(
         # 権限チェック: ユーザーがこの事業所にアクセスする権限を持っているかチェック
         user_office_ids = [assoc.office_id for assoc in current_staff.office_associations]
         if office_id not in user_office_ids:
-            raise ForbiddenException("この事業所のPDFにアクセスする権限がありません")
+            raise ForbiddenException(ja.SUPPORT_PLAN_NO_OFFICE_PDF_ACCESS)
 
         # カンマ区切り文字列をリストに変換
         recipient_ids_list = None
@@ -483,7 +475,7 @@ async def get_plan_deliverables_list(
             except ValueError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid recipient_ids format: {e}"
+                    detail=ja.SUPPORT_PLAN_INVALID_RECIPIENT_IDS
                 )
 
         deliverable_types_list = None
@@ -493,7 +485,7 @@ async def get_plan_deliverables_list(
             except ValueError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid deliverable_types format: {e}"
+                    detail=ja.SUPPORT_PLAN_INVALID_DELIVERABLE_TYPES
                 )
 
         # サービス層呼び出し
@@ -524,5 +516,5 @@ async def get_plan_deliverables_list(
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PDF一覧の取得に失敗しました: {str(e)}"
+            detail=ja.SUPPORT_PLAN_LIST_FAILED
         )

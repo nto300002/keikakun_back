@@ -16,6 +16,7 @@ from app.schemas.staff_profile import (
     EmailChangeConfirmResponse
 )
 from app.services.staff_profile_service import staff_profile_service, RateLimitExceededError
+from app.messages import ja
 
 router = APIRouter()
 
@@ -53,15 +54,13 @@ async def update_staff_name(
         # レスポンス前に全ての属性を明示的にロード（MissingGreenletエラー対策）
         await db.refresh(updated_staff)
         return updated_staff
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+    except HTTPException:
+        # HTTPException はそのまま再raise
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="名前の更新に失敗しました"
+            detail=ja.STAFF_NAME_UPDATE_FAILED
         )
 
 
@@ -87,20 +86,18 @@ async def change_password(
             password_change=password_change
         )
         return result
+    except HTTPException:
+        # HTTPException はそのまま再raise
+        raise
     except RateLimitExceededError as e:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=str(e)
         )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="パスワードの変更に失敗しました"
+            detail=ja.STAFF_PASSWORD_CHANGE_FAILED
         )
 
 
@@ -121,7 +118,7 @@ async def update_other_staff_name(
     if str(current_user.id) != str(staff_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="この操作を実行する権限がありません"
+            detail=ja.PERM_OPERATION_FORBIDDEN_GENERIC
         )
 
     try:
@@ -133,15 +130,13 @@ async def update_other_staff_name(
         # レスポンス前に全ての属性を明示的にロード（MissingGreenletエラー対策）
         await db.refresh(updated_staff)
         return updated_staff
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+    except HTTPException:
+        # HTTPException はそのまま再raise
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="名前の更新に失敗しました"
+            detail=ja.STAFF_NAME_UPDATE_FAILED
         )
 
 
@@ -167,20 +162,18 @@ async def request_email_change(
             email_request=email_request
         )
         return result
+    except HTTPException:
+        # HTTPException はそのまま再raise
+        raise
     except RateLimitExceededError as e:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=str(e)
         )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="メールアドレス変更リクエストに失敗しました"
+            detail=ja.STAFF_EMAIL_CHANGE_REQUEST_FAILED
         )
 
 
@@ -205,17 +198,14 @@ async def verify_email_change(
         )
         print(f"[DEBUG] verify_email_change succeeded: {result}")
         return result
-    except ValueError as e:
-        print(f"[DEBUG] ValueError in verify_email_change: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+    except HTTPException:
+        # HTTPException はそのまま再raise
+        raise
     except Exception as e:
         print(f"[DEBUG] Exception in verify_email_change: {type(e).__name__}: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"メールアドレス変更の確認に失敗しました: {str(e)}"
+            detail=ja.STAFF_EMAIL_CHANGE_VERIFY_FAILED.format(error=str(e))
         )

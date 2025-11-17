@@ -5,6 +5,7 @@ from typing import Optional, List
 from app import schemas, crud, models
 from app.api import deps
 from app.services.dashboard_service import DashboardService
+from app.messages import ja
 
 router = APIRouter()
 
@@ -32,7 +33,7 @@ async def get_dashboard(
     # 1. ログインユーザーの事業所情報を取得
     staff_office_info = await crud.staff.get_staff_with_primary_office(db=db, staff_id=current_user.id)
     if not staff_office_info:
-        raise HTTPException(status_code=404, detail="事業所情報が見つかりません")
+        raise HTTPException(status_code=404, detail=ja.DASHBOARD_OFFICE_NOT_FOUND)
     staff, office = staff_office_info
 
     # 2. 事業所に所属する全利用者数を取得
