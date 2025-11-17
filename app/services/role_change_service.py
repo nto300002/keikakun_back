@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from fastapi import HTTPException, status
 
 from app.crud.crud_role_change_request import crud_role_change_request
 from app.crud.crud_staff import staff as crud_staff
@@ -21,6 +22,7 @@ from app.models.role_change_request import RoleChangeRequest
 from app.models.enums import StaffRole, RequestStatus, NoticeType
 from app.schemas.role_change_request import RoleChangeRequestCreate
 from app.schemas.notice import NoticeCreate
+from app.messages import ja
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +56,18 @@ class RoleChangeService:
         # リクエスト作成者の現在のroleを取得
         requester = await crud_staff.get(db, id=requester_staff_id)
         if not requester:
-            raise ValueError(f"Staff {requester_staff_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_STAFF_NOT_FOUND.format(staff_id=requester_staff_id)
+            )
 
         from_role = requester.role
 
         # 同じroleへの変更はエラー
         if from_role == obj_in.requested_role:
-            raise ValueError(
-                f"Staff already has the requested role. Current role: {from_role}, "
-                f"Requested role: {obj_in.requested_role}"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.SERVICE_ROLE_ALREADY_ASSIGNED
             )
 
         logger.info(
@@ -139,18 +144,24 @@ class RoleChangeService:
         # リクエストを取得
         request = await crud_role_change_request.get(db, id=request_id)
         if not request:
-            raise ValueError(f"Request {request_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_REQUEST_NOT_FOUND.format(request_id=request_id)
+            )
 
         # 承認者の情報を取得
         reviewer = await crud_staff.get(db, id=reviewer_staff_id)
         if not reviewer:
-            raise ValueError(f"Reviewer staff {reviewer_staff_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_REVIEWER_NOT_FOUND.format(reviewer_id=reviewer_staff_id)
+            )
 
         # 権限チェック
         if not self.validate_approval_permission(reviewer.role, request):
-            raise ValueError(
-                f"Reviewer with role {reviewer.role} cannot approve "
-                f"request from {request.from_role} to {request.requested_role}"
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ja.SERVICE_NO_APPROVAL_PERMISSION
             )
 
         logger.info(
