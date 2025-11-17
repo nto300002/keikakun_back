@@ -167,18 +167,37 @@ def generate_qr_code(secret: str, email: str, issuer: Optional[str] = None) -> s
 
 def verify_totp(secret: str, token: str, window: int = TOTP_WINDOW) -> bool:
     """TOTPトークンを検証"""
+    import logging
+    logger = logging.getLogger(__name__)
+
     try:
+        logger.info(f"[TOTP VERIFY] Starting verification")
+        logger.info(f"[TOTP VERIFY] Secret exists: {bool(secret)}, Token: {token}")
+
         if not secret or not token:
+            logger.warning(f"[TOTP VERIFY] Missing secret or token")
             return False
-        
+
         # トークンを正規化（空白除去、6桁チェック）
+        original_token = token
         token = sanitize_totp_code(token)
+        logger.info(f"[TOTP VERIFY] Original token: {original_token}, Sanitized token: {token}")
+
         if not token:
+            logger.warning(f"[TOTP VERIFY] Token sanitization failed")
             return False
-        
+
         totp = pyotp.TOTP(secret)
-        return totp.verify(token, valid_window=window)
-    except Exception:
+        result = totp.verify(token, valid_window=window)
+        logger.info(f"[TOTP VERIFY] Verification result: {result}")
+
+        # デバッグ用: 現在の時刻で生成されるコードを確認
+        current_code = totp.now()
+        logger.info(f"[TOTP VERIFY] Current valid code would be: {current_code}")
+
+        return result
+    except Exception as e:
+        logger.error(f"[TOTP VERIFY] Exception occurred: {str(e)}")
         return False
 
 
