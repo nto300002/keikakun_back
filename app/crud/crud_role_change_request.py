@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select, update
+from fastapi import HTTPException, status
 
 from app.crud.base import CRUDBase
 from app.models.role_change_request import RoleChangeRequest
@@ -13,6 +14,7 @@ from app.schemas.role_change_request import (
     RoleChangeRequestApprove,
     RoleChangeRequestReject,
 )
+from app.messages import ja
 
 
 class CRUDRoleChangeRequest(CRUDBase[RoleChangeRequest, RoleChangeRequestCreate, RoleChangeRequestApprove]):
@@ -101,11 +103,17 @@ class CRUDRoleChangeRequest(CRUDBase[RoleChangeRequest, RoleChangeRequestCreate,
         # リクエストを取得
         request = await self.get(db, id=request_id)
         if not request:
-            raise ValueError(f"Request {request_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_REQUEST_NOT_FOUND.format(request_id=request_id)
+            )
 
         # 既に処理済みの場合はエラー
         if request.status != RequestStatus.pending:
-            raise ValueError(f"Request {request_id} is already processed with status {request.status}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=ja.REQUEST_ALREADY_PROCESSED.format(status=request.status.value)
+            )
 
         # 承認処理
         await db.execute(
@@ -144,11 +152,17 @@ class CRUDRoleChangeRequest(CRUDBase[RoleChangeRequest, RoleChangeRequestCreate,
         # リクエストを取得
         request = await self.get(db, id=request_id)
         if not request:
-            raise ValueError(f"Request {request_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_REQUEST_NOT_FOUND.format(request_id=request_id)
+            )
 
         # 既に処理済みの場合はエラー
         if request.status != RequestStatus.pending:
-            raise ValueError(f"Request {request_id} is already processed with status {request.status}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=ja.REQUEST_ALREADY_PROCESSED.format(status=request.status.value)
+            )
 
         # 却下処理
         await db.execute(
