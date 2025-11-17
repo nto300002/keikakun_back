@@ -16,6 +16,7 @@ from datetime import datetime, date, time, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from fastapi import HTTPException, status
 
 from app.crud.crud_office_calendar_account import crud_office_calendar_account
 from app.crud.crud_calendar_event import crud_calendar_event
@@ -38,6 +39,7 @@ from app.services.google_calendar_client import (
     GoogleCalendarAuthenticationError,
     GoogleCalendarAPIError
 )
+from app.messages import ja
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +70,10 @@ class CalendarService:
             office_id=request.office_id
         )
         if existing:
-            raise ValueError(f"Office {request.office_id} already has a calendar account")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.SERVICE_CALENDAR_ALREADY_EXISTS.format(office_id=request.office_id)
+            )
 
         # サービスアカウントメールアドレスを抽出
         service_account_email = self._extract_service_account_email(
@@ -116,12 +121,15 @@ class CalendarService:
             更新されたOfficeCalendarAccount
 
         Raises:
-            ValueError: アカウントが存在しない場合
+            HTTPException: アカウントが存在しない場合
         """
         # 既存のアカウントを取得
         existing = await crud_office_calendar_account.get(db=db, id=account_id)
         if not existing:
-            raise ValueError(f"Calendar account {account_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_CALENDAR_NOT_FOUND.format(account_id=account_id)
+            )
 
         # サービスアカウントメールアドレスを抽出
         service_account_email = self._extract_service_account_email(
@@ -221,16 +229,22 @@ class CalendarService:
             client_emailの値
 
         Raises:
-            ValueError: client_emailが存在しない場合
+            HTTPException: client_emailが存在しない場合またはJSON形式が不正な場合
         """
         try:
             parsed = json.loads(service_account_json)
             client_email = parsed.get("client_email")
             if not client_email:
-                raise ValueError("client_email not found in service account JSON")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=ja.SERVICE_CLIENT_EMAIL_NOT_FOUND
+                )
             return client_email
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON format: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.SERVICE_INVALID_JSON.format(error=str(e))
+            )
 
     async def test_calendar_connection(
         self,
@@ -247,12 +261,15 @@ class CalendarService:
             接続成功時True、失敗時False
 
         Raises:
-            ValueError: アカウントが存在しない場合
+            HTTPException: アカウントが存在しない場合
         """
         # カレンダーアカウントを取得
         account = await crud_office_calendar_account.get(db=db, id=account_id)
         if not account:
-            raise ValueError(f"Calendar account {account_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_CALENDAR_NOT_FOUND.format(account_id=account_id)
+            )
 
         # refresh()を呼び出すと、非同期セッションの状態が不整合になり、greenletエラーを引き起こす
         # クエリ結果から直接属性にアクセス可能
@@ -261,7 +278,10 @@ class CalendarService:
             # サービスアカウントキーを復号化
             service_account_json = account.decrypt_service_account_key()
             if not service_account_json:
-                raise ValueError("Service account key not found")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=ja.SERVICE_ACCOUNT_KEY_NOT_FOUND
+                )
 
             logger.info("=" * 80)
             logger.info("カレンダー接続テスト開始")
@@ -714,12 +734,15 @@ class CalendarService:
             account_id: 削除対象のアカウントID
 
         Raises:
-            ValueError: アカウントが存在しない場合
+            HTTPException: アカウントが存在しない場合
         """
         # 既存のアカウントを取得
         existing = await crud_office_calendar_account.get(db=db, id=account_id)
         if not existing:
-            raise ValueError(f"Calendar account {account_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_CALENDAR_NOT_FOUND.format(account_id=account_id)
+            )
 
         # アカウントを削除
         await crud_office_calendar_account.remove(db=db, id=account_id)
@@ -797,7 +820,10 @@ class CalendarService:
             try:
                 service_account_json = account.decrypt_service_account_key()
                 if not service_account_json:
-                    raise ValueError("Service account key not found")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=ja.SERVICE_ACCOUNT_KEY_NOT_FOUND
+                    )
 
                 # Google Calendar APIクライアントを作成
                 client = GoogleCalendarClient(service_account_json)

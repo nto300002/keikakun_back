@@ -111,6 +111,8 @@ class TestEmailChangeRequestCreation:
     async def test_request_email_change_wrong_password(self, staff_profile_service, mock_staff):
         """異常系: パスワードが間違っている場合エラーになる"""
         # Arrange
+        from fastapi import HTTPException
+
         mock_db = AsyncMock(spec=AsyncSession)
         mock_staff_result = Mock()
         mock_staff_result.scalar_one_or_none = Mock(return_value=mock_staff)
@@ -122,12 +124,14 @@ class TestEmailChangeRequestCreation:
         )
 
         # Act & Assert
-        with pytest.raises(ValueError, match="現在のパスワードが正しくありません"):
+        with pytest.raises(HTTPException) as exc_info:
             await staff_profile_service.request_email_change(
                 db=mock_db,
                 staff_id=str(mock_staff.id),
                 email_request=email_request
             )
+        assert exc_info.value.status_code == 400
+        assert "現在のパスワードが正しくありません" in exc_info.value.detail
 
     async def test_request_email_change_rate_limit_exceeded(self, staff_profile_service, mock_staff):
         """異常系: 24時間以内に3回を超える変更はエラーになる"""
@@ -164,6 +168,8 @@ class TestEmailChangeRequestCreation:
     async def test_request_email_change_duplicate_email(self, staff_profile_service, mock_staff):
         """異常系: 既に使用中のメールアドレスは使用できない"""
         # Arrange
+        from fastapi import HTTPException
+
         mock_db = AsyncMock(spec=AsyncSession)
 
         # 既存のスタッフ
@@ -196,12 +202,14 @@ class TestEmailChangeRequestCreation:
 
         # Act & Assert
         with patch('app.services.staff_profile_service.pwd_context.verify', return_value=True):
-            with pytest.raises(ValueError, match="このメールアドレスは既に使用されています"):
+            with pytest.raises(HTTPException) as exc_info:
                 await staff_profile_service.request_email_change(
                     db=mock_db,
                     staff_id=str(mock_staff.id),
                     email_request=email_request
                 )
+            assert exc_info.value.status_code == 400
+            assert "このメールアドレスは既に使用されています" in exc_info.value.detail
 
 
 class TestEmailChangeVerification:
@@ -268,21 +276,27 @@ class TestEmailChangeVerification:
     async def test_verify_email_change_invalid_token(self, staff_profile_service):
         """異常系: 無効なトークンはエラーになる"""
         # Arrange
+        from fastapi import HTTPException
+
         mock_db = AsyncMock(spec=AsyncSession)
         mock_result = Mock()
         mock_result.scalar_one_or_none = Mock(return_value=None)
         mock_db.execute.return_value = mock_result
 
         # Act & Assert
-        with pytest.raises(ValueError, match="無効な確認トークンです"):
+        with pytest.raises(HTTPException) as exc_info:
             await staff_profile_service.verify_email_change(
                 db=mock_db,
                 verification_token="invalid-token"
             )
+        assert exc_info.value.status_code == 400
+        assert "無効な確認トークンです" in exc_info.value.detail
 
     async def test_verify_email_change_expired_token(self, staff_profile_service, mock_staff):
         """異常系: 有効期限切れのトークンはエラーになる"""
         # Arrange
+        from fastapi import HTTPException
+
         mock_db = AsyncMock(spec=AsyncSession)
 
         # 期限切れのリクエスト
@@ -294,15 +308,19 @@ class TestEmailChangeVerification:
         mock_db.execute.return_value = mock_result
 
         # Act & Assert
-        with pytest.raises(ValueError, match="確認トークンの有効期限が切れています"):
+        with pytest.raises(HTTPException) as exc_info:
             await staff_profile_service.verify_email_change(
                 db=mock_db,
                 verification_token="expired-token"
             )
+        assert exc_info.value.status_code == 400
+        assert "確認トークンの有効期限が切れています" in exc_info.value.detail
 
     async def test_verify_email_change_already_completed(self, staff_profile_service, mock_staff):
         """異常系: 既に使用済みのトークンは再利用できない"""
         # Arrange
+        from fastapi import HTTPException
+
         mock_db = AsyncMock(spec=AsyncSession)
 
         # 既に完了済みのリクエスト
@@ -315,11 +333,13 @@ class TestEmailChangeVerification:
         mock_db.execute.return_value = mock_result
 
         # Act & Assert
-        with pytest.raises(ValueError, match="この変更リクエストは既に処理されています"):
+        with pytest.raises(HTTPException) as exc_info:
             await staff_profile_service.verify_email_change(
                 db=mock_db,
                 verification_token="used-token"
             )
+        assert exc_info.value.status_code == 400
+        assert "この変更リクエストは既に処理されています" in exc_info.value.detail
 
     async def test_verify_email_change_with_timezone_aware_datetime(self, staff_profile_service, mock_staff):
         """

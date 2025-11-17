@@ -14,6 +14,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from fastapi import HTTPException, status
 
 from app.crud.crud_employee_action_request import crud_employee_action_request
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
@@ -30,6 +31,7 @@ from app.models.welfare_recipient import (
 from app.models.enums import RequestStatus, ActionType, ResourceType, GenderType, NoticeType, StaffRole
 from app.schemas.employee_action_request import EmployeeActionRequestCreate
 from app.schemas.notice import NoticeCreate
+from app.messages import ja
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +147,10 @@ class EmployeeActionService:
         # リクエストを取得
         request = await crud_employee_action_request.get(db, id=request_id)
         if not request:
-            raise ValueError(f"Request {request_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.SERVICE_EMPLOYEE_ACTION_REQUEST_NOT_FOUND.format(request_id=request_id)
+            )
 
         logger.info(
             f"Approving employee action request: request_id={request_id}, "
@@ -223,26 +228,23 @@ class EmployeeActionService:
 
         # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
         # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
+        # デッドロック対策: SELECT FOR UPDATEでロックを取得してから削除
         link_url = f"/employee-action-requests/{approved_request.id}"
+
+        # 1つのクエリで両方のタイプの通知を取得（デッドロック対策）
         delete_stmt = select(crud_notice.model).where(
             crud_notice.model.link_url == link_url,
-            crud_notice.model.type == NoticeType.employee_action_pending.value
-        )
+            crud_notice.model.type.in_([
+                NoticeType.employee_action_pending.value,
+                NoticeType.employee_action_request_sent.value
+            ])
+        ).with_for_update()  # ロックを取得
+
         delete_result = await db.execute(delete_stmt)
         notices_to_delete = delete_result.scalars().all()
 
+        # 一括削除
         for notice in notices_to_delete:
-            await db.delete(notice)
-
-        # 送信者向けの既存通知も削除（employee_action_request_sent）
-        delete_sender_stmt = select(crud_notice.model).where(
-            crud_notice.model.link_url == link_url,
-            crud_notice.model.type == NoticeType.employee_action_request_sent.value
-        )
-        delete_sender_result = await db.execute(delete_sender_stmt)
-        sender_notices_to_delete = delete_sender_result.scalars().all()
-
-        for notice in sender_notices_to_delete:
             await db.delete(notice)
 
         # 送信者向けの新しい通知を作成（employee_action_approved）
@@ -344,26 +346,23 @@ class EmployeeActionService:
 
         # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
         # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
+        # デッドロック対策: SELECT FOR UPDATEでロックを取得してから削除
         link_url = f"/employee-action-requests/{rejected_request.id}"
+
+        # 1つのクエリで両方のタイプの通知を取得（デッドロック対策）
         delete_stmt = select(crud_notice.model).where(
             crud_notice.model.link_url == link_url,
-            crud_notice.model.type == NoticeType.employee_action_pending.value
-        )
+            crud_notice.model.type.in_([
+                NoticeType.employee_action_pending.value,
+                NoticeType.employee_action_request_sent.value
+            ])
+        ).with_for_update()  # ロックを取得
+
         delete_result = await db.execute(delete_stmt)
         notices_to_delete = delete_result.scalars().all()
 
+        # 一括削除
         for notice in notices_to_delete:
-            await db.delete(notice)
-
-        # 送信者向けの既存通知も削除（employee_action_request_sent）
-        delete_sender_stmt = select(crud_notice.model).where(
-            crud_notice.model.link_url == link_url,
-            crud_notice.model.type == NoticeType.employee_action_request_sent.value
-        )
-        delete_sender_result = await db.execute(delete_sender_stmt)
-        sender_notices_to_delete = delete_sender_result.scalars().all()
-
-        for notice in sender_notices_to_delete:
             await db.delete(notice)
 
         # 送信者向けの新しい通知を作成（employee_action_rejected）
@@ -440,7 +439,10 @@ class EmployeeActionService:
         elif resource_type == ResourceType.support_plan_status:
             return await self._execute_support_plan_status_action(db, request)
         else:
-            raise ValueError(f"Unsupported resource type: {resource_type}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.SERVICE_UNSUPPORTED_RESOURCE_TYPE.format(resource_type=resource_type)
+            )
 
     async def _execute_welfare_recipient_action(
         self,
@@ -629,11 +631,17 @@ class EmployeeActionService:
             recipient_id = request.resource_id
 
             if not recipient_id:
-                raise ValueError("resource_id is required for update action")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=ja.SERVICE_RESOURCE_ID_REQUIRED_FOR_UPDATE
+                )
 
             recipient = await crud_welfare_recipient.get(db, id=recipient_id)
             if not recipient:
-                raise ValueError(f"WelfareRecipient {recipient_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ja.SERVICE_RECIPIENT_NOT_FOUND.format(recipient_id=recipient_id)
+                )
 
             # form_data階層を取得（後方互換性のために3つの形式をサポート）
             # 1. 新形式: request_data.form_data.basicInfo (camelCase)
@@ -681,11 +689,17 @@ class EmployeeActionService:
                 recipient_id = UUID(request_data["welfare_recipient_id"])
 
             if not recipient_id:
-                raise ValueError("resource_id or welfare_recipient_id is required for delete action")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=ja.SERVICE_RESOURCE_ID_REQUIRED_FOR_DELETE
+                )
 
             recipient = await crud_welfare_recipient.get(db, id=recipient_id)
             if not recipient:
-                raise ValueError(f"WelfareRecipient {recipient_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ja.SERVICE_RECIPIENT_NOT_FOUND.format(recipient_id=recipient_id)
+                )
 
             await db.delete(recipient)
             await db.flush()
@@ -697,7 +711,10 @@ class EmployeeActionService:
             }
 
         else:
-            raise ValueError(f"Unsupported action type: {action_type}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.SERVICE_UNSUPPORTED_ACTION_TYPE.format(action_type=action_type)
+            )
 
     async def _execute_support_plan_cycle_action(
         self,
@@ -795,8 +812,8 @@ class EmployeeActionService:
                 recipient_staff_id=approver_id,
                 office_id=office_id,
                 type=NoticeType.employee_action_pending.value,
-                title="作成、編集、削除リクエストが作成されました",
-                content=f"{requester_full_name}さんが{detail_info}をリクエストしました。",
+                title=f"{requester_full_name}さんが{detail_info}リクエストしました。",
+                content=f"{requester_full_name}さんが{detail_info}リクエストしました。",
                 link_url=f"/employee-action-requests/{request_id}"
             )
             await crud_notice.create(db, obj_in=notice_data)
@@ -935,8 +952,8 @@ class EmployeeActionService:
 
         Returns:
             詳細情報を含む日本語文字列
-            例: 「利用者(山田 太郎さん)の作成」
-            例: 「山田 太郎さんのアセスメント情報の作成」
+            例: 「利用者山田 太郎さんの作成を」
+            例: 「利用者山田 太郎さんのアセスメント情報の作成を」
         """
         # アクションタイプの日本語表示
         action_ja = {
@@ -974,11 +991,11 @@ class EmployeeActionService:
                 step_type_name = step_type_ja.get(step_type, "サポート計画ステータス")
 
                 if recipient_name:
-                    return f"{recipient_name}さんの{step_type_name}の{action_name}"
+                    return f"利用者{recipient_name}さんの{step_type_name}の{action_name}を"
                 else:
-                    return f"{step_type_name}の{action_name}"
+                    return f"{step_type_name}の{action_name}を"
             else:
-                return f"サポート計画ステータスの{action_name}"
+                return f"サポート計画ステータスの{action_name}を"
 
         # WelfareRecipientやその他のリソースタイプの処理
         resource_name = resource_ja.get(request.resource_type, str(request.resource_type))
@@ -990,16 +1007,19 @@ class EmployeeActionService:
                 # 利用者の場合、full_nameを取得
                 full_name = request.request_data.get("full_name")
                 if full_name:
-                    target_name = f"({full_name}さん)"
+                    target_name = f"{full_name}さん"
                 else:
                     # full_nameが無い場合、first_nameとlast_nameから生成を試みる
                     first_name = request.request_data.get("first_name")
                     last_name = request.request_data.get("last_name")
                     if first_name and last_name:
-                        target_name = f"({last_name} {first_name}さん)"
+                        target_name = f"{last_name} {first_name}さん"
             # 他のリソースタイプも必要に応じて追加可能
 
-        return f"{resource_name}{target_name}の{action_name}"
+        if target_name:
+            return f"{resource_name}{target_name}の{action_name}を"
+        else:
+            return f"{resource_name}の{action_name}を"
 
 
 # サービスインスタンスをエクスポート

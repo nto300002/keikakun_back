@@ -35,7 +35,7 @@ def test_welfare_recipient_create_future_birth_day_raises_error():
     }
     with pytest.raises(ValidationError) as exc_info:
         WelfareRecipientCreate(**invalid_data)
-    assert "Birth date cannot be in the future" in str(exc_info.value)
+    assert "生年月日は未来の日付にできません" in str(exc_info.value)
 
 
 def test_welfare_recipient_update_valid():
@@ -57,7 +57,7 @@ def test_welfare_recipient_update_future_birth_day_raises_error():
     }
     with pytest.raises(ValidationError) as exc_info:
         WelfareRecipientUpdate(**invalid_update_data)
-    assert "Birth date cannot be in the future" in str(exc_info.value)
+    assert "生年月日は未来の日付にできません" in str(exc_info.value)
 
 
 def test_welfare_recipient_update_birth_day_none():

@@ -61,7 +61,8 @@ class TestMFAEnrollment:
         response = await async_client.post("/api/v1/auth/mfa/enroll", headers=headers)
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already enabled" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        assert "多要素認証" in detail and "有効" in detail
         
     @pytest.mark.asyncio
     async def test_mfa_enroll_unauthorized(self, async_client: AsyncClient):
@@ -98,7 +99,7 @@ class TestMFAVerification:
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["message"] == "MFA verification successful"
+        assert data["message"] == "多要素認証の検証に成功しました"
         
         # DBでMFAが有効化されていることを確認
         await db_session.refresh(staff)
@@ -125,7 +126,9 @@ class TestMFAVerification:
             )
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "invalid" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        # 日本語メッセージをチェック
+        assert "認証コード" in detail and "正しく" in detail
         
         # MFAは有効化されていないこと
         await db_session.refresh(staff)
@@ -147,7 +150,8 @@ class TestMFAVerification:
         )
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enrolled" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        assert "多要素認証" in detail and "登録" in detail
 
 
 class TestMFALogin:
@@ -220,7 +224,7 @@ class TestMFALogin:
         # レスポンスボディの検証
         assert "refresh_token" in verify_data
         assert verify_data["token_type"] == "bearer"
-        assert verify_data["message"] == "MFA verification successful"
+        assert verify_data["message"] == "多要素認証に成功しました"
         
     @pytest.mark.asyncio
     async def test_login_mfa_enabled_invalid_totp(self, async_client: AsyncClient, db_session: AsyncSession):
@@ -251,7 +255,8 @@ class TestMFALogin:
             )
         
         assert verify_response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "invalid" in verify_response.json()["detail"].lower()
+        detail = verify_response.json()["detail"]
+        assert "認証コード" in detail or "リカバリコード" in detail or "正しくありません" in detail
         
     @pytest.mark.asyncio
     async def test_login_invalid_temporary_token(self, async_client: AsyncClient):
@@ -265,7 +270,8 @@ class TestMFALogin:
         )
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "invalid" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        assert "一時トークン" in detail or "無効" in detail or "期限切れ" in detail
 
 
 class TestMFARecoveryCode:
@@ -368,7 +374,7 @@ class TestMFADisable:
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["message"] == "MFA disabled successfully"
+        assert data["message"] == "多要素認証を無効にしました"
         
         # DBでMFAが無効化されていることを確認
         await db_session.refresh(staff)
@@ -394,7 +400,9 @@ class TestMFADisable:
             )
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "incorrect password" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        # 日本語メッセージをチェック
+        assert "パスワード" in detail and "正しく" in detail
         
         # MFAは無効化されていないこと
         await db_session.refresh(staff)

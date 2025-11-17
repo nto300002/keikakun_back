@@ -307,14 +307,14 @@ async def test_unauthenticated_error_handling(async_client: AsyncClient):
     # 401 Unauthorized
     assert response.status_code == 401
 
-    # わかりやすいエラーメッセージ
+    # わかりやすいエラーメッセージ（日本語対応）
     data = response.json()
     assert "detail" in data
-    error_message = data["detail"].lower()
-    # 実際のエラーメッセージは "Could not validate credentials"
+    error_message = data["detail"]
+    # 実際のエラーメッセージは "認証情報を検証できません"
     assert any(
         keyword in error_message
-        for keyword in ["could not validate", "credentials", "unauthorized", "authentication"]
+        for keyword in ["認証", "検証", "could not validate", "credentials", "unauthorized", "authentication"]
     )
 
 

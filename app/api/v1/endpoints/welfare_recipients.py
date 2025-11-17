@@ -25,6 +25,7 @@ from app.core.exceptions import (
     ForbiddenException,
     BadRequestException
 )
+from app.messages import ja
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def create_welfare_recipient(
     # Check if disability_details has empty category
     for detail in (registration_data.disability_details or []):
         if not detail.category or detail.category.strip() == "":
-            raise BadRequestException("障害詳細のカテゴリが未指定です。")
+            raise BadRequestException(ja.RECIPIENT_CATEGORY_MISSING)
 
     try:
         logger.info("[ENDPOINT DEBUG] create_welfare_recipient START")
@@ -55,7 +56,7 @@ async def create_welfare_recipient(
         office_associations = getattr(current_staff, 'office_associations', None)
 
         if not office_associations or len(office_associations) == 0:
-            raise ForbiddenException("Staff member must be associated with an office to create recipients")
+            raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
         office_id = office_associations[0].office_id
         logger.info(f"[ENDPOINT DEBUG] office_id={office_id}")
@@ -75,7 +76,7 @@ async def create_welfare_recipient(
                 status_code=status.HTTP_202_ACCEPTED,
                 content={
                     "success": True,
-                    "message": "Request created and pending approval",
+                    "message": ja.EMPLOYEE_REQUEST_PENDING,
                     "recipient_id": None,
                     "support_plan_created": False,
                     "request_id": str(employee_request.id)
@@ -103,7 +104,7 @@ async def create_welfare_recipient(
         logger.info("[ENDPOINT DEBUG] Creating response...")
         return UserRegistrationResponse(
             success=True,
-            message="利用者の登録が完了しました",
+            message=ja.RECIPIENT_CREATE_SUCCESS,
             recipient_id=welfare_recipient_id,
             support_plan_created=True
         )
@@ -115,11 +116,11 @@ async def create_welfare_recipient(
         if "disability_category" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="手帳に関する情報が未入力です"
+                detail=ja.RECIPIENT_DISABILITY_CATEGORY_MISSING
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"無効な入力値です: {e}"
+            detail=ja.RECIPIENT_INVALID_INPUT
         )
 
     except ValueError as e:
@@ -139,7 +140,7 @@ async def create_welfare_recipient(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create welfare recipient: {str(e)}"
+            detail=ja.RECIPIENT_CREATE_FAILED.format(error=str(e))
         )
 
 @router.get("/", response_model=WelfareRecipientListResponse)
@@ -157,7 +158,7 @@ async def list_welfare_recipients(
     """
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
-        raise ForbiddenException("Staff member must be associated with an office")
+        raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
 
@@ -205,19 +206,19 @@ async def get_welfare_recipient(
 
     welfare_recipient = await crud_welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
-        raise NotFoundException("Welfare recipient not found")
+        raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
     # Verify the recipient belongs to the staff's office
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
-        raise ForbiddenException("Staff member must be associated with an office")
+        raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
 
     # Check if the recipient is associated with the staff's office
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
-        raise ForbiddenException("Access denied to this welfare recipient")
+        raise ForbiddenException(ja.RECIPIENT_ACCESS_DENIED)
 
     return welfare_recipient
 
@@ -239,17 +240,17 @@ async def update_welfare_recipient(
     # Get existing recipient
     welfare_recipient = await crud_welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
-        raise NotFoundException("Welfare recipient not found")
+        raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
     # Verify the recipient belongs to the staff's office
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
-        raise ForbiddenException("Staff member must be associated with an office")
+        raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
-        raise ForbiddenException("Access denied to this welfare recipient")
+        raise ForbiddenException(ja.RECIPIENT_ACCESS_DENIED)
 
     # Employee restriction check
     employee_request = await deps.check_employee_restriction(
@@ -267,7 +268,7 @@ async def update_welfare_recipient(
             status_code=status.HTTP_202_ACCEPTED,
             content={
                 "success": True,
-                "message": "Request created and pending approval",
+                "message": ja.EMPLOYEE_REQUEST_PENDING,
                 "recipient_id": str(recipient_id),
                 "support_plan_created": False,
                 "request_id": str(employee_request.id)
@@ -282,7 +283,7 @@ async def update_welfare_recipient(
         )
 
         if not updated_recipient:
-            raise NotFoundException("Failed to update welfare recipient")
+            raise NotFoundException(ja.RECIPIENT_UPDATE_NOT_FOUND)
 
         return updated_recipient
 
@@ -291,7 +292,7 @@ async def update_welfare_recipient(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update welfare recipient: {str(e)}"
+            detail=ja.RECIPIENT_UPDATE_FAILED.format(error=str(e))
         )
 
 
@@ -312,17 +313,17 @@ async def delete_welfare_recipient(
     # Get existing recipient with only office associations (lightweight query for delete)
     welfare_recipient = await crud_welfare_recipient.get_with_office_associations(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
-        raise NotFoundException("Welfare recipient not found")
+        raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
     # Verify the recipient belongs to the staff's office
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
-        raise ForbiddenException("Staff member must be associated with an office")
+        raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
-        raise ForbiddenException("Access denied to this welfare recipient")
+        raise ForbiddenException(ja.RECIPIENT_ACCESS_DENIED)
 
     # Employee restriction check
     employee_request = await deps.check_employee_restriction(
@@ -338,7 +339,7 @@ async def delete_welfare_recipient(
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content={
-                "message": "Request created and pending approval",
+                "message": ja.EMPLOYEE_REQUEST_PENDING,
                 "request_id": str(employee_request.id)
             }
         )
@@ -348,10 +349,10 @@ async def delete_welfare_recipient(
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to delete welfare recipient"
+                detail=ja.RECIPIENT_DELETE_FAILED
             )
 
-        return {"message": "Welfare recipient deleted successfully"}
+        return {"message": ja.RECIPIENT_DELETED_SUCCESS}
 
     except HTTPException:
         raise
@@ -359,7 +360,7 @@ async def delete_welfare_recipient(
         import traceback
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete welfare recipient: {str(e)}"
+            detail=ja.RECIPIENT_DELETE_FAILED
         )
 
 
@@ -378,21 +379,21 @@ async def repair_support_plan(
     """
     # Check permissions - only managers and owners can repair data
     if current_staff.role.value not in ["manager", "owner"]:
-        raise ForbiddenException("Only managers and owners can repair support plan data")
+        raise ForbiddenException(ja.RECIPIENT_REPAIR_PERMISSION_DENIED)
 
     welfare_recipient = await crud_welfare_recipient.get(db=db, id=recipient_id)
     if not welfare_recipient:
-        raise NotFoundException("Welfare recipient not found")
+        raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
     # Verify the recipient belongs to the staff's office
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
-        raise ForbiddenException("Staff member must be associated with an office")
+        raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
-        raise ForbiddenException("Access denied to this welfare recipient")
+        raise ForbiddenException(ja.RECIPIENT_ACCESS_DENIED)
 
     try:
         # Recreate support plan data
@@ -401,7 +402,7 @@ async def repair_support_plan(
 
         return {
             "success": True,
-            "message": "Support plan data has been repaired successfully",
+            "message": ja.RECIPIENT_REPAIR_SUPPORT_PLAN_SUCCESS,
             "recipient_id": recipient_id
         }
 
@@ -409,5 +410,5 @@ async def repair_support_plan(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to repair support plan: {str(e)}"
+            detail=ja.RECIPIENT_REPAIR_SUPPORT_PLAN_FAILED
         )

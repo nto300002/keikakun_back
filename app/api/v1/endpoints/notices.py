@@ -13,6 +13,7 @@ from app.api import deps
 from app.models.staff import Staff
 from app.schemas.notice import NoticeResponse, NoticeListResponse
 from app.crud.crud_notice import crud_notice
+from app.messages import ja
 
 router = APIRouter()
 
@@ -94,6 +95,41 @@ async def get_unread_count(
     return {"unread_count": len(unread_notices)}
 
 
+@router.get("/{notice_id}", response_model=NoticeResponse)
+async def get_notice_detail(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    notice_id: UUID,
+    current_user: Staff = Depends(deps.get_current_user)
+) -> NoticeResponse:
+    """
+    通知の詳細を取得
+
+    - 自分宛の通知のみ取得可能
+    - 取得時に自動的に既読にする
+    """
+    # 通知を取得
+    notice = await crud_notice.get(db=db, id=notice_id)
+    if not notice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.NOTICE_NOT_FOUND
+        )
+
+    # 自分宛の通知かチェック
+    if notice.recipient_staff_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.NOTICE_READ_OWN_ONLY
+        )
+
+    # 未読の場合は自動的に既読にする
+    if not notice.is_read:
+        notice = await crud_notice.mark_as_read(db=db, notice_id=notice_id)
+
+    return notice
+
+
 @router.patch("/{notice_id}/read", response_model=NoticeResponse)
 async def mark_notice_as_read(
     *,
@@ -111,14 +147,14 @@ async def mark_notice_as_read(
     if not notice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Notice not found"
+            detail=ja.NOTICE_NOT_FOUND
         )
 
     # 自分宛の通知かチェック
     if notice.recipient_staff_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only mark your own notices as read"
+            detail=ja.NOTICE_READ_OWN_ONLY
         )
 
     # 既読にする
@@ -161,14 +197,14 @@ async def delete_notice(
     if not notice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Notice not found"
+            detail=ja.NOTICE_NOT_FOUND
         )
 
     # 自分宛の通知かチェック
     if notice.recipient_staff_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete your own notices"
+            detail=ja.NOTICE_DELETE_OWN_ONLY
         )
 
     # 削除

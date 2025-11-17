@@ -153,7 +153,7 @@ async def test_delete_welfare_recipient(
 
     # 3. レスポンスの検証
     assert delete_response.status_code == 200
-    assert delete_response.json()["message"] == "Welfare recipient deleted successfully"
+    assert delete_response.json()["message"] == "利用者を削除しました"
 
     # 4. DBから削除されたことを確認
     db_recipient = await db_session.get(WelfareRecipient, uuid.UUID(recipient_id))
@@ -239,7 +239,7 @@ async def test_delete_welfare_recipient_with_deliverables(
 
     # 3. レスポンスの検証
     assert delete_response.status_code == 200
-    assert delete_response.json()["message"] == "Welfare recipient deleted successfully"
+    assert delete_response.json()["message"] == "利用者を削除しました"
 
     # 4. DBから削除されたことを確認
     db_recipient = await db_session.get(WelfareRecipient, uuid.UUID(recipient_id))

@@ -20,6 +20,7 @@ from app.schemas.employee_action_request import (
 )
 from app.services.employee_action_service import employee_action_service
 from app.crud.crud_employee_action_request import crud_employee_action_request
+from app.messages import ja
 
 router = APIRouter()
 
@@ -41,7 +42,7 @@ async def create_employee_action_request(
     if not current_user.office_associations:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You are not associated with any office"
+            detail=ja.ROLE_NO_OFFICE
         )
 
     office_id = current_user.office_associations[0].office_id
@@ -130,7 +131,7 @@ async def approve_employee_action_request(
     if current_user.role not in [StaffRole.manager, StaffRole.owner]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only managers and owners can approve requests"
+            detail=ja.PERM_MANAGER_OR_OWNER_APPROVE
         )
 
     # リクエストを取得
@@ -138,14 +139,14 @@ async def approve_employee_action_request(
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found"
+            detail=ja.REQUEST_NOT_FOUND
         )
 
     # 既に処理済みかチェック
     if request.status != RequestStatus.pending:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Request is already {request.status.value}"
+            detail=ja.REQUEST_ALREADY_PROCESSED.format(status=request.status.value)
         )
 
     # 同じ事業所のリクエストかチェック
@@ -154,7 +155,7 @@ async def approve_employee_action_request(
         if request.office_id != office_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only approve requests from your office"
+                detail=ja.REQUEST_OFFICE_MISMATCH
             )
 
     try:
@@ -189,7 +190,7 @@ async def reject_employee_action_request(
     if current_user.role not in [StaffRole.manager, StaffRole.owner]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only managers and owners can reject requests"
+            detail=ja.PERM_MANAGER_OR_OWNER_REJECT
         )
 
     # リクエストを取得
@@ -197,14 +198,14 @@ async def reject_employee_action_request(
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found"
+            detail=ja.REQUEST_NOT_FOUND
         )
 
     # 既に処理済みかチェック
     if request.status != RequestStatus.pending:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Request is already {request.status.value}"
+            detail=ja.REQUEST_ALREADY_PROCESSED.format(status=request.status.value)
         )
 
     # 同じ事業所のリクエストかチェック
@@ -213,7 +214,7 @@ async def reject_employee_action_request(
         if request.office_id != office_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only reject requests from your office"
+                detail=ja.REQUEST_OFFICE_MISMATCH
             )
 
     try:
@@ -249,21 +250,21 @@ async def delete_employee_action_request(
     if not request:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Request not found"
+            detail=ja.REQUEST_NOT_FOUND
         )
 
     # 作成者チェック
     if request.requester_staff_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only delete your own requests"
+            detail=ja.REQUEST_DELETE_OWN_ONLY
         )
 
     # pending状態のみ削除可能
     if request.status != RequestStatus.pending:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot delete {request.status.value} request"
+            detail=ja.REQUEST_CANNOT_DELETE_PROCESSED.format(status=request.status.value)
         )
 
     await crud_employee_action_request.remove(db=db, id=request_id)

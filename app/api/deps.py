@@ -13,6 +13,7 @@ from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal
 from app.models.staff import Staff
 from app.schemas.token import TokenData
+from app.messages import ja
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ async def get_current_user(
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail=ja.PERM_CREDENTIALS_INVALID,
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -155,7 +156,7 @@ async def require_manager_or_owner(
     if current_staff.role not in [StaffRole.manager, StaffRole.owner]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Manager or Owner role required"
+            detail=ja.PERM_MANAGER_OR_OWNER_REQUIRED
         )
     return current_staff
 
@@ -172,7 +173,7 @@ async def require_owner(
     if current_staff.role != StaffRole.owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Owner role required"
+            detail=ja.PERM_OWNER_REQUIRED
         )
     return current_staff
 
@@ -230,7 +231,7 @@ async def check_employee_restriction(
     if not office_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Staff must be associated with an office"
+            detail=ja.PERM_OFFICE_REQUIRED
         )
 
     # スキーマオブジェクトを作成

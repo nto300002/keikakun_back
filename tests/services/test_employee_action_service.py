@@ -843,6 +843,9 @@ async def test_notification_includes_welfare_recipient_full_name_for_create(
 ):
     """
     利用者作成リクエストの通知に利用者のフルネームが含まれる
+
+    期待される形式: "<staff.name>さんが利用者<recipient.name>さんの作成をリクエストしました"
+    例: "あ あさんが利用者山田 太郎さんの作成をリクエストしました。"
     """
     office_id, manager_id, employee_id = setup_office_with_staff
 
@@ -876,13 +879,35 @@ async def test_notification_includes_welfare_recipient_full_name_for_create(
 
     notice = manager_notices[0]
 
-    # 通知contentに利用者のフルネームが含まれていることを確認
+    # titleに利用者のフルネームが含まれていることを確認
+    assert "山田 太郎" in notice.title or "山田太郎" in notice.title, \
+        f"Expected full_name '山田 太郎' in notice title, but got: {notice.title}"
+
+    # titleにリクエスト作成者の名前が含まれていることを確認
+    assert "テスト エンプロイー" in notice.title or "あ あ" in notice.title, \
+        f"Expected requester name in notice title, but got: {notice.title}"
+
+    # titleの期待される形式を確認
+    # 例: "テスト エンプロイーさんが利用者山田 太郎さんの作成をリクエストしました。"
+    assert "さんが利用者" in notice.title, \
+        f"Expected format '<name>さんが利用者' in notice title, but got: {notice.title}"
+    assert "さんの作成をリクエストしました" in notice.title, \
+        f"Expected format 'さんの作成をリクエストしました' in notice title, but got: {notice.title}"
+
+    # contentにも利用者のフルネームが含まれていることを確認
     assert "山田 太郎" in notice.content or "山田太郎" in notice.content, \
         f"Expected full_name '山田 太郎' in notice content, but got: {notice.content}"
 
-    # 基本的な通知内容も確認
-    assert "利用者" in notice.content
-    assert "作成" in notice.content
+    # contentにリクエスト作成者の名前が含まれていることを確認
+    assert "テスト エンプロイー" in notice.content or "あ あ" in notice.content, \
+        f"Expected requester name in notice content, but got: {notice.content}"
+
+    # contentの期待される形式を確認
+    # 例: "テスト エンプロイーさんが利用者山田 太郎さんの作成をリクエストしました。"
+    assert "さんが利用者" in notice.content, \
+        f"Expected format '<name>さんが利用者' in notice content, but got: {notice.content}"
+    assert "さんの作成をリクエストしました" in notice.content, \
+        f"Expected format 'さんの作成をリクエストしました' in notice content, but got: {notice.content}"
 
 
 async def test_notification_includes_welfare_recipient_full_name_for_update(
@@ -892,6 +917,9 @@ async def test_notification_includes_welfare_recipient_full_name_for_update(
 ):
     """
     利用者更新リクエストの通知に利用者のフルネームが含まれる
+
+    期待される形式: "<staff.name>さんが利用者<recipient.name>さんの更新をリクエストしました"
+    例: "あ あさんが利用者鈴木 次郎さんの更新をリクエストしました。"
     """
     office_id, manager_id, employee_id = setup_office_with_staff
     recipient_id = setup_welfare_recipient
@@ -927,9 +955,15 @@ async def test_notification_includes_welfare_recipient_full_name_for_update(
     assert "鈴木 次郎" in notice.content or "鈴木次郎" in notice.content, \
         f"Expected full_name '鈴木 次郎' in notice content, but got: {notice.content}"
 
-    # 基本的な通知内容も確認
-    assert "利用者" in notice.content
-    assert "更新" in notice.content or "編集" in notice.content
+    # リクエスト作成者の名前が含まれていることを確認
+    assert "テスト エンプロイー" in notice.content or "あ あ" in notice.content, \
+        f"Expected requester name in notice content, but got: {notice.content}"
+
+    # 期待される形式になっているか確認
+    assert "さんが利用者" in notice.content, \
+        f"Expected format '<name>さんが利用者' in notice content, but got: {notice.content}"
+    assert "さんの更新をリクエストしました" in notice.content, \
+        f"Expected format 'さんの更新をリクエストしました' in notice content, but got: {notice.content}"
 
 
 async def test_notification_without_full_name_shows_basic_info(

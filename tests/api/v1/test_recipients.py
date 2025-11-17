@@ -246,7 +246,7 @@ async def test_delete_recipient(
         headers=manager_user_token_headers,
     )
     assert delete_response.status_code == status.HTTP_200_OK
-    assert delete_response.json()["message"] == "Welfare recipient deleted successfully"
+    assert delete_response.json()["message"] == "利用者を削除しました"
 
     # 3. Verify it's gone
     get_response = await async_client.get(

@@ -14,6 +14,7 @@ from app.schemas.calendar_account import (
     CalendarSetupResponse,
     OfficeCalendarAccountResponse
 )
+from app.messages import ja
 
 router = APIRouter()
 
@@ -46,7 +47,7 @@ async def setup_calendar(
     if current_user.role != models.StaffRole.owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="この操作を行う権限がありません。カレンダー設定はowner権限が必要です。",
+            detail=ja.CALENDAR_OWNER_ONLY,
         )
 
     try:
@@ -80,9 +81,9 @@ async def setup_calendar(
         )
 
         if connection_success:
-            message = "カレンダー連携設定が正常に完了し、接続テストに成功しました。"
+            message = ja.CALENDAR_SETUP_SUCCESS_WITH_CONNECTION
         else:
-            message = "カレンダー連携設定は完了しましたが、接続テストに失敗しました。設定を確認してください。"
+            message = ja.CALENDAR_SETUP_FAILED_CONNECTION
 
         response = CalendarSetupResponse(
             success=True,
@@ -95,21 +96,11 @@ async def setup_calendar(
 
         return response
 
-    except ValueError as e:
+    except HTTPException:
         # エラー時はロールバック
         await db.rollback()
-
-        # 既に設定が存在する場合や、バリデーションエラー
-        error_message = str(e)
-        if "already has a calendar account" in error_message:
-            message = "この事業所は既にカレンダー連携設定が存在します。"
-        else:
-            message = "カレンダー連携設定に失敗しました。"
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{message}: {error_message}"
-        )
+        # HTTPException はそのまま再raise
+        raise
 
     except Exception as e:
         # エラー時はロールバック
@@ -118,7 +109,7 @@ async def setup_calendar(
         # その他の予期しないエラー
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"カレンダー連携設定中に予期しないエラーが発生しました: {str(e)}"
+            detail=ja.CALENDAR_SETUP_ERROR.format(error=str(e))
         )
 
 
@@ -150,7 +141,7 @@ async def get_calendar_by_office(
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"事業所 {office_id} のカレンダー設定が見つかりません。",
+            detail=ja.CALENDAR_NOT_FOUND_FOR_OFFICE.format(office_id=office_id),
         )
 
     # デバッグログ: calendar_name の値を確認
@@ -191,7 +182,7 @@ async def get_calendar_by_id(
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"カレンダーアカウント {account_id} が見つかりません。",
+            detail=ja.CALENDAR_ACCOUNT_NOT_FOUND.format(account_id=account_id),
         )
 
     return OfficeCalendarAccountResponse.model_validate(account)
@@ -227,7 +218,7 @@ async def update_calendar(
     if current_user.role != models.StaffRole.owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="この操作を行う権限がありません。カレンダー設定の更新はowner権限が必要です。",
+            detail=ja.CALENDAR_UPDATE_OWNER_ONLY,
         )
 
     try:
@@ -265,9 +256,9 @@ async def update_calendar(
         )
 
         if connection_success:
-            message = "カレンダー設定を更新し、接続テストに成功しました。"
+            message = ja.CALENDAR_UPDATE_SUCCESS_WITH_CONNECTION
         else:
-            message = "カレンダー設定は更新されましたが、接続テストに失敗しました。設定を確認してください。"
+            message = ja.CALENDAR_UPDATE_FAILED_CONNECTION
 
         response = CalendarSetupResponse(
             success=True,
@@ -280,22 +271,11 @@ async def update_calendar(
 
         return response
 
-    except ValueError as e:
+    except HTTPException:
         # エラー時はロールバック
         await db.rollback()
-
-        # アカウントが存在しない場合
-        error_message = str(e)
-        if "not found" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"カレンダーアカウント {account_id} が見つかりません。"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"カレンダー設定の更新に失敗しました: {error_message}"
-            )
+        # HTTPException はそのまま再raise
+        raise
 
     except Exception as e:
         # エラー時はロールバック
@@ -304,7 +284,7 @@ async def update_calendar(
         # その他の予期しないエラー
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"カレンダー設定の更新中に予期しないエラーが発生しました: {str(e)}"
+            detail=ja.CALENDAR_UPDATE_ERROR.format(error=str(e))
         )
 
 
@@ -336,7 +316,7 @@ async def delete_calendar(
     if current_user.role != models.StaffRole.owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="この操作を行う権限がありません。カレンダー連携の解除はowner権限が必要です。",
+            detail=ja.CALENDAR_DELETE_OWNER_ONLY,
         )
 
     try:
@@ -348,18 +328,14 @@ async def delete_calendar(
 
         return {
             "success": True,
-            "message": "カレンダー連携を解除しました。"
+            "message": ja.CALENDAR_DELETE_SUCCESS
         }
 
-    except ValueError as e:
+    except HTTPException:
         # エラー時はロールバック
         await db.rollback()
-
-        # アカウントが存在しない場合
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"カレンダーアカウント {account_id} が見つかりません。"
-        )
+        # HTTPException はそのまま再raise
+        raise
 
     except Exception as e:
         # エラー時はロールバック
@@ -368,7 +344,7 @@ async def delete_calendar(
         # その他の予期しないエラー
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"カレンダー連携の解除中にエラーが発生しました: {str(e)}"
+            detail=ja.CALENDAR_DELETE_ERROR.format(error=str(e))
         )
 
 
@@ -401,7 +377,7 @@ async def sync_pending_events(
 
         return {
             "success": True,
-            "message": f"{result['synced']}件のイベントを同期しました。{result['failed']}件が失敗しました。",
+            "message": ja.CALENDAR_SYNC_SUCCESS.format(synced=result['synced'], failed=result['failed']),
             "synced": result["synced"],
             "failed": result["failed"]
         }
@@ -412,5 +388,5 @@ async def sync_pending_events(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"イベント同期中にエラーが発生しました: {str(e)}"
+            detail=ja.CALENDAR_SYNC_ERROR.format(error=str(e))
         )

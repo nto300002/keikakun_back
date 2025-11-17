@@ -6,12 +6,14 @@ from typing import Optional, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from passlib.context import CryptContext
+from fastapi import HTTPException, status
 
 from app.models.staff import Staff
 from app.models.staff_profile import AuditLog, EmailChangeRequest as EmailChangeRequestModel, PasswordHistory
 from app.schemas.staff_profile import StaffNameUpdate, PasswordChange, EmailChangeRequest
 from app.core.security import verify_password, get_password_hash
 from app.core import mail
+from app.messages import ja
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -47,7 +49,10 @@ class StaffProfileService:
         staff = result.scalar_one_or_none()
 
         if not staff:
-            raise ValueError("スタッフが見つかりません")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.STAFF_NOT_FOUND
+            )
 
         # 古い名前を保存
         old_name = f"{staff.last_name or ''} {staff.first_name or ''}".strip()
@@ -118,7 +123,10 @@ class StaffProfileService:
         staff = result.scalar_one_or_none()
 
         if not staff:
-            raise ValueError("スタッフが見つかりません")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.STAFF_NOT_FOUND
+            )
 
         # レート制限チェック（1時間に3回まで）
         await self._check_password_change_rate_limit(db, staff_id)
@@ -129,13 +137,19 @@ class StaffProfileService:
         try:
             # 新パスワードの一致確認
             if password_change.new_password != password_change.new_password_confirm:
-                raise ValueError("新しいパスワードが一致しません")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=ja.STAFF_PASSWORD_MISMATCH
+                )
 
             # 現在のパスワード確認
             if not pwd_context.verify(password_change.current_password, staff.hashed_password):
                 # 失敗回数をカウント（総当たり攻撃対策）
                 await self._increment_failed_password_attempts_sync(db, staff)
-                raise ValueError("現在のパスワードが正しくありません")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=ja.STAFF_CURRENT_PASSWORD_INCORRECT
+                )
 
             # パスワード履歴チェック
             await self._check_password_history(db, staff_id, password_change.new_password)
@@ -211,15 +225,22 @@ class StaffProfileService:
         # メールアドレスのローカル部分
         email_local = staff.email.split('@')[0].lower()
         if email_local in password_lower:
-            raise ValueError(
-                "パスワードにメールアドレスの一部を含めることはできません"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.STAFF_PASSWORD_CONTAINS_EMAIL
             )
 
         # 名前
         if staff.last_name and staff.last_name.lower() in password_lower:
-            raise ValueError("パスワードに名前を含めることはできません")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.STAFF_PASSWORD_CONTAINS_NAME
+            )
         if staff.first_name and staff.first_name.lower() in password_lower:
-            raise ValueError("パスワードに名前を含めることはできません")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.STAFF_PASSWORD_CONTAINS_NAME
+            )
 
     async def _check_password_history(
         self,
@@ -240,9 +261,9 @@ class StaffProfileService:
 
         for record in history:
             if pwd_context.verify(new_password, record.hashed_password):
-                raise ValueError(
-                    "過去に使用したパスワードは使用できません。"
-                    "別のパスワードを設定してください。"
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="過去に使用したパスワードは使用できません。別のパスワードを設定してください。"
                 )
 
     async def _cleanup_password_history(
@@ -401,11 +422,17 @@ class StaffProfileService:
         staff = result.scalar_one_or_none()
 
         if not staff:
-            raise ValueError("スタッフが見つかりません")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.STAFF_NOT_FOUND
+            )
 
         # パスワード確認
         if not pwd_context.verify(email_request.password, staff.hashed_password):
-            raise ValueError("現在のパスワードが正しくありません")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.STAFF_CURRENT_PASSWORD_INCORRECT
+            )
 
         # レート制限チェック（24時間以内に3回まで）
         time_threshold = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -430,7 +457,10 @@ class StaffProfileService:
         existing_staff = result_email.scalar_one_or_none()
 
         if existing_staff:
-            raise ValueError("このメールアドレスは既に使用されています")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="このメールアドレスは既に使用されています"
+            )
 
         # 確認トークン生成（32バイト = 64文字の16進数）
         verification_token = secrets.token_urlsafe(32)
@@ -511,7 +541,10 @@ class StaffProfileService:
 
         if not email_request:
             print(f"[DEBUG SERVICE] Email change request not found for token")
-            raise ValueError("無効な確認トークンです")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="無効な確認トークンです"
+            )
 
         print(f"[DEBUG SERVICE] Found email change request: id={email_request.id}, status={email_request.status}")
 
@@ -519,13 +552,19 @@ class StaffProfileService:
         print(f"[DEBUG SERVICE] Checking expiration: expires_at={email_request.expires_at}, now={datetime.now(timezone.utc)}")
         if datetime.now(timezone.utc) > email_request.expires_at:
             print(f"[DEBUG SERVICE] Token expired")
-            raise ValueError("確認トークンの有効期限が切れています")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="確認トークンの有効期限が切れています"
+            )
 
         # ステータスチェック
         print(f"[DEBUG SERVICE] Checking status: {email_request.status}")
         if email_request.status != "pending":
             print(f"[DEBUG SERVICE] Status is not pending")
-            raise ValueError("この変更リクエストは既に処理されています")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="この変更リクエストは既に処理されています"
+            )
 
         # スタッフ情報取得
         print(f"[DEBUG SERVICE] Fetching staff: staff_id={email_request.staff_id}")
@@ -535,7 +574,10 @@ class StaffProfileService:
 
         if not staff:
             print(f"[DEBUG SERVICE] Staff not found")
-            raise ValueError("スタッフが見つかりません")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ja.STAFF_NOT_FOUND
+            )
 
         print(f"[DEBUG SERVICE] Staff found: id={staff.id}, email={staff.email}")
 

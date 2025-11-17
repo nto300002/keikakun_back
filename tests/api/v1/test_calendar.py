@@ -169,7 +169,8 @@ class TestSetupCalendar:
         data = response.json()
         # FastAPIのHTTPExceptionは {"detail": "..."} 形式を返す
         assert "detail" in data
-        assert "already has a calendar account" in data["detail"]
+        # ja.SERVICE_CALENDAR_ALREADY_EXISTS のメッセージを確認
+        assert "既にカレンダーアカウントを持っています" in data["detail"]
 
     @pytest.mark.parametrize("mock_current_user", ["employee_user"], indirect=True)
     async def test_setup_calendar_forbidden_for_employee(
@@ -225,7 +226,12 @@ class TestSetupCalendar:
 
         # Assert
         assert response.status_code == 422
-        assert "Missing required field" in str(response.json())
+        # Pydanticのバリデーションエラーをチェック
+        data = response.json()
+        assert "detail" in data
+        # エラーメッセージに必須フィールドの欠落が含まれていることを確認
+        error_str = str(data)
+        assert "private_key_id" in error_str or "client_email" in error_str
 
     async def test_setup_calendar_unauthorized(
         self,

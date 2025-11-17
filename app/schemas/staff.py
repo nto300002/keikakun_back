@@ -3,6 +3,7 @@ import re
 from typing import Optional
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field
 from app.models.enums import StaffRole
+from app.messages import ja
 
 
 class StaffBase(BaseModel):
@@ -18,21 +19,21 @@ class StaffBase(BaseModel):
         v = v.strip()
 
         if not v:
-            raise ValueError(f"{info.field_name}は空にできません")
+            raise ValueError(ja.VALIDATION_NAME_CANNOT_BE_EMPTY.format(field_name=info.field_name))
 
         # 50文字制限
         if len(v) > 50:
-            raise ValueError(f"{info.field_name}は50文字以内にしてください")
+            raise ValueError(ja.VALIDATION_NAME_TOO_LONG.format(field_name=info.field_name))
 
         # 数字のみの名前を禁止
         if v.replace(' ', '').replace('　', '').isdigit():
-            raise ValueError("名前に数字のみは使用できません")
+            raise ValueError(ja.VALIDATION_NAME_CANNOT_BE_ONLY_NUMBERS)
 
         # 使用可能文字のチェック
         # 日本語（ひらがな・カタカナ・漢字）、全角スペース、・（中点）、々（同じく）のみ許可
         allowed_pattern = r'^[ぁ-ん ァ-ヶー一-龥々・　]+$'
         if not re.match(allowed_pattern, v):
-            raise ValueError("名前に使用できない文字が含まれています（日本語のみ使用可能）")
+            raise ValueError(ja.VALIDATION_NAME_INVALID_CHARACTERS)
 
         return v
 
@@ -43,19 +44,19 @@ class AdminCreate(StaffBase):
     @field_validator("password")
     def validate_password(cls, v: str) -> str:
         if len(v) < 8:
-            raise ValueError("パスワードは8文字以上である必要があります")
-        
+            raise ValueError(ja.VALIDATION_PASSWORD_TOO_SHORT)
+
         checks = {
             "lowercase": lambda s: re.search(r'[a-z]', s),
             "uppercase": lambda s: re.search(r'[A-Z]', s),
             "digit": lambda s: re.search(r'\d', s),
             "symbol": lambda s: re.search(r'[!@#$%^&*(),.?":{}|<>]', s),
         }
-        
+
         score = sum(1 for check in checks.values() if check(v))
-        
+
         if score < 4:
-            raise ValueError("パスワードは次のうち少なくとも3つを含む必要があります: 英字小文字、大文字、数字、記号")
+            raise ValueError(ja.VALIDATION_PASSWORD_COMPLEXITY)
 
         return v
 
@@ -67,25 +68,25 @@ class StaffCreate(StaffBase):
     @field_validator("role")
     def validate_role(cls, v: StaffRole):
         if v == StaffRole.owner:
-            raise ValueError("Cannot register as an owner through this endpoint.")
+            raise ValueError(ja.VALIDATION_CANNOT_REGISTER_AS_OWNER)
         return v
 
     @field_validator("password")
     def validate_password(cls, v: str) -> str:
         if len(v) < 8:
-            raise ValueError("パスワードは8文字以上である必要があります")
-        
+            raise ValueError(ja.VALIDATION_PASSWORD_TOO_SHORT)
+
         checks = {
             "lowercase": lambda s: re.search(r'[a-z]', s),
             "uppercase": lambda s: re.search(r'[A-Z]', s),
             "digit": lambda s: re.search(r'\d', s),
             "symbol": lambda s: re.search(r'[!@#$%^&*(),.?":{}|<>]', s),
         }
-        
+
         score = sum(1 for check in checks.values() if check(v))
-        
+
         if score < 4:
-            raise ValueError("パスワードは次のうち少なくとも3つを含む必要があります: 英字小文字、大文字、数字、記号")
+            raise ValueError(ja.VALIDATION_PASSWORD_COMPLEXITY)
 
         return v
 

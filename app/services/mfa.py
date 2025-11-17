@@ -12,27 +12,34 @@ class MfaService:
         self.db = db
 
     async def enroll(self, user: models.Staff) -> dict[str, str]:
+        # 平文のMFAシークレットを生成
         mfa_secret = generate_totp_secret()
-        user.mfa_secret = mfa_secret
+
+        # 暗号化して保存
+        user.set_mfa_secret(mfa_secret)
+
         # is_mfa_enabled は verify で有効にするのでここでは True にしない
         await self.db.commit()
         await self.db.refresh(user)
 
+        # QRコードURIは平文のシークレットを使用
         qr_code_uri = generate_totp_uri(user.email, mfa_secret)
 
+        # 平文のシークレットをレスポンスとして返す（ユーザーが手動で入力する場合のため）
         return {"secret_key": mfa_secret, "qr_code_uri": qr_code_uri}
 
     async def verify(self, user: models.Staff, totp_code: str) -> bool:
         if not user.mfa_secret:
             return False
 
-        # TODO: mfa_secretが暗号化されている場合はここで復号する
-        # secret = decrypt_mfa_secret(user.mfa_secret)
-        secret = user.mfa_secret
+        # mfa_secretは暗号化されているため、復号化が必要
+        secret = user.get_mfa_secret()
+        if not secret:
+            return False
 
         if verify_totp(secret=secret, token=totp_code):
             user.is_mfa_enabled = True
             await self.db.commit()
             return True
-        
+
         return False

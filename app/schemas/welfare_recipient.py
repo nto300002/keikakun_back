@@ -11,6 +11,7 @@ from app.models.enums import (
     DisabilityCategory,
 )
 import uuid
+from app.messages import ja
 
 
 # Emergency Contact Schemas
@@ -111,7 +112,7 @@ class WelfareRecipientCreate(BaseModel):
     def validate_birth_day(cls, v: date) -> date:
         from datetime import date as dt_date
         if v > dt_date.today():
-            raise ValueError('Birth date cannot be in the future')
+            raise ValueError(ja.VALIDATION_BIRTH_DATE_FUTURE)
         return v
 
 
@@ -133,7 +134,7 @@ class WelfareRecipientUpdate(BaseModel):
             return v
         from datetime import date as dt_date
         if v > dt_date.today():
-            raise ValueError('Birth date cannot be in the future')
+            raise ValueError(ja.VALIDATION_BIRTH_DATE_FUTURE)
         return v
 
 

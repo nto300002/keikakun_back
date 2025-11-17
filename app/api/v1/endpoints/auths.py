@@ -16,6 +16,7 @@ from app.core.limiter import limiter
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM
 )
+from app.messages import ja
 
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM,
@@ -57,7 +58,7 @@ async def register_admin(
     if user:
         raise HTTPException(
             status_code=409,  # Conflict
-            detail="The user with this email already exists in the system.",
+            detail=ja.AUTH_EMAIL_ALREADY_EXISTS,
         )
 
     user = await staff_crud.create_admin(db=db, obj_in=staff_in)
@@ -100,7 +101,7 @@ async def register_staff(
     if user:
         raise HTTPException(
             status_code=409,  # Conflict
-            detail="The user with this email already exists in the system.",
+            detail=ja.AUTH_EMAIL_ALREADY_EXISTS,
         )
 
     # staff_in.role は StaffCreate スキーマのバリデーターによって
@@ -137,18 +138,18 @@ async def verify_email(
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired token",
+            detail=ja.AUTH_INVALID_TOKEN,
         )
-    
+
     user = await staff_crud.get_by_email(db, email=email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            detail=ja.AUTH_USER_NOT_FOUND,
         )
-    
+
     if user.is_email_verified:
-        return {"message": "Email already verified", "role": user.role}
+        return {"message": ja.AUTH_EMAIL_ALREADY_VERIFIED, "role": user.role}
 
     # commit前にroleを保存
     user_role = user.role
@@ -156,7 +157,7 @@ async def verify_email(
     db.add(user)
     await db.commit()
 
-    return {"message": "Email verified successfully", "role": user_role}
+    return {"message": ja.AUTH_EMAIL_VERIFIED, "role": user_role}
 
 
 
@@ -179,13 +180,13 @@ async def login_for_access_token(
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail=ja.AUTH_INCORRECT_CREDENTIALS,
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_email_verified:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email not verified",
+            detail=ja.AUTH_EMAIL_NOT_VERIFIED,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -274,7 +275,7 @@ async def login_for_access_token(
         "token_type": "bearer",
         "session_duration": session_duration,
         "session_type": session_type,
-        "message": "Login successful"
+        "message": ja.AUTH_LOGIN_SUCCESS
     }
 
 
@@ -300,14 +301,14 @@ async def refresh_access_token(
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token",
+                detail=ja.AUTH_INVALID_REFRESH_TOKEN,
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
     except (JWTError, ValidationError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+            detail=ja.AUTH_INVALID_REFRESH_TOKEN,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -342,7 +343,7 @@ async def refresh_access_token(
         "token_type": "bearer",
         "session_duration": session_duration,
         "session_type": session_type,
-        "message": "Token refreshed"
+        "message": ja.AUTH_TOKEN_REFRESHED
     }
 
 
@@ -354,39 +355,65 @@ async def verify_mfa_for_login(
     mfa_data: MFAVerifyRequest,
     staff_crud=Depends(get_staff_crud),
 ):
+    logger.info(f"[MFA VERIFY] Starting MFA verification")
+    logger.info(f"[MFA VERIFY] temporary_token length: {len(mfa_data.temporary_token) if mfa_data.temporary_token else 0}")
+    logger.info(f"[MFA VERIFY] totp_code: {mfa_data.totp_code}")
+
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
+        logger.error(f"[MFA VERIFY] Invalid temporary token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired temporary token",
+            detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
         )
 
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
+    logger.info(f"[MFA VERIFY] Token validated, user_id: {user_id}")
 
     user = await staff_crud.get(db, id=user_id)
-    if not user or not user.is_mfa_enabled:
+    if not user:
+        logger.error(f"[MFA VERIFY] User not found: {user_id}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA not properly configured"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
+    if not user.is_mfa_enabled:
+        logger.error(f"[MFA VERIFY] MFA not enabled for user: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
+        )
+
+    logger.info(f"[MFA VERIFY] User found, MFA enabled: {user.is_mfa_enabled}")
+    logger.info(f"[MFA VERIFY] MFA secret exists: {bool(user.mfa_secret)}")
 
     # Verify either TOTP code or recovery code
     verification_successful = False
-    
+
     if mfa_data.totp_code:
-        if user.mfa_secret and verify_totp(secret=user.mfa_secret, token=mfa_data.totp_code):
-            verification_successful = True
-    
+        logger.info(f"[MFA VERIFY] Attempting TOTP verification")
+        if user.mfa_secret:
+            # MFA secretは暗号化されているため、復号化が必要
+            decrypted_secret = user.get_mfa_secret()
+            logger.info(f"[MFA VERIFY] Secret decrypted successfully: {bool(decrypted_secret)}")
+            totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
+            logger.info(f"[MFA VERIFY] TOTP verification result: {totp_result}")
+            if totp_result:
+                verification_successful = True
+        else:
+            logger.error(f"[MFA VERIFY] MFA secret is missing")
+
     if mfa_data.recovery_code and not verification_successful:
+        logger.info(f"[MFA VERIFY] Attempting recovery code verification")
         from app.core.security import verify_recovery_code
         if verify_recovery_code(user, mfa_data.recovery_code):
             verification_successful = True
-    
+
     if not verification_successful:
+        logger.error(f"[MFA VERIFY] Verification failed")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Invalid TOTP code or recovery code"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ja.AUTH_INVALID_MFA_CODE
         )
 
     access_token = create_access_token(
@@ -433,7 +460,7 @@ async def verify_mfa_for_login(
         "token_type": "bearer",
         "session_duration": session_duration,
         "session_type": session_type,
-        "message": "MFA verification successful"
+        "message": ja.AUTH_MFA_VERIFICATION_SUCCESS
     }
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
@@ -466,4 +493,4 @@ async def logout(
     response.delete_cookie(**delete_cookie_options)
 
     # 今後のためにcurrent_userとdbは引数として残しておく
-    return {"message": "Logout successful"}
+    return {"message": ja.AUTH_LOGOUT_SUCCESS}

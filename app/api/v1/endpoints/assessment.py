@@ -40,6 +40,7 @@ from app.crud.crud_medical_info import crud_medical_info
 from app.crud.crud_hospital_visit import crud_hospital_visit
 from app.crud.crud_employment import crud_employment
 from app.crud.crud_issue_analysis import crud_issue_analysis
+from app.messages import ja
 
 router = APIRouter()
 
@@ -142,7 +143,7 @@ async def update_family_member(
     if not family_member:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="家族メンバーが見つかりません"
+            detail=ja.ASSESSMENT_FAMILY_MEMBER_NOT_FOUND
         )
 
     return family_member
@@ -165,7 +166,7 @@ async def delete_family_member(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="家族メンバーが見つかりません"
+            detail=ja.ASSESSMENT_FAMILY_MEMBER_NOT_FOUND
         )
 
     return {"message": "家族メンバーを削除しました"}
@@ -239,7 +240,7 @@ async def update_service_history(
     if not service_history:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="サービス利用歴が見つかりません"
+            detail=ja.ASSESSMENT_SERVICE_HISTORY_NOT_FOUND
         )
 
     return service_history
@@ -262,7 +263,7 @@ async def delete_service_history(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="サービス利用歴が見つかりません"
+            detail=ja.ASSESSMENT_SERVICE_HISTORY_NOT_FOUND
         )
 
     return {"message": "サービス利用歴を削除しました"}
@@ -380,7 +381,7 @@ async def update_hospital_visit(
     if not hospital_visit:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="通院歴が見つかりません"
+            detail=ja.ASSESSMENT_HOSPITAL_VISIT_NOT_FOUND
         )
 
     return hospital_visit
@@ -403,7 +404,7 @@ async def delete_hospital_visit(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="通院歴が見つかりません"
+            detail=ja.ASSESSMENT_HOSPITAL_VISIT_NOT_FOUND
         )
 
     return {"message": "通院歴を削除しました"}
