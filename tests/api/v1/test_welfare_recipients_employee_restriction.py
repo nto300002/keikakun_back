@@ -115,7 +115,7 @@ async def test_employee_create_welfare_recipient_creates_request(
     assert response.status_code == 202  # Accepted
     response_data = response.json()
     assert "message" in response_data
-    assert "Request created and pending approval" in response_data["message"]
+    assert "申請を作成しました。承認待ちです" in response_data["message"]
     assert "request_id" in response_data
 
     # EmployeeActionRequest が作成されていることを確認
@@ -245,7 +245,7 @@ async def test_employee_update_welfare_recipient_creates_request(
     # Assert
     assert response.status_code == 202  # Accepted
     response_data = response.json()
-    assert "Request created and pending approval" in response_data["message"]
+    assert "申請を作成しました。承認待ちです" in response_data["message"]
     assert "request_id" in response_data
 
     # EmployeeActionRequest が作成されていることを確認
@@ -324,7 +324,7 @@ async def test_employee_delete_welfare_recipient_creates_request(
     # Assert
     assert response.status_code == 202  # Accepted
     response_data = response.json()
-    assert "Request created and pending approval" in response_data["message"]
+    assert "申請を作成しました。承認待ちです" in response_data["message"]
 
     # EmployeeActionRequest が作成されていることを確認
     request_id = uuid.UUID(response_data["request_id"])
@@ -363,7 +363,7 @@ async def test_manager_delete_welfare_recipient_direct(
     # Assert
     assert response.status_code == 200  # OK
     response_data = response.json()
-    assert response_data["message"] == "Welfare recipient deleted successfully"
+    assert response_data["message"] == "利用者を削除しました"
 
     # WelfareRecipient が削除されていることを確認
     recipient = await db_session.get(WelfareRecipient, recipient_id)

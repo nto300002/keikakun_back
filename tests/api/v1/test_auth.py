@@ -98,7 +98,7 @@ async def test_register_admin_duplicate_email(async_client: AsyncClient, service
 
     # Assert: 409 Conflictエラーが返ることを確認
     assert response.status_code == 409
-    assert "already exists" in response.json()["detail"]
+    assert "既に登録されています" in response.json()["detail"]
 
 
 # --- Staff (employee/manager) Registration Tests ---
@@ -409,7 +409,7 @@ async def test_refresh_token_success(async_client: AsyncClient, service_admin_us
     data = response.json()
     assert "access_token" not in data  # Cookieに設定されるため、ボディには含まれない
     assert data["token_type"] == "bearer"
-    assert data["message"] == "Token refreshed"
+    assert data["message"] == "トークンを更新しました"
 
 
 async def test_refresh_token_failure_invalid_token(async_client: AsyncClient):
@@ -512,7 +512,7 @@ async def test_verify_email_success(async_client: AsyncClient, db_session: Async
 
     # Assert
     assert response.status_code == 200
-    assert "Email verified successfully" in response.json()["message"]
+    assert "メールアドレスの確認が完了しました" in response.json()["message"]
 
     # DBでフラグが更新されたことを確認
     await db_session.refresh(user)
@@ -529,7 +529,7 @@ async def test_verify_email_invalid_token(async_client: AsyncClient):
 
     # Assert
     assert response.status_code == 400
-    assert "Invalid or expired token" in response.json()["detail"]
+    assert "確認リンクが無効または期限切れです" in response.json()["detail"]
 
 
 
@@ -556,7 +556,7 @@ async def test_login_unverified_email(async_client: AsyncClient, db_session: Asy
 
     # Assert: メールが未確認のため、ログインが失敗(401 Unauthorized)することを確認
     assert login_response.status_code == 401
-    assert "Email not verified" in login_response.json()["detail"]
+    assert "メールアドレスの確認が完了していません" in login_response.json()["detail"]
 
 # --- Logout Test ---
 from tests.utils import create_random_staff
@@ -579,7 +579,7 @@ class TestLogout:
 
         # Assert
         assert response.status_code == 200
-        assert response.json()["message"] == "Logout successful"
+        assert response.json()["message"] == "ログアウトしました"
 
         # ログアウト後もMFA設定が変更されていないことを確認
         await db_session.refresh(staff)
@@ -601,7 +601,7 @@ class TestLogout:
 
         # Assert
         assert response.status_code == 200
-        assert response.json()["message"] == "Logout successful"
+        assert response.json()["message"] == "ログアウトしました"
 
         await db_session.refresh(staff)
         assert staff.is_mfa_enabled is False
@@ -735,7 +735,7 @@ class TestCookieAuthentication:
         assert "access_token" not in mfa_data  # Cookieに設定されるため、ボディには含まれない
         assert "refresh_token" in mfa_data
         assert mfa_data["token_type"] == "bearer"
-        assert mfa_data["message"] == "MFA verification successful"
+        assert mfa_data["message"] == "多要素認証に成功しました"
 
     @pytest.mark.asyncio
     async def test_refresh_token_updates_cookie(

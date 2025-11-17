@@ -81,7 +81,7 @@ async def test_require_manager_or_owner_with_employee(service_admin_user_factory
         await require_manager_or_owner(current_staff=employee)
 
     assert exc_info.value.status_code == 403
-    assert "Manager or Owner role required" in exc_info.value.detail
+    assert "管理者または事業所管理者の権限が必要です" in exc_info.value.detail
 
 
 # --- require_owner のテスト ---
@@ -115,7 +115,7 @@ async def test_require_owner_with_manager(service_admin_user_factory):
         await require_owner(current_staff=manager)
 
     assert exc_info.value.status_code == 403
-    assert "Owner role required" in exc_info.value.detail
+    assert "事業所管理者の権限が必要です" in exc_info.value.detail
 
 
 async def test_require_owner_with_employee(service_admin_user_factory):
@@ -131,7 +131,7 @@ async def test_require_owner_with_employee(service_admin_user_factory):
         await require_owner(current_staff=employee)
 
     assert exc_info.value.status_code == 403
-    assert "Owner role required" in exc_info.value.detail
+    assert "事業所管理者の権限が必要です" in exc_info.value.detail
 
 
 # --- check_employee_restriction のテスト ---

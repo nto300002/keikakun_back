@@ -218,7 +218,7 @@ async def test_get_support_plan_cycles_not_found(
 
     # 404エラーを期待
     assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
+    assert "見つかりません" in response.json()["detail"]
 
     # クリーンアップ
     app.dependency_overrides.clear()
@@ -287,7 +287,8 @@ async def test_get_support_plan_cycles_unauthorized_office(
 
     # 403エラーを期待
     assert response.status_code == 403
-    assert "permission" in response.json()["detail"].lower() or "access" in response.json()["detail"].lower()
+    detail = response.json()["detail"]
+    assert "権限" in detail or "アクセス" in detail
 
     # クリーンアップ
     app.dependency_overrides.clear()

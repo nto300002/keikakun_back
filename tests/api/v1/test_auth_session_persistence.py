@@ -183,7 +183,7 @@ class TestAuthSessionPersistence:
         response = await async_client.get("/api/v1/staffs/me", headers=headers)
 
         assert response.status_code == 401
-        assert "Could not validate credentials" in response.json()["detail"]
+        assert "認証情報を検証できません" in response.json()["detail"]
 
     async def test_valid_8hour_token_accepted_after_7hours(
         self, async_client: AsyncClient, test_staff_user
@@ -234,7 +234,7 @@ class TestAuthSessionPersistence:
         response = await async_client.get("/api/v1/staffs/me", headers=headers)
 
         assert response.status_code == 401
-        assert "Could not validate credentials" in response.json()["detail"]
+        assert "認証情報を検証できません" in response.json()["detail"]
 
     async def test_refresh_token_maintains_session_type(
         self, async_client: AsyncClient, test_staff_user, test_password
@@ -287,7 +287,7 @@ class TestAuthSessionPersistence:
         logout_response = await async_client.post("/api/v1/auth/logout", headers=headers)
 
         assert logout_response.status_code == 200
-        assert logout_response.json()["message"] == "Logout successful"
+        assert logout_response.json()["message"] == "ログアウトしました"
 
         # 注意: JWTトークンはステートレスなので、ログアウト後もサーバー側では技術的に有効
         # 実際のアプリケーションではクライアント側でトークンを削除する
