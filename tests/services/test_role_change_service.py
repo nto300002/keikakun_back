@@ -3,6 +3,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID, uuid4
 from typing import Tuple
+from fastapi import HTTPException, status
 
 from app.db.session import AsyncSessionLocal
 from app.models.staff import Staff
@@ -407,12 +408,13 @@ async def test_cannot_approve_twice(
     )
 
     # 2回目の承認（エラーになるはず）
-    with pytest.raises(ValueError, match="already processed"):
+    with pytest.raises(HTTPException) as exc_info:
         await role_change_service.approve_request(
             db=db,
             request_id=request.id,
             reviewer_staff_id=manager_id,
         )
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
 
 # ===== MissingGreenlet対策テスト =====

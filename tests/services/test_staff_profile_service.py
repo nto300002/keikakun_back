@@ -73,6 +73,9 @@ class TestStaffProfileServiceNameUpdate:
     async def test_update_name_staff_not_found(self, staff_profile_service):
         """異常系: スタッフが見つからない場合エラー"""
         # Arrange
+        from fastapi import HTTPException
+        from app.messages import ja
+
         mock_db = AsyncMock(spec=AsyncSession)
         mock_result = Mock()
         mock_result.scalar_one_or_none = Mock(return_value=None)
@@ -86,12 +89,14 @@ class TestStaffProfileServiceNameUpdate:
         )
 
         # Act & Assert
-        with pytest.raises(ValueError, match="スタッフが見つかりません"):
+        with pytest.raises(HTTPException) as exc_info:
             await staff_profile_service.update_name(
                 db=mock_db,
                 staff_id=str(uuid4()),
                 name_data=name_data
             )
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail == ja.STAFF_NOT_FOUND
 
     async def test_log_name_change(self, staff_profile_service):
         """監査ログが正しく記録される"""
@@ -181,6 +186,9 @@ class TestStaffProfileServicePasswordChange:
     async def test_change_password_wrong_current(self, staff_profile_service, mock_staff):
         """異常系: 現在のパスワードが間違っている"""
         # Arrange
+        from fastapi import HTTPException
+        from app.messages import ja
+
         mock_db = AsyncMock(spec=AsyncSession)
 
         # 最初のexecute: スタッフ取得
@@ -201,12 +209,14 @@ class TestStaffProfileServicePasswordChange:
 
         with patch('app.services.staff_profile_service.pwd_context.verify', return_value=False):
             # Act & Assert
-            with pytest.raises(ValueError, match="現在のパスワードが正しくありません"):
+            with pytest.raises(HTTPException) as exc_info:
                 await staff_profile_service.change_password(
                     db=mock_db,
                     staff_id=str(mock_staff.id),
                     password_change=password_change
                 )
+            assert exc_info.value.status_code == 400
+            assert exc_info.value.detail == ja.STAFF_CURRENT_PASSWORD_INCORRECT
 
             # 失敗回数がインクリメントされたか確認
             assert mock_staff.failed_password_attempts == 1
@@ -214,6 +224,9 @@ class TestStaffProfileServicePasswordChange:
     async def test_change_password_mismatch(self, staff_profile_service, mock_staff):
         """異常系: 新パスワードが一致しない"""
         # Arrange
+        from fastapi import HTTPException
+        from app.messages import ja
+
         mock_db = AsyncMock(spec=AsyncSession)
 
         # 最初のexecute: スタッフ取得
@@ -233,35 +246,49 @@ class TestStaffProfileServicePasswordChange:
         )
 
         # Act & Assert
-        with pytest.raises(ValueError, match="新しいパスワードが一致しません"):
+        with pytest.raises(HTTPException) as exc_info:
             await staff_profile_service.change_password(
                 db=mock_db,
                 staff_id=str(mock_staff.id),
                 password_change=password_change
             )
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == ja.STAFF_PASSWORD_MISMATCH
 
     async def test_check_password_similarity_email(self, staff_profile_service, mock_staff):
         """異常系: パスワードにメールアドレスの一部が含まれる"""
         # Arrange
+        from fastapi import HTTPException
+        from app.messages import ja
+
         mock_staff.email = "yamada@example.com"
 
         # Act & Assert
-        with pytest.raises(ValueError, match="メールアドレスの一部を含めることはできません"):
+        with pytest.raises(HTTPException) as exc_info:
             staff_profile_service._check_password_similarity("Yamada123!", mock_staff)
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == ja.STAFF_PASSWORD_CONTAINS_EMAIL
 
     async def test_check_password_similarity_name(self, staff_profile_service, mock_staff):
         """異常系: パスワードに名前が含まれる"""
         # Arrange
+        from fastapi import HTTPException
+        from app.messages import ja
+
         mock_staff.last_name = "yamada"
         mock_staff.first_name = "taro"
 
         # Act & Assert
-        with pytest.raises(ValueError, match="パスワードに名前を含めることはできません"):
+        with pytest.raises(HTTPException) as exc_info:
             staff_profile_service._check_password_similarity("Yamada123!", mock_staff)
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == ja.STAFF_PASSWORD_CONTAINS_NAME
 
     async def test_check_password_history_reuse_prevention(self, staff_profile_service):
         """異常系: 過去のパスワードは再利用できない"""
         # Arrange
+        from fastapi import HTTPException
+
         mock_db = AsyncMock(spec=AsyncSession)
 
         # 過去のパスワード履歴をモック
@@ -277,12 +304,14 @@ class TestStaffProfileServicePasswordChange:
 
         with patch('app.services.staff_profile_service.pwd_context.verify', return_value=True):
             # Act & Assert
-            with pytest.raises(ValueError, match="過去に使用したパスワードは使用できません"):
+            with pytest.raises(HTTPException) as exc_info:
                 await staff_profile_service._check_password_history(
                     db=mock_db,
                     staff_id=str(uuid4()),
                     new_password="OldPassword123!"
                 )
+            assert exc_info.value.status_code == 400
+            assert "過去に使用したパスワードは使用できません" in exc_info.value.detail
 
     async def test_cleanup_password_history(self, staff_profile_service):
         """パスワード履歴のクリーンアップが正しく動作する"""

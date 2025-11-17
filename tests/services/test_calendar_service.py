@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from fastapi import HTTPException
 
 from app.services.calendar_service import calendar_service
 from app.schemas.calendar_account import CalendarSetupRequest
@@ -154,8 +155,10 @@ class TestCalendarService:
         await calendar_service.setup_office_calendar(db=db_session, request=setup_request)
 
         # 2回目の設定（重複エラーを期待）
-        with pytest.raises(ValueError, match="already has a calendar account"):
+        with pytest.raises(HTTPException) as exc_info:
             await calendar_service.setup_office_calendar(db=db_session, request=setup_request)
+        assert exc_info.value.status_code == 400
+        assert "既にカレンダーアカウントを持っています" in str(exc_info.value.detail)
 
     async def test_setup_office_calendar_invalid_json(
         self,
@@ -167,7 +170,8 @@ class TestCalendarService:
         _, office, _, office_id = setup_staff_and_office
 
         # 不完全なJSONでリクエスト作成を試みる（Pydanticバリデーションで失敗するはず）
-        with pytest.raises(ValueError, match="Missing required field"):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="必須フィールドがありません"):
             setup_request = CalendarSetupRequest(
                 office_id=office_id,
                 google_calendar_id="test-calendar@group.calendar.google.com",
@@ -183,10 +187,12 @@ class TestCalendarService:
         assert email == "test-account@test-project-123456.iam.gserviceaccount.com"
 
     async def test_extract_service_account_email_missing(self):
-        """異常系: client_emailが存在しない場合はValueError"""
+        """異常系: client_emailが存在しない場合はHTTPException"""
         invalid_json = json.dumps({"type": "service_account", "project_id": "test"})
-        with pytest.raises(ValueError, match="client_email not found"):
+        with pytest.raises(HTTPException) as exc_info:
             calendar_service._extract_service_account_email(invalid_json)
+        assert exc_info.value.status_code == 400
+        assert "client_emailが見つかりません" in str(exc_info.value.detail)
 
     async def test_update_office_calendar_success(
         self,
@@ -697,11 +703,13 @@ class TestCalendarService:
         self,
         db_session: AsyncSession
     ):
-        """異常系: 存在しないカレンダーアカウントIDで削除しようとするとValueError"""
+        """異常系: 存在しないカレンダーアカウントIDで削除しようとするとHTTPException"""
         non_existent_id = uuid4()
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(HTTPException) as exc_info:
             await calendar_service.delete_office_calendar(db=db_session, account_id=non_existent_id)
+        assert exc_info.value.status_code == 404
+        assert "が見つかりません" in str(exc_info.value.detail)
 
     # ==================== 新要件: 複数イベント作成機能のテスト ====================
 
