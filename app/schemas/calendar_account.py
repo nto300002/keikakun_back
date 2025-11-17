@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, Field
 import uuid
 
 from app.models.enums import CalendarConnectionStatus, NotificationTiming
+from app.messages import ja
 
 
 # ==================== OfficeCalendarAccount Schemas ====================
@@ -78,10 +79,10 @@ class StaffCalendarAccountBase(BaseModel):
         try:
             days = [int(day.strip()) for day in v.split(',')]
             if not all(day > 0 for day in days):
-                raise ValueError("All reminder days must be positive integers")
+                raise ValueError(ja.VALIDATION_REMINDER_DAYS_POSITIVE)
             return v
         except ValueError:
-            raise ValueError("custom_reminder_days must be comma-separated positive integers")
+            raise ValueError(ja.VALIDATION_CUSTOM_REMINDER_FORMAT)
 
 
 class StaffCalendarAccountCreate(StaffCalendarAccountBase):
@@ -111,10 +112,10 @@ class StaffCalendarAccountUpdate(BaseModel):
         try:
             days = [int(day.strip()) for day in v.split(',')]
             if not all(day > 0 for day in days):
-                raise ValueError("All reminder days must be positive integers")
+                raise ValueError(ja.VALIDATION_REMINDER_DAYS_POSITIVE)
             return v
         except ValueError:
-            raise ValueError("custom_reminder_days must be comma-separated positive integers")
+            raise ValueError(ja.VALIDATION_CUSTOM_REMINDER_FORMAT)
 
 
 class StaffCalendarAccountResponse(StaffCalendarAccountBase):
@@ -180,15 +181,15 @@ class CalendarSetupRequest(BaseModel):
             required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
             for field in required_fields:
                 if field not in parsed:
-                    raise ValueError(f"Missing required field in service account JSON: {field}")
+                    raise ValueError(ja.VALIDATION_MISSING_FIELD_IN_JSON.format(field=field))
 
             # typeがservice_accountであることを確認
             if parsed.get('type') != 'service_account':
-                raise ValueError("Invalid service account JSON: type must be 'service_account'")
+                raise ValueError(ja.VALIDATION_INVALID_SERVICE_ACCOUNT_TYPE)
 
             return v
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON format: {str(e)}")
+            raise ValueError(ja.VALIDATION_INVALID_JSON_FORMAT.format(error=str(e)))
 
 
 class CalendarSetupResponse(BaseModel):

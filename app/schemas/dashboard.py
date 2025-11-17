@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uuid
 
 from app.models.enums import StaffRole, BillingStatus, SupportPlanStep
+from app.messages import ja
 
 
 # --- ベーススキーマ ---
@@ -45,7 +46,7 @@ class DashboardSummary(BaseModel):
         try:
             return str(uuid.UUID(str(v)))
         except Exception:
-            raise ValueError('id must be a valid UUID')
+            raise ValueError(ja.VALIDATION_ID_MUST_BE_UUID)
 
 
 class DashboardData(DashboardBase):
