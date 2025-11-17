@@ -80,11 +80,20 @@ class Staff(Base):
         self.mfa_secret = encrypt_mfa_secret(secret)
     
     def get_mfa_secret(self) -> Optional[str]:
-        """MFAシークレットを復号して取得"""
+        """MFAシークレットを復号して取得（暗号化されていない場合はそのまま返す）"""
         if not self.mfa_secret:
             return None
-        from app.core.security import decrypt_mfa_secret
-        return decrypt_mfa_secret(self.mfa_secret)
+
+        # 既存の平文データとの互換性を保つため、暗号化されているかチェック
+        # 暗号化されたデータはFernetトークン形式（Base64エンコード）で、
+        # TOTPシークレットは通常16文字のBase32形式
+        try:
+            from app.core.security import decrypt_mfa_secret
+            decrypted = decrypt_mfa_secret(self.mfa_secret)
+            return decrypted
+        except Exception:
+            # 復号化に失敗した場合は、平文として扱う（既存データとの互換性）
+            return self.mfa_secret
     
     async def enable_mfa(self, db: AsyncSession, secret: str, recovery_codes: List[str]) -> None:
         """MFAを有効化"""
