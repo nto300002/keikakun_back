@@ -16,6 +16,7 @@ pytest tests/integration/test_role_change_flow.py -v -s --tb=short
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from fastapi import HTTPException, status
 
 from app.models.staff import Staff
 from app.models.role_change_request import RoleChangeRequest
@@ -243,7 +244,7 @@ async def test_employee_request_same_role_returns_error(
         request_notes="Employee のままでお願いします"
     )
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await role_change_service.create_request(
             db=db_session,
             requester_staff_id=employee.id,
@@ -251,10 +252,10 @@ async def test_employee_request_same_role_returns_error(
             obj_in=request_create
         )
 
-    assert "already" in str(exc_info.value).lower()
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
 
     print(f"\n✅ 同じ role のリクエストはエラー")
-    print(f"   Error: {exc_info.value}")
+    print(f"   Error: {exc_info.value.detail}")
 
 
 @pytest.mark.asyncio

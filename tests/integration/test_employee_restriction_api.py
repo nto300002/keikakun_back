@@ -99,7 +99,7 @@ async def test_employee_api_create_welfare_recipient_returns_202_accepted(
 
         assert "message" in response_data
         assert "request_id" in response_data
-        assert "pending approval" in response_data["message"].lower()
+        assert "申請を作成しました。承認待ちです" in response_data["message"]
 
         print(f"\n✅ Employee API: 202 Accepted")
         print(f"   Request ID: {response_data['request_id']}")
@@ -524,7 +524,7 @@ async def test_manager_cannot_approve_request_from_other_office(
         response_data = response.json()
 
         assert "detail" in response_data
-        assert "office" in response_data["detail"].lower()
+        assert "事業所" in response_data["detail"]
 
         print(f"\n✅ 他の事業所の Manager が承認を試みる: 403 Forbidden")
         print(f"   Error Message: {response_data['detail']}")
