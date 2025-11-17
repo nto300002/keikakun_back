@@ -645,10 +645,12 @@ class TestFinalDatabaseCleanupVerification:
             branch_name = "dev_test"
         elif "keikakun_prod_test" in test_db_url:
             branch_name = "prod_test"
+        elif "main_test" in test_db_url:
+            branch_name = "ci_test"
         else:
             branch_name = "unknown"
 
-        assert branch_name in ["dev_test", "prod_test"], f"テスト用DBに接続されていません: {branch_name}"
+        assert branch_name in ["dev_test", "prod_test", "ci_test"], f"テスト用DBに接続されていません: {branch_name}"
         print(f"✅ 接続先DBブランチ: {branch_name}")
 
         # 3. クリーンアップ関数の実行確認
