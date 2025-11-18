@@ -11,3 +11,11 @@ from .calendar_account import (
     StaffCalendarAccountUpdate,
     StaffCalendarAccountResponse
 )
+from .terms_agreement import (
+    TermsAgreementBase,
+    TermsAgreementCreate,
+    TermsAgreementUpdate,
+    TermsAgreementRead,
+    AgreeToTermsRequest,
+    AgreeToTermsResponse
+)

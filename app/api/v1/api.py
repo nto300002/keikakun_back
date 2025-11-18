@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     role_change_requests,
     notices,
     employee_action_requests,
+    terms,
 )
 
 api_router = APIRouter()
@@ -34,3 +35,4 @@ api_router.include_router(assessment.router, tags=["assessment"])
 api_router.include_router(role_change_requests.router, prefix="/role-change-requests", tags=["role-change-requests"])
 api_router.include_router(notices.router, prefix="/notices", tags=["notices"])
 api_router.include_router(employee_action_requests.router, prefix="/employee-action-requests", tags=["employee-action-requests"])
+api_router.include_router(terms.router, prefix="/terms", tags=["terms"])

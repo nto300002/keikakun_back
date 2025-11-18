@@ -306,3 +306,31 @@ RECIPIENT_REPAIR_SUPPORT_PLAN_SUCCESS = "個別支援計画が正常に修復さ
 # ==========================================
 
 EMPLOYEE_REQUEST_PENDING = "申請を作成しました。承認待ちです"
+
+# ==========================================
+# 利用規約・プライバシーポリシー同意関連 (terms.py)
+# ==========================================
+
+# 同意履歴の取得
+TERMS_AGREEMENT_NOT_FOUND = "同意履歴が見つかりません"
+TERMS_AGREEMENT_ALREADY_EXISTS = "既に同意履歴が存在します"
+
+# 同意処理
+TERMS_BOTH_REQUIRED = "利用規約とプライバシーポリシーの両方に同意する必要があります"
+TERMS_AGREEMENT_SUCCESS = "利用規約とプライバシーポリシーへの同意が記録されました"
+TERMS_AGREEMENT_UPDATED = "同意情報を更新しました"
+
+# バージョンチェック
+TERMS_VERSION_REQUIRED = "利用規約のバージョンが指定されていません"
+PRIVACY_VERSION_REQUIRED = "プライバシーポリシーのバージョンが指定されていません"
+TERMS_AGREEMENT_OUTDATED = "利用規約が更新されました。最新版への同意が必要です"
+PRIVACY_AGREEMENT_OUTDATED = "プライバシーポリシーが更新されました。最新版への同意が必要です"
+TERMS_AGREEMENT_REQUIRED = "サービスを利用するには利用規約への同意が必要です"
+
+# 権限関連
+TERMS_ACCESS_DENIED = "この同意履歴にアクセスする権限がありません"
+TERMS_UPDATE_DENIED = "この同意履歴を更新する権限がありません"
+
+# スタッフ関連
+TERMS_STAFF_NOT_FOUND = "スタッフ {staff_id} が見つかりません"
+TERMS_STAFF_REQUIRED = "スタッフIDが必要です"
