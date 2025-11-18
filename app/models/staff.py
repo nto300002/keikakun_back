@@ -10,6 +10,7 @@ from app.models.enums import StaffRole
 
 if TYPE_CHECKING:
     from app.models.office import Office, OfficeStaff
+    from app.models.terms_agreement import TermsAgreement
 
 class Staff(Base):
     """スタッフ"""
@@ -68,6 +69,14 @@ class Staff(Base):
     # Staff -> StaffCalendarAccount (one-to-one)
     calendar_account: Mapped[Optional["StaffCalendarAccount"]] = relationship(
         "StaffCalendarAccount",
+        back_populates="staff",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    # Staff -> TermsAgreement (one-to-one)
+    terms_agreement: Mapped[Optional["TermsAgreement"]] = relationship(
+        "TermsAgreement",
         back_populates="staff",
         uselist=False,
         cascade="all, delete-orphan"
