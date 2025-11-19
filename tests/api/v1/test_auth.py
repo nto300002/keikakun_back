@@ -656,7 +656,7 @@ class TestCookieAuthentication:
     async def test_login_with_remember_me_sets_long_lived_cookie(
         self, async_client: AsyncClient, service_admin_user_factory
     ):
-        """正常系: rememberMe=trueで長期Cookieが設定される"""
+        """正常系: rememberMeパラメータは無視され、常に1時間のCookieが設定される"""
         # Arrange
         password = "Test-password123!"
         user = await service_admin_user_factory(
@@ -670,7 +670,7 @@ class TestCookieAuthentication:
             data={
                 "username": user.email,
                 "password": password,
-                "rememberMe": "true"  # Form dataは文字列
+                "rememberMe": "true"  # Form dataは文字列（無視される）
             },
         )
 
@@ -678,9 +678,9 @@ class TestCookieAuthentication:
         assert response.status_code == 200
         assert "access_token" in response.cookies
 
-        # Assert: Max-Ageが8時間(28800秒)であることを確認
+        # Assert: rememberMeパラメータは無視され、Max-Ageが1時間(3600秒)であることを確認
         set_cookie_header = response.headers.get("set-cookie", "")
-        assert "Max-Age=28800" in set_cookie_header
+        assert "Max-Age=3600" in set_cookie_header
         assert "HttpOnly" in set_cookie_header
 
     @pytest.mark.asyncio
@@ -690,7 +690,9 @@ class TestCookieAuthentication:
         """正常系: MFA検証成功時にCookieが設定される"""
         # Arrange: MFA有効なユーザーを作成
         staff = await create_random_staff(db_session, is_mfa_enabled=True)
-        staff.mfa_secret = generate_totp_secret()
+        secret = generate_totp_secret()  # Save plain secret for TOTP generation
+        staff.set_mfa_secret(secret)  # Use method to encrypt secret
+        staff.is_mfa_verified_by_user = True  # Normal MFA flow, not first-time setup
         password = "Test-password123!"
         from app.core.security import get_password_hash
         staff.hashed_password = get_password_hash(password)
@@ -706,9 +708,9 @@ class TestCookieAuthentication:
         assert login_data["requires_mfa_verification"] is True
         temporary_token = login_data["temporary_token"]
 
-        # TOTPコードを生成
+        # TOTPコードを生成（保存しておいた平文のシークレットを使用）
         import pyotp
-        totp = pyotp.TOTP(staff.mfa_secret)
+        totp = pyotp.TOTP(secret)
         totp_code = totp.now()
 
         # Act: MFA検証
