@@ -119,6 +119,7 @@ class CalendarEvent(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # リレーションシップ
     office: Mapped["Office"] = relationship(back_populates="calendar_events")
@@ -354,6 +355,7 @@ class CalendarEventSeries(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # リレーションシップ
     office: Mapped["Office"] = relationship(back_populates="calendar_event_series")
@@ -473,6 +475,7 @@ class CalendarEventInstance(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # リレーションシップ
     event_series: Mapped["CalendarEventSeries"] = relationship(back_populates="instances")

@@ -52,6 +52,7 @@ class Notice(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # Relationships
     recipient_staff: Mapped["Staff"] = relationship(

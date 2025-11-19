@@ -45,6 +45,7 @@ class SupportPlanCycle(Base):
     google_event_url: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # Relationships
     welfare_recipient: Mapped["WelfareRecipient"] = relationship(back_populates="support_plan_cycles")
@@ -78,6 +79,7 @@ class SupportPlanStatus(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # Relationships
     plan_cycle: Mapped["SupportPlanCycle"] = relationship(back_populates="statuses")
@@ -98,6 +100,7 @@ class PlanDeliverable(Base):
     original_filename: Mapped[str] = mapped_column(Text)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id'))
     uploaded_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # Relationships
     plan_cycle: Mapped["SupportPlanCycle"] = relationship(back_populates="deliverables")

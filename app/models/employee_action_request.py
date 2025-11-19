@@ -2,7 +2,7 @@ import uuid
 import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import func, DateTime, UUID, ForeignKey, Text, Enum as SQLAlchemyEnum
+from sqlalchemy import func, DateTime, UUID, ForeignKey, Text, Boolean, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -80,6 +80,7 @@ class EmployeeActionRequest(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # Relationships
     requester: Mapped["Staff"] = relationship(
