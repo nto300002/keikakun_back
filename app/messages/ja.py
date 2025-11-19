@@ -60,6 +60,7 @@ MFA_VERIFICATION_SUCCESS = "多要素認証の検証に成功しました"
 MFA_NOT_ENABLED = "多要素認証は有効になっていません"
 MFA_INCORRECT_PASSWORD = "パスワードが正しくありません"
 MFA_DISABLED_SUCCESS = "多要素認証を無効にしました"
+MFA_ENABLED_SUCCESS = "多要素認証を有効にしました"
 
 # ==========================================
 # 福祉受給者関連 (welfare_recipients.py)
