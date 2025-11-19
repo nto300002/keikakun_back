@@ -48,6 +48,135 @@ class SafeTestDataCleanup:
         return True
 
     @staticmethod
+    async def delete_test_data(db: AsyncSession) -> Dict[str, int]:
+        """
+        is_test_data=True のデータのみを削除
+
+        環境を問わず安全に動作する
+        削除順序は外部キー制約を考慮して設計
+
+        Returns:
+            削除されたテーブルとレコード数の辞書
+        """
+        result = {}
+
+        try:
+            # ========================================
+            # STEP 1: テストデータのIDを収集
+            # ========================================
+
+            # テスト事業所のIDを取得
+            office_ids_query = text("SELECT id FROM offices WHERE is_test_data = true")
+            test_office_ids = [row[0] for row in (await db.execute(office_ids_query)).fetchall()]
+
+            # テストスタッフのIDを取得
+            staff_ids_query = text("SELECT id FROM staffs WHERE is_test_data = true")
+            test_staff_ids = [row[0] for row in (await db.execute(staff_ids_query)).fetchall()]
+
+            # テスト福祉受給者のIDを取得
+            welfare_ids_query = text("SELECT id FROM welfare_recipients WHERE is_test_data = true")
+            test_welfare_ids = [row[0] for row in (await db.execute(welfare_ids_query)).fetchall()]
+
+            # ========================================
+            # STEP 2: 子テーブルの削除（外部キー制約順）
+            # ========================================
+
+            # 2-1. 最下層: 履歴・詳細データ（オプション）
+            if test_welfare_ids:
+                r = await db.execute(text("DELETE FROM history_of_hospital_visits WHERE is_test_data = true"))
+                if r.rowcount > 0: result["history_of_hospital_visits"] = r.rowcount
+
+                r = await db.execute(text("DELETE FROM welfare_services_used WHERE is_test_data = true"))
+                if r.rowcount > 0: result["welfare_services_used"] = r.rowcount
+
+                r = await db.execute(text("DELETE FROM emergency_contacts WHERE is_test_data = true"))
+                if r.rowcount > 0: result["emergency_contacts"] = r.rowcount
+
+            # 2-2. 中層: アセスメントデータ
+            for table in ["issue_analyses", "employment_related", "medical_matters",
+                         "family_of_service_recipients", "disability_details", "disability_statuses",
+                         "service_recipient_details"]:
+                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+                if r.rowcount > 0:
+                    result[table] = r.rowcount
+
+            # 2-3. 支援計画関連
+            for table in ["plan_deliverables", "support_plan_statuses", "support_plan_cycles"]:
+                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+                if r.rowcount > 0:
+                    result[table] = r.rowcount
+
+            # 2-4. カレンダー関連
+            for table in ["calendar_event_instances", "calendar_event_series", "calendar_events"]:
+                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+                if r.rowcount > 0:
+                    result[table] = r.rowcount
+
+            # 2-5. リクエスト・通知
+            for table in ["employee_action_requests", "role_change_requests", "notices"]:
+                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+                if r.rowcount > 0:
+                    result[table] = r.rowcount
+
+            # ========================================
+            # STEP 3: 中間テーブルの削除
+            # ========================================
+            for table in ["office_welfare_recipients", "office_staffs"]:
+                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+                if r.rowcount > 0:
+                    result[table] = r.rowcount
+
+            # ========================================
+            # STEP 4: 親テーブルの削除（created_by対策あり）
+            # ========================================
+
+            # 4-1. スタッフ削除前の created_by/last_modified_by 再割当
+            if test_staff_ids:
+                replacement_query = text("""
+                    SELECT s.id FROM staffs s
+                    WHERE s.role = 'owner'
+                      AND s.is_test_data = false
+                    LIMIT 1
+                """)
+                replacement = (await db.execute(replacement_query)).fetchone()
+
+                if replacement:
+                    replacement_id = replacement[0]
+                    # テストデータでないofficeのcreated_by/last_modified_byを再割当
+                    await db.execute(text("""
+                        UPDATE offices
+                        SET created_by = :rid
+                        WHERE created_by = ANY(:sids) AND is_test_data = false
+                    """), {"rid": replacement_id, "sids": test_staff_ids})
+
+                    await db.execute(text("""
+                        UPDATE offices
+                        SET last_modified_by = :rid
+                        WHERE last_modified_by = ANY(:sids) AND is_test_data = false
+                    """), {"rid": replacement_id, "sids": test_staff_ids})
+
+            # 4-2. 親テーブル削除（offices → staffs の順。officesがstaffsを参照しているため）
+            for table in ["welfare_recipients", "offices", "staffs"]:
+                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+                if r.rowcount > 0:
+                    result[table] = r.rowcount
+
+            await db.commit()
+
+            if result:
+                total = sum(result.values())
+                logger.info(f"🧹 Cleaned up {total} test data records (is_test_data=true)")
+            else:
+                logger.debug("✓ No test data found (is_test_data=true)")
+
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error during test data cleanup: {e}")
+            raise
+
+        return result
+
+    @staticmethod
     async def delete_factory_generated_data(db: AsyncSession) -> Dict[str, int]:
         """
         conftest.pyのファクトリ関数で生成されたデータのみを削除

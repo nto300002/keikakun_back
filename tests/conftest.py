@@ -276,6 +276,7 @@ async def service_admin_user_factory(db_session: AsyncSession):
         is_email_verified: bool = True,
         is_mfa_enabled: bool = False,
         session: Optional[AsyncSession] = None,
+        is_test_data: bool = True,
     ) -> Staff:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
@@ -309,6 +310,7 @@ async def service_admin_user_factory(db_session: AsyncSession):
             role=role,
             is_email_verified=is_email_verified,
             is_mfa_enabled=is_mfa_enabled,
+            is_test_data=is_test_data,
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -373,6 +375,7 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
         session: Optional[AsyncSession] = None,
         office: Optional[Office] = None,  # 事業所を外部から受け取れるようにする
         with_office: bool = True,
+        is_test_data: bool = True,
     ) -> Staff:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
@@ -407,6 +410,7 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
             role=role,
             is_email_verified=is_email_verified,
             is_mfa_enabled=is_mfa_enabled,
+            is_test_data=is_test_data,
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -415,12 +419,13 @@ async def employee_user_factory(db_session: AsyncSession, office_factory):
         if with_office:
             target_office = office
             if not target_office:
-                target_office = await office_factory(creator=new_user, session=active_session)
+                target_office = await office_factory(creator=new_user, session=active_session, is_test_data=is_test_data)
 
             association = OfficeStaff(
                 staff_id=new_user.id,
                 office_id=target_office.id,
-                is_primary=True
+                is_primary=True,
+                is_test_data=True,
             )
             active_session.add(association)
             await active_session.flush()
@@ -453,6 +458,7 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
         session: Optional[AsyncSession] = None,
         office: Optional[Office] = None,  # 事業所を外部から受け取れるようにする
         with_office: bool = True,
+        is_test_data: bool = True,
     ) -> Staff:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
@@ -487,6 +493,7 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
             role=role,
             is_email_verified=is_email_verified,
             is_mfa_enabled=is_mfa_enabled,
+            is_test_data=is_test_data,
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -495,12 +502,13 @@ async def manager_user_factory(db_session: AsyncSession, office_factory):
         if with_office:
             target_office = office
             if not target_office:
-                target_office = await office_factory(creator=new_user, session=active_session)
+                target_office = await office_factory(creator=new_user, session=active_session, is_test_data=is_test_data)
 
             association = OfficeStaff(
                 staff_id=new_user.id,
                 office_id=target_office.id,
-                is_primary=True
+                is_primary=True,
+                is_test_data=True,
             )
             active_session.add(association)
             await active_session.flush()
@@ -533,6 +541,7 @@ async def owner_user_factory(db_session: AsyncSession, office_factory):
         session: Optional[AsyncSession] = None,
         office: Optional[Office] = None,  # 事業所を外部から受け取れるようにする
         with_office: bool = True,
+        is_test_data: bool = True,
     ) -> Staff:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
@@ -567,6 +576,7 @@ async def owner_user_factory(db_session: AsyncSession, office_factory):
             role=role,
             is_email_verified=is_email_verified,
             is_mfa_enabled=is_mfa_enabled,
+            is_test_data=is_test_data,
         )
         active_session.add(new_user)
         await active_session.flush()
@@ -575,12 +585,13 @@ async def owner_user_factory(db_session: AsyncSession, office_factory):
         if with_office:
             target_office = office
             if not target_office:
-                target_office = await office_factory(creator=new_user, session=active_session)
+                target_office = await office_factory(creator=new_user, session=active_session, is_test_data=is_test_data)
 
             association = OfficeStaff(
                 staff_id=new_user.id,
                 office_id=target_office.id,
-                is_primary=True
+                is_primary=True,
+                is_test_data=True,
             )
             active_session.add(association)
             await active_session.flush()
@@ -606,6 +617,7 @@ async def office_factory(db_session: AsyncSession):
         name: Optional[str] = None,
         type: OfficeType = OfficeType.type_A_office,
         session: Optional[AsyncSession] = None,
+        is_test_data: bool = True,
     ) -> Office:
         from sqlalchemy import select
 
@@ -624,6 +636,7 @@ async def office_factory(db_session: AsyncSession):
                 hashed_password=get_password_hash("password"),
                 role=StaffRole.owner,
                 is_email_verified=True,
+                is_test_data=is_test_data,
             )
             active_session.add(creator)
             await active_session.flush()
@@ -636,6 +649,7 @@ async def office_factory(db_session: AsyncSession):
             type=type,
             created_by=creator.id,
             last_modified_by=creator.id,
+            is_test_data=is_test_data,
         )
         active_session.add(new_office)
         await active_session.flush()
@@ -658,6 +672,7 @@ async def staff_factory(db_session: AsyncSession):
         password: str = "password",
         is_email_verified: bool = True,
         session: Optional[AsyncSession] = None,
+        is_test_data: bool = True,
     ) -> Staff:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
@@ -677,6 +692,7 @@ async def staff_factory(db_session: AsyncSession):
             hashed_password=get_password_hash(password),
             role=role,
             is_email_verified=is_email_verified,
+            is_test_data=is_test_data,
         )
         active_session.add(new_staff)
         await active_session.flush()
@@ -686,6 +702,7 @@ async def staff_factory(db_session: AsyncSession):
             staff_id=new_staff.id,
             office_id=office_id,
             is_primary=True,
+            is_test_data=True,
         )
         active_session.add(office_staff)
         await active_session.flush()
@@ -718,6 +735,7 @@ async def welfare_recipient_factory(db_session: AsyncSession):
         birth_day: date = date(1990, 1, 1),
         gender: GenderType = GenderType.male,
         session: Optional[AsyncSession] = None,
+        is_test_data: bool = True,
     ) -> WelfareRecipient:
         active_session = session or db_session
         counter["count"] += 1
@@ -733,6 +751,7 @@ async def welfare_recipient_factory(db_session: AsyncSession):
             last_name_furigana=recipient_last_name_furigana,
             birth_day=birth_day,
             gender=gender,
+            is_test_data=is_test_data,
         )
         active_session.add(new_recipient)
         await active_session.flush()
@@ -741,6 +760,7 @@ async def welfare_recipient_factory(db_session: AsyncSession):
         office_recipient = OfficeWelfareRecipient(
             office_id=office_id,
             welfare_recipient_id=new_recipient.id,
+            is_test_data=True,
         )
         active_session.add(office_recipient)
         await active_session.flush()
