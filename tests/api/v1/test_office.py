@@ -225,3 +225,219 @@ class TestGetOffices:
 
         # Assert
         assert response.status_code == 401
+
+
+# --- 事務所スタッフ一覧取得API (/offices/me/staffs) のテスト ---
+
+class TestGetOfficeStaffs:
+    """
+    GET /api/v1/offices/me/staffs
+    管理者が所属事務所の全スタッフを取得する
+    """
+
+    @pytest_asyncio.fixture
+    async def office_with_multiple_staffs(self, db_session: AsyncSession, service_admin_user_factory, office_factory):
+        """複数のスタッフが所属する事務所を作成するフィクスチャ"""
+        # Owner を作成
+        owner = await service_admin_user_factory(
+            email=f"owner.{uuid.uuid4().hex[:6]}@example.com",
+            name="事務所オーナー",
+            role=StaffRole.owner,
+            is_mfa_enabled=True
+        )
+
+        # 事務所を作成
+        office = await office_factory(creator=owner, name=f"テスト事務所 {uuid.uuid4().hex[:6]}")
+
+        # Owner と事務所を紐付け
+        owner_association = OfficeStaff(staff_id=owner.id, office_id=office.id, is_primary=True)
+        db_session.add(owner_association)
+
+        # Manager を作成
+        manager = await service_admin_user_factory(
+            email=f"manager.{uuid.uuid4().hex[:6]}@example.com",
+            name="マネージャー",
+            role=StaffRole.manager,
+            is_mfa_enabled=True
+        )
+        manager_association = OfficeStaff(staff_id=manager.id, office_id=office.id, is_primary=False)
+        db_session.add(manager_association)
+
+        # Employee (MFA有効) を作成
+        employee1 = await service_admin_user_factory(
+            email=f"employee1.{uuid.uuid4().hex[:6]}@example.com",
+            name="従業員1",
+            role=StaffRole.employee,
+            is_mfa_enabled=True
+        )
+        employee1_association = OfficeStaff(staff_id=employee1.id, office_id=office.id, is_primary=False)
+        db_session.add(employee1_association)
+
+        # Employee (MFA無効) を作成
+        employee2 = await service_admin_user_factory(
+            email=f"employee2.{uuid.uuid4().hex[:6]}@example.com",
+            name="従業員2",
+            role=StaffRole.employee,
+            is_mfa_enabled=False
+        )
+        employee2_association = OfficeStaff(staff_id=employee2.id, office_id=office.id, is_primary=False)
+        db_session.add(employee2_association)
+
+        await db_session.commit()
+
+        # リレーションシップをロード
+        await db_session.refresh(owner, attribute_names=["office_associations"])
+        await db_session.refresh(manager, attribute_names=["office_associations"])
+        await db_session.refresh(employee1, attribute_names=["office_associations"])
+        await db_session.refresh(employee2, attribute_names=["office_associations"])
+
+        return {
+            "office": office,
+            "owner": owner,
+            "manager": manager,
+            "employee1": employee1,
+            "employee2": employee2,
+        }
+
+    async def test_get_office_staffs_as_owner_success(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        office_with_multiple_staffs
+    ):
+        """正常系: Owner が自事務所の全スタッフ一覧を取得できる"""
+        # Arrange
+        owner = office_with_multiple_staffs["owner"]
+        access_token = create_access_token(str(owner.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Act
+        response = await async_client.get("/api/v1/offices/me/staffs", headers=headers)
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+
+        # 4名のスタッフが返される（Owner, Manager, Employee1, Employee2）
+        assert len(data) == 4
+
+        # 各スタッフの必須フィールドが含まれる
+        for staff in data:
+            assert "id" in staff
+            assert "full_name" in staff
+            assert "email" in staff
+            assert "role" in staff
+            assert "is_mfa_enabled" in staff
+
+        # スタッフ名が含まれる
+        staff_names = [s["full_name"] for s in data]
+        assert "テスト 事務所オーナー" in staff_names
+        assert "テスト マネージャー" in staff_names
+        assert "テスト 従業員1" in staff_names
+        assert "テスト 従業員2" in staff_names
+
+    async def test_get_office_staffs_as_manager_success(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        office_with_multiple_staffs
+    ):
+        """正常系: Manager が自事務所の全スタッフ一覧を取得できる"""
+        # Arrange
+        manager = office_with_multiple_staffs["manager"]
+        access_token = create_access_token(str(manager.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Act
+        response = await async_client.get("/api/v1/offices/me/staffs", headers=headers)
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 4
+
+    async def test_get_office_staffs_mfa_status_correct(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        office_with_multiple_staffs
+    ):
+        """正常系: MFA状態が正しく返される"""
+        # Arrange
+        owner = office_with_multiple_staffs["owner"]
+        employee2 = office_with_multiple_staffs["employee2"]
+        access_token = create_access_token(str(owner.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Act
+        response = await async_client.get("/api/v1/offices/me/staffs", headers=headers)
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+
+        # 従業員2のMFAが無効であることを確認
+        employee2_data = next((s for s in data if s["email"] == employee2.email), None)
+        assert employee2_data is not None
+        assert employee2_data["is_mfa_enabled"] is False
+
+        # Ownerを含む他のスタッフのMFAが有効であることを確認
+        owner_data = next((s for s in data if s["email"] == owner.email), None)
+        assert owner_data is not None
+        assert owner_data["is_mfa_enabled"] is True
+
+    async def test_get_office_staffs_as_employee_forbidden(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        office_with_multiple_staffs
+    ):
+        """異常系: Employee は事務所スタッフ一覧を取得できない (403 Forbidden)"""
+        # Arrange
+        employee1 = office_with_multiple_staffs["employee1"]
+        access_token = create_access_token(str(employee1.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Act
+        response = await async_client.get("/api/v1/offices/me/staffs", headers=headers)
+
+        # Assert
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert "権限" in detail or "管理者" in detail
+
+    async def test_get_office_staffs_unauthorized(self, async_client: AsyncClient):
+        """異常系: 未認証ユーザーは事務所スタッフ一覧を取得できない (401 Unauthorized)"""
+        # Arrange
+        # Act
+        response = await async_client.get("/api/v1/offices/me/staffs")
+
+        # Assert
+        assert response.status_code == 401
+
+    async def test_get_office_staffs_no_office_association(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        service_admin_user_factory
+    ):
+        """異常系: 事務所未所属のユーザーは404 Not Found"""
+        # Arrange
+        # 事務所に所属していないOwnerを作成
+        owner_no_office = await service_admin_user_factory(
+            email=f"owner.no.office.{uuid.uuid4().hex[:6]}@example.com",
+            name="事務所なしオーナー",
+            role=StaffRole.owner
+        )
+        await db_session.commit()
+
+        access_token = create_access_token(str(owner_no_office.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Act
+        response = await async_client.get("/api/v1/offices/me/staffs", headers=headers)
+
+        # Assert
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert "事務所" in detail or "所属" in detail
