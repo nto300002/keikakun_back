@@ -70,6 +70,8 @@ async def get_dashboard(
         summary = schemas.dashboard.DashboardSummary(
             id=str(recipient.id),
             full_name=f"{recipient.last_name} {recipient.first_name}",
+            last_name=recipient.last_name,
+            first_name=recipient.first_name,
             furigana=f"{recipient.last_name_furigana} {recipient.first_name_furigana}",
             current_cycle_number=cycle_count or 0,
             latest_step=latest_step,

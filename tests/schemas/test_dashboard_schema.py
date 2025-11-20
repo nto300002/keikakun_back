@@ -25,6 +25,8 @@ class TestDashboardSummarySchema:
         valid_data = {
             "id": str(uuid.uuid4()),
             "full_name": "田中 太郎",
+            "last_name": "田中",
+            "first_name": "太郎",
             "furigana": "たなか たろう",
             "current_cycle_number": 2,
             "latest_step": "draft_plan",
@@ -49,6 +51,8 @@ class TestDashboardSummarySchema:
         minimal_data = {
             "id": str(uuid.uuid4()),
             "full_name": "山田 花子",
+            "last_name": "山田",
+            "first_name": "花子",
             "furigana": "やまだ はなこ",
             "current_cycle_number": 0,
             "latest_step": None,
@@ -73,6 +77,8 @@ class TestDashboardSummarySchema:
         invalid_data = {
             "id": "invalid-uuid",
             "full_name": "テスト 太郎",
+            "last_name": "テスト",
+            "first_name": "太郎",
             "furigana": "てすと たろう",
             "current_cycle_number": 1,
             "latest_step": "assessment",
@@ -93,6 +99,8 @@ class TestDashboardSummarySchema:
         invalid_data = {
             "id": str(uuid.uuid4()),
             "full_name": "テスト 太郎",
+            "last_name": "テスト",
+            "first_name": "太郎",
             "furigana": "てすと たろう",
             "current_cycle_number": -1,  # 負の値
             "latest_step": "assessment",
@@ -113,6 +121,8 @@ class TestDashboardSummarySchema:
         invalid_data = {
             "id": str(uuid.uuid4()),
             "full_name": "",  # 空文字列
+            "last_name": "テスト",
+            "first_name": "太郎",
             "furigana": "てすと たろう",
             "current_cycle_number": 1,
             "latest_step": "assessment",
@@ -133,6 +143,8 @@ class TestDashboardSummarySchema:
         invalid_data = {
             "id": str(uuid.uuid4()),
             "full_name": "テスト 太郎",
+            "last_name": "テスト",
+            "first_name": "太郎",
             "furigana": "てすと たろう",
             "current_cycle_number": 1,
             "latest_step": "invalid_step",  # 無効なステップ
@@ -153,6 +165,8 @@ class TestDashboardSummarySchema:
         invalid_data = {
             "id": str(uuid.uuid4()),
             "full_name": "テスト 太郎",
+            "last_name": "テスト",
+            "first_name": "太郎",
             "furigana": "てすと たろう",
             "current_cycle_number": 1,
             "latest_step": "assessment",
@@ -178,6 +192,8 @@ class TestDashboardDataSchema:
             {
                 "id": str(uuid.uuid4()),
                 "full_name": "田中 太郎",
+                "last_name": "田中",
+                "first_name": "太郎",
                 "furigana": "たなか たろう",
                 "current_cycle_number": 1,
                 "latest_step": "assessment",
@@ -187,6 +203,8 @@ class TestDashboardDataSchema:
             {
                 "id": str(uuid.uuid4()),
                 "full_name": "山田 花子",
+                "last_name": "山田",
+                "first_name": "花子",
                 "furigana": "やまだ はなこ",
                 "current_cycle_number": 2,
                 "latest_step": "monitoring",
@@ -379,6 +397,8 @@ class TestDashboardSchemaEdgeCases:
         valid_data = {
             "id": str(uuid.uuid4()),
             "full_name": long_name,
+            "last_name": "あ" * 50,
+            "first_name": "あ" * 50,
             "furigana": long_furigana,
             "current_cycle_number": 1,
             "latest_step": "assessment",
@@ -401,6 +421,8 @@ class TestDashboardSchemaEdgeCases:
             recipient_data = {
                 "id": str(uuid.uuid4()),
                 "full_name": f"テスト{i:04d} 利用者",
+                "last_name": f"テスト{i:04d}",
+                "first_name": "利用者",
                 "furigana": f"てすと{i:04d} りようしゃ",
                 "current_cycle_number": i % 5,  # 0-4のサイクル番号
                 "latest_step": ["assessment", "draft_plan", "staff_meeting", "monitoring"][i % 4],
@@ -433,6 +455,8 @@ class TestDashboardSchemaEdgeCases:
         special_data = {
             "id": str(uuid.uuid4()),
             "full_name": "田中♪ 太郎★",
+            "last_name": "田中♪",
+            "first_name": "太郎★",
             "furigana": "たなか♫ たろう☆",
             "current_cycle_number": 1,
             "latest_step": "assessment",
@@ -475,6 +499,8 @@ class TestDashboardSchemaEdgeCases:
         boundary_data = {
             "id": str(uuid.uuid4()),
             "full_name": "境界値 テスト",
+            "last_name": "境界値",
+            "first_name": "テスト",
             "furigana": "きょうかいち てすと",
             "current_cycle_number": 999,  # 大きなサイクル番号
             "latest_step": "monitoring",
@@ -537,6 +563,8 @@ class TestDashboardSchemaValidation:
         data_with_extra = {
             "id": str(uuid.uuid4()),
             "full_name": "テスト 太郎",
+            "last_name": "テスト",
+            "first_name": "太郎",
             "furigana": "てすと たろう",
             "current_cycle_number": 1,
             "latest_step": "assessment",
@@ -558,6 +586,8 @@ class TestDashboardSchemaValidation:
             {
                 "id": str(uuid.uuid4()),
                 "full_name": "田中 太郎",
+                "last_name": "田中",
+                "first_name": "太郎",
                 "furigana": "たなか たろう",
                 "current_cycle_number": 1,
                 "latest_step": "assessment",
