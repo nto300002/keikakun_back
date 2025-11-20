@@ -1,4 +1,5 @@
 import os
+import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
@@ -13,6 +14,7 @@ from app import crud, schemas, models
 from app.api import deps
 from app.api.deps import get_current_user
 from app.core.limiter import limiter
+from app.core.config import settings
 from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM
 )
@@ -22,8 +24,9 @@ from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM,
     create_email_verification_token, verify_email_verification_token,
     create_temporary_token, verify_temporary_token, verify_temporary_token_with_session, verify_totp,
-    generate_totp_uri
+    generate_totp_uri, get_password_hash
 )
+from app.core.password_breach_check import check_password_breach
 from app.core.mail import send_verification_email
 from pydantic import BaseModel
 from app.models.office import OfficeStaff
@@ -711,6 +714,7 @@ async def logout(
     response_model=schemas.token.PasswordResetResponse,
     status_code=status.HTTP_200_OK,
 )
+@limiter.limit(settings.RATE_LIMIT_FORGOT_PASSWORD)
 async def forgot_password(
     *,
     request: Request,
@@ -720,10 +724,72 @@ async def forgot_password(
     """
     パスワードリセットをリクエストします。
 
-    Phase 1: エンドポイントとレスポンス構造のみ実装
-    Phase 2以降でデータベース統合を実装予定
+    Phase 4: データベース統合実装完了
     """
-    # Phase 1: モックレスポンスを返す
+    from app.crud import password_reset as crud_password_reset
+
+    # スタッフを検索
+    staff = await crud.staff.get_by_email(db, email=data.email)
+
+    if staff:
+        # MissingGreenlet対策: commit前に必要な属性を取得しておく
+        # commit後にstaffオブジェクトがexpireされても、これらの値は既に取得済み
+        staff_id = staff.id
+        staff_email = staff.email
+        staff_full_name = f"{staff.last_name} {staff.first_name}"
+
+        try:
+            # TXN-01: 単一トランザクションでトークン作成と監査ログを記録
+            # 既存の未使用トークンを無効化
+            await crud_password_reset.invalidate_existing_tokens(db, staff_id=staff_id)
+
+            # 新しいトークンを生成
+            token = str(uuid.uuid4())
+            await crud_password_reset.create_token(
+                db,
+                staff_id=staff_id,
+                token=token
+                # デフォルトで30分（CRUD関数のデフォルト値を使用）
+            )
+
+            # 監査ログを記録（同一トランザクション内）
+            await crud_password_reset.create_audit_log(
+                db,
+                staff_id=staff_id,
+                action='requested',
+                email=data.email,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get('user-agent'),
+                success=True
+            )
+
+            # 単一のコミットでアトミックに実行
+            await db.commit()
+
+            # パスワードリセットメールを送信（トランザクション外）
+            # セキュリティレビュー対応: メール送信失敗はログに記録するが、ユーザーには成功を返す
+            from app.core.mail import send_password_reset_email
+            try:
+                await send_password_reset_email(
+                    email=staff_email,
+                    staff_name=staff_full_name,
+                    token=token
+                )
+            except Exception as e:
+                # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send password reset email to {staff_email}: {str(e)}")
+
+        except Exception as e:
+            # DB処理失敗時はロールバック
+            await db.rollback()
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create password reset token for {staff_email}: {str(e)}")
+            # エラーは飲み込んで、セキュリティのため成功メッセージを返す
+            # （メールアドレスの存在を漏らさない）
+
     # セキュリティのため、メールアドレスの存在に関わらず成功メッセージを返す
     return schemas.token.PasswordResetResponse(
         message=ja.AUTH_PASSWORD_RESET_EMAIL_SENT
@@ -735,22 +801,32 @@ async def forgot_password(
     response_model=schemas.token.TokenValidityResponse,
     status_code=status.HTTP_200_OK,
 )
+@limiter.limit("30/minute")
 async def verify_reset_token(
     token: str,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
 ):
     """
     パスワードリセットトークンの有効性を確認します。
 
-    Phase 1: エンドポイントとレスポンス構造のみ実装
-    Phase 2以降でデータベース統合を実装予定
+    Phase 4: データベース統合実装完了
     """
-    # Phase 1: モックレスポンスを返す
-    # 実際にはDBからトークンを検索して有効性を確認する
-    return schemas.token.TokenValidityResponse(
-        valid=False,
-        message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
-    )
+    from app.crud import password_reset as crud_password_reset
+
+    # トークンの有効性を確認
+    db_token = await crud_password_reset.get_valid_token(db, token=token)
+
+    if db_token:
+        return schemas.token.TokenValidityResponse(
+            valid=True,
+            message=ja.AUTH_RESET_TOKEN_VALID
+        )
+    else:
+        return schemas.token.TokenValidityResponse(
+            valid=False,
+            message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
+        )
 
 
 @router.post(
@@ -758,20 +834,105 @@ async def verify_reset_token(
     response_model=schemas.token.PasswordResetResponse,
     status_code=status.HTTP_200_OK,
 )
+@limiter.limit("10/10minute")
 async def reset_password(
     *,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     data: schemas.token.ResetPasswordRequest,
 ):
     """
     トークンを使用してパスワードをリセットします。
 
-    Phase 1: エンドポイントとレスポンス構造のみ実装
-    Phase 2以降でデータベース統合を実装予定
+    Phase 4: データベース統合実装完了
     """
-    # Phase 1: トークンが無効というエラーレスポンスを返す
-    # 実際にはトークンを検証してパスワードをリセットする
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED,
-    )
+    from app.crud import password_reset as crud_password_reset
+    from datetime import datetime, timezone
+
+    # トークンの有効性を確認
+    db_token = await crud_password_reset.get_valid_token(db, token=data.token)
+
+    if not db_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED,
+        )
+
+    # スタッフを取得
+    staff = await crud.staff.get(db, id=db_token.staff_id)
+    if not staff:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.AUTH_USER_NOT_FOUND
+        )
+
+    # MissingGreenlet対策: commit前に必要な属性を取得しておく
+    # commit後にstaffオブジェクトがexpireされても、これらの値は既に取得済み
+    staff_id = staff.id
+    staff_email = staff.email
+    staff_full_name = f"{staff.last_name} {staff.first_name}"
+
+    # Have I Been Pwned APIでパスワード侵害をチェック
+    is_breached, breach_count = await check_password_breach(data.new_password)
+    if is_breached:
+        logger.warning(
+            f"Attempted password reset with breached password for {staff_email}. "
+            f"Password found {breach_count} times in breach database."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ja.AUTH_PASSWORD_BREACHED,
+        )
+
+    # トランザクション開始
+    try:
+        # TXN-02: 単一トランザクションでパスワード更新と監査ログを記録
+        # トークンを使用済みにマーク（楽観的ロック）
+        marked_token = await crud_password_reset.mark_as_used(db, token_id=db_token.id)
+        if not marked_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ja.AUTH_RESET_TOKEN_ALREADY_USED,
+            )
+
+        # パスワードを更新
+        staff.hashed_password = get_password_hash(data.new_password)
+        staff.password_changed_at = datetime.now(timezone.utc)
+
+        # 監査ログを記録（同一トランザクション内）
+        await crud_password_reset.create_audit_log(
+            db,
+            staff_id=staff_id,
+            action='completed',
+            email=staff_email,
+            success=True
+        )
+
+        # 単一のコミットでアトミックに実行
+        await db.commit()
+
+        # パスワード変更通知メールを送信（トランザクション外）
+        from app.core.mail import send_password_changed_notification
+        try:
+            await send_password_changed_notification(
+                email=staff_email,
+                staff_name=staff_full_name
+            )
+        except Exception as e:
+            # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
+            logger.error(f"Failed to send password changed notification to {staff_email}: {str(e)}")
+
+        return schemas.token.PasswordResetResponse(
+            message=ja.AUTH_PASSWORD_RESET_SUCCESS
+        )
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Password reset failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ja.AUTH_PASSWORD_RESET_FAILED
+        )

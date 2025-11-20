@@ -23,7 +23,8 @@ async def test_staff(db_session: AsyncSession):
         first_name="リセット",
         last_name="テスト",
         full_name="テスト リセット",
-        role="employee"
+        role="employee",
+        is_test_data=True
     )
     db_session.add(staff)
     await db_session.commit()
@@ -42,7 +43,6 @@ class TestCRUDPasswordReset:
             db_session,
             staff_id=test_staff.id,
             token=token,
-            expires_in_hours=1
         )
         await db_session.commit()
 
@@ -59,7 +59,6 @@ class TestCRUDPasswordReset:
             db_session,
             staff_id=test_staff.id,
             token=token,
-            expires_in_hours=1
         )
         await db_session.commit()
 
@@ -123,7 +122,6 @@ class TestCRUDPasswordReset:
             db_session,
             staff_id=test_staff.id,
             token=token,
-            expires_in_hours=1
         )
         await db_session.commit()
 
@@ -143,7 +141,6 @@ class TestCRUDPasswordReset:
             db_session,
             staff_id=test_staff.id,
             token=token,
-            expires_in_hours=1
         )
         await db_session.commit()
 
@@ -200,7 +197,6 @@ class TestCRUDPasswordReset:
             db_session,
             staff_id=test_staff.id,
             token=token2,
-            expires_in_hours=1
         )
         await db_session.commit()
 

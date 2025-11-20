@@ -43,6 +43,7 @@ AUTH_RESET_TOKEN_INVALID_OR_EXPIRED = "トークンが無効または期限切�
 AUTH_RESET_TOKEN_ALREADY_USED = "このトークンは既に使用されています。新しいリセットリンクをリクエストしてください。"
 AUTH_PASSWORD_RESET_SUCCESS = "パスワードが正常にリセットされました。新しいパスワードでログインしてください。"
 AUTH_PASSWORD_RESET_FAILED = "パスワードリセットに失敗しました。時間をおいて再度お試しください。"
+AUTH_PASSWORD_BREACHED = "このパスワードは過去のデータ侵害で流出しています。別のパスワードを選択してください。"
 
 # レート制限
 AUTH_RATE_LIMIT_EXCEEDED = "リクエスト回数が多すぎます。しばらくしてから再度お試しください。"

@@ -395,6 +395,73 @@ class TestOptimisticLocking:
 class TestTransactionBoundary:
     """トランザクション境界のテスト"""
 
+    async def test_forgot_password_token_and_audit_log_are_atomic(
+        self, db_session: AsyncSession, async_client: AsyncClient
+    ):
+        """
+        TXN-01: トークン作成と監査ログが単一トランザクションで実行されることを確認
+
+        期待動作:
+        - トークン作成成功 → 監査ログも必ず存在
+        - トークン作成失敗 → 監査ログも作成されない
+        """
+        from app.models.staff import PasswordResetAuditLog
+        from sqlalchemy import func
+
+        # Arrange: テスト用スタッフを作成
+        staff = Staff(
+            email="txn01@example.com",
+            hashed_password=get_password_hash("TestPassword123!"),
+            first_name="トランザクション",
+            last_name="テスト01",
+            full_name="テスト01 トランザクション",
+            role="employee",
+            is_email_verified=True,
+            is_test_data=True,
+        )
+        db_session.add(staff)
+        await db_session.flush()
+
+        # トークン数と監査ログ数をカウント（変更前）
+        tokens_before = (await db_session.execute(
+            select(func.count()).select_from(PasswordResetToken)
+        )).scalar()
+        logs_before = (await db_session.execute(
+            select(func.count()).select_from(PasswordResetAuditLog)
+        )).scalar()
+
+        # Act: forgot_passwordエンドポイントを呼び出し
+        response = await async_client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": staff.email}
+        )
+
+        # Assert: 成功レスポンスを確認
+        assert response.status_code == 200
+
+        # トークンと監査ログが両方とも1件ずつ増加していることを確認
+        tokens_after = (await db_session.execute(
+            select(func.count()).select_from(PasswordResetToken)
+        )).scalar()
+        logs_after = (await db_session.execute(
+            select(func.count()).select_from(PasswordResetAuditLog)
+        )).scalar()
+
+        assert tokens_after == tokens_before + 1, "トークンが1件作成されていること"
+        assert logs_after == logs_before + 1, "監査ログが1件作成されていること"
+
+        # 監査ログの内容を確認
+        audit_log_stmt = select(PasswordResetAuditLog).where(
+            PasswordResetAuditLog.staff_id == staff.id,
+            PasswordResetAuditLog.action == 'requested'
+        )
+        result = await db_session.execute(audit_log_stmt)
+        audit_log = result.scalar_one_or_none()
+
+        assert audit_log is not None, "監査ログが存在すること"
+        assert audit_log.success is True, "監査ログのsuccessがTrueであること"
+        assert audit_log.email == staff.email, "監査ログにメールアドレスが記録されていること"
+
     async def test_token_creation_and_email_send_are_separate_transactions(
         self, db_session: AsyncSession
     ):
@@ -404,19 +471,95 @@ class TestTransactionBoundary:
         メール送信が失敗してもトークンはDBに保存される
         （期限切れで自動削除されるため許容される設計）
         """
-        # Note: このテストは実装後に完全な形で追加
-        # トランザクション境界を確認するには、実際のエンドポイント実装が必要
+        # Note: メール送信機能のモックテストは別途実装が必要
+        # 現在の実装では、メール送信エラーはログに記録されるのみで、
+        # トランザクションはロールバックされない設計となっている
         pass
 
-    async def test_password_reset_is_atomic(self, db_session: AsyncSession):
+    async def test_reset_password_is_atomic(
+        self, db_session: AsyncSession, async_client: AsyncClient
+    ):
         """
-        正常系: パスワードリセット実行が単一トランザクションで行われることを確認
+        TXN-02: パスワードリセット実行が単一トランザクションで行われることを確認
 
         以下の操作が全て成功するか、全て失敗するか:
         - パスワード更新
         - password_changed_at 更新
         - トークン無効化
-        - セッション無効化
+        - 監査ログ記録
+
+        Note: TXN-03（セッション無効化）は、Sessionモデルが実装されていないため、
+        実装後に別途テストを追加します。
         """
-        # Note: このテストは実装後に完全な形で追加
-        pass
+        from app.models.staff import PasswordResetAuditLog
+        from app.core.security import verify_password
+
+        # Arrange: テスト用スタッフを作成
+        staff = Staff(
+            email="txn02@example.com",
+            hashed_password=get_password_hash("OldPassword123!"),
+            first_name="トランザクション",
+            last_name="テスト02",
+            full_name="テスト02 トランザクション",
+            role="employee",
+            is_email_verified=True,
+            is_test_data=True,
+        )
+        db_session.add(staff)
+        await db_session.flush()
+
+        # トークンを作成
+        import uuid
+        raw_token = str(uuid.uuid4())
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        token = PasswordResetToken(
+            staff_id=staff.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+            used=False,
+        )
+        db_session.add(token)
+        await db_session.flush()
+
+        # Act: reset_passwordエンドポイントを呼び出し
+        response = await async_client.post(
+            "/api/v1/auth/reset-password",
+            json={
+                "token": raw_token,
+                "new_password": "NewSecureP@ssw0rd123!"
+            }
+        )
+
+        # Assert: 成功レスポンスを確認
+        assert response.status_code == 200
+
+        # データベースから最新の状態を取得
+        staff_stmt = select(Staff).where(Staff.id == staff.id)
+        staff_result = await db_session.execute(staff_stmt)
+        updated_staff = staff_result.scalar_one()
+
+        # パスワードが更新されている
+        assert verify_password("NewSecureP@ssw0rd123!", updated_staff.hashed_password), \
+            "パスワードが新しいパスワードに更新されていること"
+        assert updated_staff.password_changed_at is not None, \
+            "password_changed_atが設定されていること"
+
+        # トークンが使用済みになっている
+        token_stmt = select(PasswordResetToken).where(PasswordResetToken.id == token.id)
+        token_result = await db_session.execute(token_stmt)
+        updated_token = token_result.scalar_one()
+
+        assert updated_token.used is True, "トークンが使用済みになっていること"
+        assert updated_token.used_at is not None, "used_atが設定されていること"
+
+        # 監査ログが記録されている
+        audit_log_stmt = select(PasswordResetAuditLog).where(
+            PasswordResetAuditLog.staff_id == staff.id,
+            PasswordResetAuditLog.action == 'completed'
+        )
+        audit_result = await db_session.execute(audit_log_stmt)
+        audit_log = audit_result.scalar_one_or_none()
+
+        assert audit_log is not None, "監査ログが存在すること"
+        assert audit_log.success is True, "監査ログのsuccessがTrueであること"

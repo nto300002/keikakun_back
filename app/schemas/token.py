@@ -1,5 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
+import re
 
 
 class Token(BaseModel):
@@ -62,6 +63,27 @@ class ResetPasswordRequest(BaseModel):
     """パスワードリセット実行"""
     token: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """パスワード要件の検証"""
+        if len(v) < 8:
+            raise ValueError("パスワードは8文字以上である必要があります")
+
+        checks = {
+            "lowercase": lambda s: re.search(r'[a-z]', s),
+            "uppercase": lambda s: re.search(r'[A-Z]', s),
+            "digit": lambda s: re.search(r'\d', s),
+            "symbol": lambda s: re.search(r'[!@#$%^&*(),.?":{}|<>]', s),
+        }
+
+        score = sum(1 for check in checks.values() if check(v))
+
+        if score < 4:
+            raise ValueError("パスワードは大文字、小文字、数字、記号を全て含む必要があります")
+
+        return v
 
 
 class PasswordResetResponse(BaseModel):

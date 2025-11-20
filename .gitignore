@@ -1,4 +1,4 @@
 myenv/
 .env
 __pycache__/
-.env.test
+.env.test*.log

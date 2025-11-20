@@ -26,7 +26,8 @@ async def test_staff(db_session: AsyncSession):
         first_name="統合",
         last_name="テスト",
         full_name="テスト 統合",
-        role="employee"
+        role="employee",
+        is_test_data=True
     )
     db_session.add(staff)
     await db_session.commit()
@@ -170,7 +171,6 @@ class TestPasswordResetFlow:
             db_session,
             staff_id=test_staff.id,
             token=token,
-            expires_in_hours=1
         )
         await db_session.commit()
 
@@ -208,7 +208,6 @@ class TestPasswordResetFlow:
             db_session,
             staff_id=test_staff.id,
             token=token,
-            expires_in_hours=1
         )
         await db_session.commit()
 

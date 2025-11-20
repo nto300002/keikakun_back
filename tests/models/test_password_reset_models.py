@@ -27,7 +27,8 @@ async def test_staff(db_session: AsyncSession):
         first_name="太郎",
         last_name="テスト",
         full_name="テスト 太郎",
-        role=StaffRole.employee
+        role=StaffRole.employee,
+        is_test_data=True
     )
     db_session.add(staff)
     await db_session.commit()

@@ -19,7 +19,7 @@ async def create_token(
     *,
     staff_id: uuid.UUID,
     token: str,
-    expires_in_hours: int = 1
+    expires_in_minutes: int = 30
 ) -> PasswordResetToken:
     """
     パスワードリセットトークンを作成
@@ -28,13 +28,13 @@ async def create_token(
         db: データベースセッション
         staff_id: スタッフID
         token: 生のトークン（UUID）
-        expires_in_hours: 有効期限（時間）
+        expires_in_minutes: 有効期限（分）- Phase 1セキュリティレビューで30分推奨
 
     Returns:
         PasswordResetToken: 作成されたトークン
     """
     token_hash = hash_reset_token(token)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
 
     db_token = PasswordResetToken(
         staff_id=staff_id,
