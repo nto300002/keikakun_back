@@ -36,6 +36,17 @@ AUTH_MFA_VERIFICATION_SUCCESS = "多要素認証に成功しました"
 # ログアウト
 AUTH_LOGOUT_SUCCESS = "ログアウトしました"
 
+# パスワードリセット
+AUTH_PASSWORD_RESET_EMAIL_SENT = "パスワードリセット用のメールを送信しました。メールをご確認ください。"
+AUTH_RESET_TOKEN_VALID = "トークンは有効です"
+AUTH_RESET_TOKEN_INVALID_OR_EXPIRED = "トークンが無効または期限切れです。新しいリセットリンクをリクエストしてください。"
+AUTH_RESET_TOKEN_ALREADY_USED = "このトークンは既に使用されています。新しいリセットリンクをリクエストしてください。"
+AUTH_PASSWORD_RESET_SUCCESS = "パスワードが正常にリセットされました。新しいパスワードでログインしてください。"
+AUTH_PASSWORD_RESET_FAILED = "パスワードリセットに失敗しました。時間をおいて再度お試しください。"
+
+# レート制限
+AUTH_RATE_LIMIT_EXCEEDED = "リクエスト回数が多すぎます。しばらくしてから再度お試しください。"
+
 # ==========================================
 # 権限関連 (deps.py)
 # ==========================================

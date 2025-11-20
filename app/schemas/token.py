@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 
@@ -47,3 +47,29 @@ class TokenRefreshResponse(BaseModel):
     session_duration: Optional[int] = None
     session_type: Optional[str] = None
     message: Optional[str] = None
+
+
+# ==========================================
+# パスワードリセット関連
+# ==========================================
+
+class ForgotPasswordRequest(BaseModel):
+    """パスワードリセット要求"""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """パスワードリセット実行"""
+    token: str
+    new_password: str
+
+
+class PasswordResetResponse(BaseModel):
+    """パスワードリセットレスポンス"""
+    message: str
+
+
+class TokenValidityResponse(BaseModel):
+    """トークン有効性レスポンス"""
+    valid: bool
+    message: str

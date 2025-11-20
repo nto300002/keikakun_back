@@ -700,3 +700,78 @@ async def logout(
 
     # 今後のためにcurrent_userとdbは引数として残しておく
     return {"message": ja.AUTH_LOGOUT_SUCCESS}
+
+
+# ==========================================
+# パスワードリセット関連のエンドポイント
+# ==========================================
+
+@router.post(
+    "/forgot-password",
+    response_model=schemas.token.PasswordResetResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def forgot_password(
+    *,
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+    data: schemas.token.ForgotPasswordRequest,
+):
+    """
+    パスワードリセットをリクエストします。
+
+    Phase 1: エンドポイントとレスポンス構造のみ実装
+    Phase 2以降でデータベース統合を実装予定
+    """
+    # Phase 1: モックレスポンスを返す
+    # セキュリティのため、メールアドレスの存在に関わらず成功メッセージを返す
+    return schemas.token.PasswordResetResponse(
+        message=ja.AUTH_PASSWORD_RESET_EMAIL_SENT
+    )
+
+
+@router.get(
+    "/verify-reset-token",
+    response_model=schemas.token.TokenValidityResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def verify_reset_token(
+    token: str,
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """
+    パスワードリセットトークンの有効性を確認します。
+
+    Phase 1: エンドポイントとレスポンス構造のみ実装
+    Phase 2以降でデータベース統合を実装予定
+    """
+    # Phase 1: モックレスポンスを返す
+    # 実際にはDBからトークンを検索して有効性を確認する
+    return schemas.token.TokenValidityResponse(
+        valid=False,
+        message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
+    )
+
+
+@router.post(
+    "/reset-password",
+    response_model=schemas.token.PasswordResetResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def reset_password(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    data: schemas.token.ResetPasswordRequest,
+):
+    """
+    トークンを使用してパスワードをリセットします。
+
+    Phase 1: エンドポイントとレスポンス構造のみ実装
+    Phase 2以降でデータベース統合を実装予定
+    """
+    # Phase 1: トークンが無効というエラーレスポンスを返す
+    # 実際にはトークンを検証してパスワードをリセットする
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED,
+    )

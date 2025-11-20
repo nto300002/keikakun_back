@@ -10,7 +10,7 @@ from .enums import (
     RequestStatus, NoticeType, ActionType, ResourceType
 )
 from .office import Office, OfficeStaff
-from .staff import Staff #, PasswordResetToken
+from .staff import Staff, PasswordResetToken, PasswordResetAuditLog
 from .mfa import MFABackupCode, MFAAuditLog
 from .terms_agreement import TermsAgreement
 from .welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
