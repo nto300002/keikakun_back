@@ -28,6 +28,11 @@ def upgrade() -> None:
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('used', sa.Boolean(), nullable=False, server_default=sa.text('false')),
         sa.Column('used_at', sa.DateTime(timezone=True), nullable=True),
+        # セキュリティレビュー対応: 楽観的ロック用バージョン番号
+        sa.Column('version', sa.Integer(), nullable=False, server_default=sa.text('0')),
+        # セキュリティレビュー対応: リクエスト元情報（監査ログ用）
+        sa.Column('request_ip', sa.String(length=45), nullable=True),  # IPv6対応
+        sa.Column('request_user_agent', sa.String(length=500), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['staff_id'], ['staffs.id'], ondelete='CASCADE'),

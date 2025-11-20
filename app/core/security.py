@@ -2,6 +2,7 @@ import os
 import secrets
 import string
 import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Union, Optional, List
 from io import BytesIO
@@ -51,6 +52,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+def hash_reset_token(token: str) -> str:
+    """
+    パスワードリセットトークンをSHA-256でハッシュ化
+
+    Args:
+        token: 生のトークン（UUID形式）
+
+    Returns:
+        str: SHA-256ハッシュ（64文字の16進数）
+
+    Note:
+        - データベースには生のトークンではなく、このハッシュを保存
+        - DB侵害時でも生トークンは復元不可能
+        - パスワードハッシュと同様のセキュリティプラクティス
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
 
 def create_access_token(
     subject: Union[str, Any],

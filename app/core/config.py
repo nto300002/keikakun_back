@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: Optional[str] = None
     S3_REGION: Optional[str] = None
 
+    # --- パスワードリセット設定 ---
+    # トークン有効期限（分単位） - Phase 1セキュリティレビューで30分推奨
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+    # レート制限設定 - Phase 5運用設計に基づく
+    RATE_LIMIT_FORGOT_PASSWORD: str = "5/10minute"
+    RATE_LIMIT_RESEND_EMAIL: str = "3/10minute"
+
 
 # 設定クラスのインスタンスを作成し、他のモジュールからインポートして使用できるようにします。
 settings = Settings()

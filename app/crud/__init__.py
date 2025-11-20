@@ -17,3 +17,4 @@ from .crud_issue_analysis import crud_issue_analysis as issue_analysis
 from .crud_role_change_request import crud_role_change_request as role_change_request
 from .crud_employee_action_request import crud_employee_action_request as employee_action_request
 from .crud_terms_agreement import terms_agreement
+from . import crud_password_reset as password_reset

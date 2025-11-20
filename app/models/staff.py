@@ -189,8 +189,9 @@ class PasswordResetToken(Base):
     セキュリティ:
     - トークンは平文で保存せず、SHA-256でハッシュ化
     - DB侵害時でもトークンの漏洩を防止
-    - 有効期限は1時間を推奨
+    - 有効期限は30分（セキュリティレビュー対応）
     - 一度使用されたら無効化（楽観的ロックで実装）
+    - リクエスト元IPとUser-Agentを記録（監査ログ用）
     """
     __tablename__ = 'password_reset_tokens'
 
@@ -225,6 +226,24 @@ class PasswordResetToken(Base):
         DateTime(timezone=True),
         nullable=True
     )
+
+    # 楽観的ロック用バージョン番号（セキュリティレビュー対応）
+    version: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    # リクエスト元情報（監査ログ用、セキュリティレビュー対応）
+    request_ip: Mapped[Optional[str]] = mapped_column(
+        String(45),  # IPv6対応
+        nullable=True
+    )
+    request_user_agent: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True
+    )
+
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now()
