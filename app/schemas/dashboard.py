@@ -25,6 +25,8 @@ class DashboardSummary(BaseModel):
     # Use str so tests (and JSON output) compare IDs as strings.
     id: str
     full_name: str = Field(..., min_length=1)
+    last_name: str = Field(..., min_length=1)  # MFA非認証時の表示用
+    first_name: str = Field(..., min_length=1)  # MFA非認証時の表示用
     # Make furigana optional to allow summaries without reading-field populated
     furigana: Optional[str] = Field(default=None, min_length=1)
     current_cycle_number: int = Field(..., ge=0)
