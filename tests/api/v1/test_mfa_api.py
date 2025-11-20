@@ -81,7 +81,7 @@ class TestMFAVerification:
         # テスト用スタッフを作成（MFAシークレット設定済み、有効化前）
         staff = await create_random_staff(db_session, is_mfa_enabled=False)
         mfa_secret = generate_totp_secret()
-        staff.mfa_secret = mfa_secret
+        staff.set_mfa_secret(mfa_secret)
         await db_session.commit()
         
         token = create_access_token(subject=str(staff.id))
@@ -109,7 +109,7 @@ class TestMFAVerification:
     async def test_mfa_verify_invalid_code(self, async_client: AsyncClient, db_session: AsyncSession):
         """無効なTOTPコードでのMFA検証異常系テスト"""
         staff = await create_random_staff(db_session, is_mfa_enabled=False)
-        staff.mfa_secret = generate_totp_secret()
+        staff.set_mfa_secret(generate_totp_secret())
         await db_session.commit()
         
         token = create_access_token(subject=str(staff.id))
@@ -187,7 +187,8 @@ class TestMFALogin:
         staff = await create_random_staff(db_session, is_mfa_enabled=True)
         password = "testpassword123"
         staff.hashed_password = get_password_hash(password)
-        staff.mfa_secret = generate_totp_secret()
+        staff.set_mfa_secret(generate_totp_secret())
+        staff.is_mfa_verified_by_user = True  # Normal MFA flow, not first-time setup
         await db_session.commit()
         
         # 1段階目: メール・パスワード認証
@@ -232,7 +233,7 @@ class TestMFALogin:
         staff = await create_random_staff(db_session, is_mfa_enabled=True)
         password = "testpassword123"
         staff.hashed_password = get_password_hash(password)
-        staff.mfa_secret = generate_totp_secret()
+        staff.set_mfa_secret(generate_totp_secret())
         await db_session.commit()
         
         # 1段階目: メール・パスワード認証
@@ -280,14 +281,16 @@ class TestMFARecoveryCode:
     @pytest.mark.asyncio
     async def test_mfa_recovery_code_success(self, async_client: AsyncClient, db_session: AsyncSession):
         """リカバリーコードでのMFA検証成功正常系テスト"""
-        staff = await create_random_staff(db_session, is_mfa_enabled=True)
+        staff = await create_random_staff(db_session, is_mfa_enabled=False)
         password = "testpassword123"
         staff.hashed_password = get_password_hash(password)
-        staff.mfa_secret = generate_totp_secret()
-        
-        # リカバリーコードを設定（実際の実装ではハッシュ化される）
+        await db_session.flush()  # Generate ID for foreign key
+
+        # リカバリーコードを含めてMFAを有効化（enable_mfaで正しくハッシュ化される）
+        secret = generate_totp_secret()
         recovery_codes = ["recovery123", "recovery456"]
-        staff.mfa_recovery_codes = recovery_codes
+        await staff.enable_mfa(db_session, secret, recovery_codes)
+        staff.is_mfa_verified_by_user = True  # Normal MFA flow, not first-time setup
         await db_session.commit()
         
         # 1段階目: ログイン
@@ -317,13 +320,19 @@ class TestMFARecoveryCode:
         assert "access_token" not in data  # レスポンスボディには含まれない
         assert "refresh_token" in data
         
-    @pytest.mark.asyncio  
+    @pytest.mark.asyncio
     async def test_mfa_recovery_code_invalid(self, async_client: AsyncClient, db_session: AsyncSession):
         """無効なリカバリーコードでのMFA検証異常系テスト"""
-        staff = await create_random_staff(db_session, is_mfa_enabled=True)
+        staff = await create_random_staff(db_session, is_mfa_enabled=False)
         password = "testpassword123"
         staff.hashed_password = get_password_hash(password)
-        staff.mfa_secret = generate_totp_secret()
+        await db_session.flush()  # Generate ID for foreign key
+
+        # リカバリーコードを含めてMFAを有効化（enable_mfaで正しくハッシュ化される）
+        secret = generate_totp_secret()
+        recovery_codes = ["recovery123", "recovery456"]
+        await staff.enable_mfa(db_session, secret, recovery_codes)
+        staff.is_mfa_verified_by_user = True  # Normal MFA flow, not first-time setup
         await db_session.commit()
         
         # 1段階目: ログイン

@@ -34,6 +34,7 @@ class Staff(Base):
 
     # MFA関連フィールド
     is_mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_mfa_verified_by_user: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # ユーザーが実際にTOTPアプリで検証を完了したか
     mfa_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # 暗号化されたTOTPシークレット
     mfa_backup_codes_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 使用済みバックアップコード数
 
@@ -45,7 +46,8 @@ class Staff(Base):
 
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True, comment="テストデータフラグ。Factory関数で生成されたデータはTrue")
+
     # Relationships
     office_associations: Mapped[List["OfficeStaff"]] = relationship(
         "OfficeStaff",
@@ -89,20 +91,33 @@ class Staff(Base):
         self.mfa_secret = encrypt_mfa_secret(secret)
     
     def get_mfa_secret(self) -> Optional[str]:
-        """MFAシークレットを復号して取得（暗号化されていない場合はそのまま返す）"""
+        """
+        復号化されたMFAシークレットを取得
+
+        Returns:
+            Optional[str]: 復号化されたシークレット、または存在しない場合はNone
+
+        Raises:
+            ValueError: 復号化に失敗した場合（データ破損の可能性）
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if not self.mfa_secret:
             return None
 
-        # 既存の平文データとの互換性を保つため、暗号化されているかチェック
-        # 暗号化されたデータはFernetトークン形式（Base64エンコード）で、
-        # TOTPシークレットは通常16文字のBase32形式
         try:
             from app.core.security import decrypt_mfa_secret
+            logger.info(f"[MFA SECRET] Attempting to decrypt. Encrypted length: {len(self.mfa_secret)}")
             decrypted = decrypt_mfa_secret(self.mfa_secret)
+            logger.info(f"[MFA SECRET] Decryption successful. Decrypted length: {len(decrypted)}")
             return decrypted
-        except Exception:
-            # 復号化に失敗した場合は、平文として扱う（既存データとの互換性）
-            return self.mfa_secret
+        except Exception as e:
+            # 復号化失敗時は明示的にエラーを発生させる
+            logger.error(f"[MFA SECRET] Decryption failed for user {self.email}: {str(e)}")
+            raise ValueError(
+                f"MFAシークレットの復号化に失敗しました。データが破損している可能性があります。"
+            ) from e
     
     async def enable_mfa(self, db: AsyncSession, secret: str, recovery_codes: List[str]) -> None:
         """MFAを有効化"""
@@ -124,6 +139,7 @@ class Staff(Base):
     async def disable_mfa(self, db: AsyncSession) -> None:
         """MFAを無効化"""
         self.is_mfa_enabled = False
+        self.is_mfa_verified_by_user = False  # ← 追加: ユーザー検証フラグもリセット
         self.mfa_secret = None
         self.mfa_backup_codes_used = 0
 

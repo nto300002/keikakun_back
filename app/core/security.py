@@ -111,17 +111,32 @@ def get_encryption_key() -> bytes:
 
 
 def encrypt_mfa_secret(secret: str) -> str:
-    """MFAシークレットを暗号化"""
+    """
+    MFAシークレットを暗号化する
+
+    Returns:
+        str: Fernetトークン（既にBase64エンコード済み）
+    """
     fernet = Fernet(get_encryption_key())
     encrypted = fernet.encrypt(secret.encode())
-    return base64.urlsafe_b64encode(encrypted).decode()
+    return encrypted.decode()  # Fernetトークン（Base64形式）を文字列として返す
 
 
 def decrypt_mfa_secret(encrypted_secret: str) -> str:
-    """MFAシークレットを復号"""
+    """
+    暗号化されたMFAシークレットを復号化する
+
+    Args:
+        encrypted_secret: Fernetトークン（Base64エンコード済み文字列）
+
+    Returns:
+        str: 復号化されたMFAシークレット（平文）
+
+    Raises:
+        InvalidToken: トークンが無効な場合
+    """
     fernet = Fernet(get_encryption_key())
-    encrypted_bytes = base64.urlsafe_b64decode(encrypted_secret.encode())
-    decrypted = fernet.decrypt(encrypted_bytes)
+    decrypted = fernet.decrypt(encrypted_secret.encode())
     return decrypted.decode()
 
 

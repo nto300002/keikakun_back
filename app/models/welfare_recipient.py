@@ -2,7 +2,7 @@ import datetime
 import uuid
 from typing import List, Optional, TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, text, func, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, String, text, func, Integer, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship as orm_relationship, mapped_column, Mapped
 from sqlalchemy import Enum as SQLAlchemyEnum
@@ -44,6 +44,7 @@ class WelfareRecipient(Base):
     gender: Mapped[GenderType] = mapped_column(SQLAlchemyEnum(GenderType))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     @property
     def full_name(self) -> str:
@@ -80,6 +81,7 @@ class OfficeWelfareRecipient(Base):
     office_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('offices.id'))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # Relationships
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="office_associations")
@@ -99,6 +101,7 @@ class ServiceRecipientDetail(Base):
     tel: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="detail")
     emergency_contacts: Mapped[List["EmergencyContact"]] = orm_relationship(back_populates="service_recipient_detail", cascade="all, delete-orphan")
@@ -120,6 +123,7 @@ class EmergencyContact(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # relationship 関数を orm_relationship として呼ぶ（名前衝突回避）
     service_recipient_detail: Mapped["ServiceRecipientDetail"] = orm_relationship(back_populates="emergency_contacts")
@@ -135,7 +139,8 @@ class DisabilityStatus(Base):
     special_remarks: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="disability_status")
     details: Mapped[List["DisabilityDetail"]] = orm_relationship(back_populates="disability_status", cascade="all, delete-orphan")
 
@@ -152,5 +157,6 @@ class DisabilityDetail(Base):
     application_status: Mapped[ApplicationStatus] = mapped_column(SQLAlchemyEnum(ApplicationStatus, name='application_status'))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     disability_status: Mapped["DisabilityStatus"] = orm_relationship(back_populates="details")

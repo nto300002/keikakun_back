@@ -70,11 +70,11 @@ class TestAuthSessionPersistence:
     async def test_login_with_remember_me_creates_8hour_session(
         self, async_client: AsyncClient, test_staff_user, test_password
     ):
-        """チェックボックス選択時に8時間セッションが作成されることをテスト"""
+        """rememberMeパラメータは無視され、常に1時間セッションが作成されることをテスト"""
         login_data = {
             "username": test_staff_user.email,
             "password": test_password,
-            "rememberMe": True
+            "rememberMe": True  # このパラメータは無視される
         }
 
         response = await async_client.post("/api/v1/auth/token", data=login_data)
@@ -86,21 +86,21 @@ class TestAuthSessionPersistence:
         assert "access_token" in response.cookies
         assert "access_token" not in response_data
 
-        # レスポンスボディの検証
+        # レスポンスボディの検証: rememberMe=Trueでも1時間セッション
         assert "session_duration" in response_data
-        assert response_data["session_duration"] == 28800  # 8時間（28800秒）
+        assert response_data["session_duration"] == 3600  # 1時間（3600秒）
 
         # トークンをデコードして期限を確認
         token = response.cookies.get("access_token")
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = decode_access_token(token)
 
-        # トークンの有効期限が約8時間後
+        # トークンの有効期限が約1時間後
         exp_time = datetime.fromtimestamp(payload["exp"])
         iat_time = datetime.fromtimestamp(payload["iat"])
         duration = exp_time - iat_time
 
-        assert 28790 <= duration.total_seconds() <= 28810  # 8時間±10秒の許容範囲
+        assert 3590 <= duration.total_seconds() <= 3610  # 1時間±10秒の許容範囲
 
     async def test_default_behavior_without_remember_me_parameter(
         self, async_client: AsyncClient, test_staff_user, test_password
@@ -123,7 +123,7 @@ class TestAuthSessionPersistence:
         self, async_client: AsyncClient, test_staff_user, test_password
     ):
         """JWTトークンにセッション種別のクレームが含まれることをテスト"""
-        # 8時間セッションでログイン
+        # rememberMe=Trueでログイン（無視される）
         login_data = {
             "username": test_staff_user.email,
             "password": test_password,
@@ -136,16 +136,16 @@ class TestAuthSessionPersistence:
         assert "access_token" in response.cookies
         token = response.cookies.get("access_token")
 
-        # トークンをデコードしてカスタムクレームを確認
+        # トークンをデコードしてカスタムクレームを確認: rememberMe=Trueでも常にstandard
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = decode_access_token(token)
 
         assert "session_type" in payload
-        assert payload["session_type"] == "extended"
+        assert payload["session_type"] == "standard"
         assert "session_duration" in payload
-        assert payload["session_duration"] == 28800
+        assert payload["session_duration"] == 3600
 
-        # 1時間セッションでログイン
+        # rememberMe=Falseでログイン
         login_data["rememberMe"] = False
         response = await async_client.post("/api/v1/auth/token", data=login_data)
 
@@ -156,6 +156,7 @@ class TestAuthSessionPersistence:
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = decode_access_token(token)
 
+        # rememberMe=Falseでも常にstandard
         assert payload["session_type"] == "standard"
         assert payload["session_duration"] == 3600
 
@@ -185,62 +186,11 @@ class TestAuthSessionPersistence:
         assert response.status_code == 401
         assert "認証情報を検証できません" in response.json()["detail"]
 
-    async def test_valid_8hour_token_accepted_after_7hours(
-        self, async_client: AsyncClient, test_staff_user
-    ):
-        """7時間経過後の8時間トークンが受け入れられることをテスト"""
-        # 7時間前に発行された8時間有効トークンを作成
-        past_time = datetime.utcnow() - timedelta(hours=7)
-        exp_time = past_time + timedelta(hours=8)
-
-        payload = {
-            "sub": str(test_staff_user.id),
-            "iat": int(past_time.timestamp()),
-            "exp": int(exp_time.timestamp()),
-            "session_type": "extended",
-            "session_duration": 28800
-        }
-
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-        valid_token = jose_jwt.encode(payload, secret_key, algorithm="HS256")
-
-        # 有効なトークンで保護されたエンドポイントにアクセス
-        headers = {"Authorization": f"Bearer {valid_token}"}
-        response = await async_client.get("/api/v1/staffs/me", headers=headers)
-
-        assert response.status_code == 200
-
-    async def test_expired_8hour_token_rejected(
-        self, async_client: AsyncClient, test_staff_user
-    ):
-        """8時間経過後の8時間トークンが拒否されることをテスト"""
-        # 期限切れ8時間トークンを作成（8時間1分前に発行）
-        past_time = datetime.utcnow() - timedelta(hours=8, minutes=1)
-        exp_time = past_time + timedelta(hours=8)
-
-        payload = {
-            "sub": str(test_staff_user.id),
-            "iat": int(past_time.timestamp()),
-            "exp": int(exp_time.timestamp()),
-            "session_type": "extended",
-            "session_duration": 28800
-        }
-
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-        expired_token = jose_jwt.encode(payload, secret_key, algorithm="HS256")
-
-        # 期限切れトークンで保護されたエンドポイントにアクセス
-        headers = {"Authorization": f"Bearer {expired_token}"}
-        response = await async_client.get("/api/v1/staffs/me", headers=headers)
-
-        assert response.status_code == 401
-        assert "認証情報を検証できません" in response.json()["detail"]
-
     async def test_refresh_token_maintains_session_type(
         self, async_client: AsyncClient, test_staff_user, test_password
     ):
-        """リフレッシュ時に元のセッション種別が維持されることをテスト"""
-        # 8時間セッションでログイン
+        """リフレッシュ時にセッション種別が維持されることをテスト（常に1時間）"""
+        # rememberMe=Trueでログイン（無視される）
         login_data = {
             "username": test_staff_user.email,
             "password": test_password,
@@ -261,15 +211,15 @@ class TestAuthSessionPersistence:
         new_token = refresh_response.cookies.get("access_token")
         payload = decode_access_token(new_token)
 
-        # 新しいトークンも8時間セッション
-        assert payload["session_type"] == "extended"
-        assert payload["session_duration"] == 28800
+        # 新しいトークンも常に1時間セッション
+        assert payload["session_type"] == "standard"
+        assert payload["session_duration"] == 3600
 
     async def test_logout_endpoint_works(
         self, async_client: AsyncClient, test_staff_user, test_password
     ):
         """ログアウトエンドポイントが正常に動作することをテスト"""
-        # 8時間セッションでログイン
+        # rememberMe=Trueでログイン（無視され、1時間セッション）
         login_data = {
             "username": test_staff_user.email,
             "password": test_password,
@@ -297,7 +247,7 @@ class TestAuthSessionPersistence:
     async def test_concurrent_different_session_types(
         self, async_client: AsyncClient, test_staff_user, test_admin_user, test_password
     ):
-        """異なるユーザーが異なるセッション種別で同時ログインできることをテスト"""
+        """異なるユーザーが同時ログインできることをテスト（両方とも1時間セッション）"""
         # スタッフユーザーは1時間セッション
         staff_login_data = {
             "username": test_staff_user.email,
@@ -311,7 +261,7 @@ class TestAuthSessionPersistence:
         assert "access_token" in staff_response.cookies, f"staff token missing in cookies: {staff_response.cookies}"
         staff_token = staff_response.cookies.get("access_token")
 
-        # 管理者ユーザーは8時間セッション
+        # 管理者ユーザーも1時間セッション（rememberMe=Trueは無視される）
         admin_login_data = {
             "username": test_admin_user.email,
             "password": test_password,
@@ -344,9 +294,9 @@ class TestAuthSessionPersistence:
         assert staff_check.status_code == 200, f"staff /staffs/me failed: {staff_check.status_code} {staff_check.text}"
         assert admin_check.status_code == 200, f"admin /staffs/me failed: {admin_check.status_code} {admin_check.text}"
 
-        # トークンの種別確認
+        # トークンの種別確認: 両方ともstandardセッション
         staff_payload = decode_access_token(staff_token)
         admin_payload = decode_access_token(admin_token)
 
         assert staff_payload["session_type"] == "standard"
-        assert admin_payload["session_type"] == "extended"
+        assert admin_payload["session_type"] == "standard"

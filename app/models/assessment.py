@@ -34,6 +34,7 @@ class FamilyOfServiceRecipients(Base):
     family_structure_chart: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # URL or path
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # 関係性: FamilyOfServiceRecipients -> WelfareRecipient (many-to-one)
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="family_members")
@@ -50,6 +51,7 @@ class WelfareServicesUsed(Base):
     service_name: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # 関係性: WelfareServicesUsed -> WelfareRecipient (many-to-one)
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="service_history")
@@ -66,6 +68,7 @@ class MedicalMatters(Base):
     history_of_hospitalization_in_the_past_2_years: Mapped[bool] = mapped_column(Boolean)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # 関係性: MedicalMatters -> WelfareRecipient (one-to-oneの逆側)
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="medical_matters")
@@ -90,6 +93,7 @@ class HistoryOfHospitalVisits(Base):
     special_remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # 関係性: HistoryOfHospitalVisits -> MedicalMatters (many-to-one)
     medical_matters: Mapped["MedicalMatters"] = orm_relationship(back_populates="hospital_visits")
@@ -115,6 +119,7 @@ class EmploymentRelated(Base):
     special_note_about_working_outside_the_facility: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # 関係性
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="employment_related")
@@ -136,6 +141,7 @@ class IssueAnalysis(Base):
     other: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # 関係性
     welfare_recipient: Mapped["WelfareRecipient"] = orm_relationship(back_populates="issue_analysis")

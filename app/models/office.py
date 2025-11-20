@@ -32,6 +32,7 @@ class Office(Base):
     deactivated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True, comment="テストデータフラグ。Factory関数で生成されたデータはTrue")
 
     # Office -> OfficeStaff (one-to-many)
     staff_associations: Mapped[List["OfficeStaff"]] = relationship(back_populates="office")
@@ -84,6 +85,7 @@ class OfficeStaff(Base):
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True) # メインの所属か
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # OfficeStaff -> Staff (many-to-one)
     staff: Mapped["Staff"] = relationship(
