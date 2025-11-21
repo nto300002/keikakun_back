@@ -104,10 +104,23 @@ def create_refresh_token(
     session_duration: int = 3600,
     session_type: str = "standard"
 ) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    """
+    リフレッシュトークンを生成
+
+    Option 2: jti (JWT ID) を追加して、個別のトークンを識別可能に
+    - パスワード変更時にブラックリスト化するために必要
+    """
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    jti = str(uuid.uuid4())  # JWT ID - トークンを一意に識別
+
     to_encode = {
         "exp": expire,
         "sub": str(subject),
+        "iat": now,  # Issued At - トークン発行時刻
+        "jti": jti,  # JWT ID - トークン識別子
         "session_duration": session_duration,
         "session_type": session_type
     }
