@@ -195,6 +195,40 @@ async def send_password_changed_notification(
     )
 
 
+async def send_password_reset_email(
+    email: str,
+    staff_name: str,
+    token: str
+) -> None:
+    """
+    パスワードリセット用のメールを送信します。
+
+    Args:
+        email: スタッフのメールアドレス
+        staff_name: スタッフの氏名
+        token: パスワードリセットトークン（UUID）
+    """
+    subject = "【ケイカくん】パスワードリセットのリクエスト"
+
+    # セキュリティレビュー対応: URLフラグメントを使用してトークンを渡す
+    # フラグメント（#token=xxx）はサーバーログに記録されない
+    reset_url = f"{settings.FRONTEND_URL}/auth/reset-password#token={token}"
+
+    context = {
+        "title": subject,
+        "staff_name": staff_name,
+        "reset_url": reset_url,
+        "expire_minutes": settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
+    }
+
+    await send_email(
+        recipient_email=email,
+        subject=subject,
+        template_name="password_reset.html",
+        context=context,
+    )
+
+
 def _mask_email(email: str) -> str:
     """
     メールアドレスの一部をマスクします。

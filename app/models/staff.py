@@ -57,6 +57,22 @@ class Staff(Base):
     mfa_backup_codes: Mapped[List["MFABackupCode"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
     mfa_audit_logs: Mapped[List["MFAAuditLog"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
 
+    # パスワードリセット関連
+    password_reset_tokens: Mapped[List["PasswordResetToken"]] = relationship(
+        "PasswordResetToken",
+        back_populates="staff",
+        cascade="all, delete-orphan"
+    )
+    password_reset_audit_logs: Mapped[List["PasswordResetAuditLog"]] = relationship(
+        "PasswordResetAuditLog",
+        back_populates="staff"
+    )
+    blacklisted_refresh_tokens: Mapped[List["RefreshTokenBlacklist"]] = relationship(
+        "RefreshTokenBlacklist",
+        back_populates="staff",
+        cascade="all, delete-orphan"
+    )
+
     @property
     def office(self) -> Optional["Office"]:
         """プライマリ事業所を取得する（プロパティ）"""
@@ -170,14 +186,191 @@ class Staff(Base):
         unused_codes = await self.get_unused_backup_codes(db)
         return len(unused_codes) > 0
 
-# パスワードリセット機能 
-# class PasswordResetToken(Base):
-#     """パスワードリセットトークン"""
-#     __tablename__ = 'password_reset_tokens'
-#     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-#     staff_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id', ondelete="CASCADE"), nullable=False)
-#     token: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-#     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-#     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-#     staff: Mapped["Staff"] = relationship("Staff")
+class PasswordResetToken(Base):
+    """
+    パスワードリセットトークン（トークンはSHA-256でハッシュ化して保存）
+
+    セキュリティ:
+    - トークンは平文で保存せず、SHA-256でハッシュ化
+    - DB侵害時でもトークンの漏洩を防止
+    - 有効期限は30分（セキュリティレビュー対応）
+    - 一度使用されたら無効化（楽観的ロックで実装）
+    - リクエスト元IPとUser-Agentを記録（監査ログ用）
+    """
+    __tablename__ = 'password_reset_tokens'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid()
+    )
+    staff_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('staffs.id', ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64),  # SHA-256ハッシュ（64文字の16進数）
+        unique=True,
+        index=True,
+        nullable=False
+    )
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True
+    )
+    used: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True
+    )
+    used_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    # 楽観的ロック用バージョン番号（セキュリティレビュー対応）
+    version: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    # リクエスト元情報（監査ログ用、セキュリティレビュー対応）
+    request_ip: Mapped[Optional[str]] = mapped_column(
+        String(45),  # IPv6対応
+        nullable=True
+    )
+    request_user_agent: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True
+    )
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+
+    # リレーション
+    staff: Mapped["Staff"] = relationship("Staff", back_populates="password_reset_tokens")
+
+
+class PasswordResetAuditLog(Base):
+    """
+    パスワードリセット監査ログ
+
+    全てのパスワードリセットアクションを記録:
+    - requested: リセット要求
+    - token_verified: トークン検証
+    - completed: パスワードリセット完了
+    - failed: 失敗
+
+    異常なアクセスパターンの検出に使用
+    """
+    __tablename__ = 'password_reset_audit_logs'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid()
+    )
+    staff_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('staffs.id', ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    action: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True
+    )
+    email: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True
+    )
+    ip_address: Mapped[Optional[str]] = mapped_column(
+        String(45),  # IPv6対応
+        nullable=True
+    )
+    user_agent: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True
+    )
+    success: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True
+    )
+
+    # リレーション
+    staff: Mapped[Optional["Staff"]] = relationship("Staff", back_populates="password_reset_audit_logs")
+
+
+class RefreshTokenBlacklist(Base):
+    """
+    リフレッシュトークンブラックリスト
+
+    Option 2: パスワード変更時に既存のリフレッシュトークンを無効化
+
+    セキュリティ:
+    - パスワード変更後、古いリフレッシュトークンでの新規アクセストークン発行を防止
+    - jti (JWT ID) を使ってトークンを一意に識別
+    - 有効期限切れのエントリは定期的に削除（cleanup job）
+
+    OWASP A07:2021 Identification and Authentication Failures 対策
+    """
+    __tablename__ = 'refresh_token_blacklist'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid()
+    )
+    jti: Mapped[str] = mapped_column(
+        String(64),  # JWT ID (UUID)
+        unique=True,
+        index=True,
+        nullable=False
+    )
+    staff_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('staffs.id', ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    blacklisted_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True
+    )
+    reason: Mapped[str] = mapped_column(
+        String(100),
+        default="password_changed",
+        nullable=False
+    )
+    # トークンの有効期限（cleanup用）
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True
+    )
+
+    # リレーション
+    staff: Mapped["Staff"] = relationship("Staff", back_populates="blacklisted_refresh_tokens")

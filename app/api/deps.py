@@ -121,6 +121,31 @@ async def get_current_user(
         logger.warning(f"User not found for id: {user_id}")
         raise credentials_exception
 
+    # Option 1: password_changed_at 検証
+    # パスワード変更後に発行されたトークンかをチェック
+    # セキュリティ: OWASP A07:2021 Identification and Authentication Failures 対策
+    if user.password_changed_at:
+        token_iat = payload.get("iat")
+        if token_iat:
+            # iatはUNIXタイムスタンプ（秒）
+            from datetime import datetime, timezone
+            token_issued_at = datetime.fromtimestamp(token_iat, tz=timezone.utc)
+
+            # パスワード変更時刻とトークン発行時刻を比較
+            if user.password_changed_at > token_issued_at:
+                print(f"Token issued before password change - rejecting")
+                print(f"  Token issued at: {token_issued_at}")
+                print(f"  Password changed at: {user.password_changed_at}")
+                logger.warning(
+                    f"Token rejected: issued at {token_issued_at}, "
+                    f"password changed at {user.password_changed_at}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=ja.AUTH_TOKEN_INVALIDATED_BY_PASSWORD_CHANGE,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
     print(f"User found: {user.email}, id: {user.id}")
     print("="*80 + "\n")
     logger.info(f"User found: {user.email}, id: {user.id}")

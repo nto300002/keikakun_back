@@ -2,6 +2,7 @@ import os
 import secrets
 import string
 import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Union, Optional, List
 from io import BytesIO
@@ -52,6 +53,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+def hash_reset_token(token: str) -> str:
+    """
+    パスワードリセットトークンをSHA-256でハッシュ化
+
+    Args:
+        token: 生のトークン（UUID形式）
+
+    Returns:
+        str: SHA-256ハッシュ（64文字の16進数）
+
+    Note:
+        - データベースには生のトークンではなく、このハッシュを保存
+        - DB侵害時でも生トークンは復元不可能
+        - パスワードハッシュと同様のセキュリティプラクティス
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: timedelta = None,
@@ -86,10 +104,23 @@ def create_refresh_token(
     session_duration: int = 3600,
     session_type: str = "standard"
 ) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    """
+    リフレッシュトークンを生成
+
+    Option 2: jti (JWT ID) を追加して、個別のトークンを識別可能に
+    - パスワード変更時にブラックリスト化するために必要
+    """
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    jti = str(uuid.uuid4())  # JWT ID - トークンを一意に識別
+
     to_encode = {
         "exp": expire,
         "sub": str(subject),
+        "iat": now,  # Issued At - トークン発行時刻
+        "jti": jti,  # JWT ID - トークン識別子
         "session_duration": session_duration,
         "session_type": session_type
     }
