@@ -67,6 +67,11 @@ class Staff(Base):
         "PasswordResetAuditLog",
         back_populates="staff"
     )
+    blacklisted_refresh_tokens: Mapped[List["RefreshTokenBlacklist"]] = relationship(
+        "RefreshTokenBlacklist",
+        back_populates="staff",
+        cascade="all, delete-orphan"
+    )
 
     @property
     def office(self) -> Optional["Office"]:
@@ -316,3 +321,56 @@ class PasswordResetAuditLog(Base):
 
     # リレーション
     staff: Mapped[Optional["Staff"]] = relationship("Staff", back_populates="password_reset_audit_logs")
+
+
+class RefreshTokenBlacklist(Base):
+    """
+    リフレッシュトークンブラックリスト
+
+    Option 2: パスワード変更時に既存のリフレッシュトークンを無効化
+
+    セキュリティ:
+    - パスワード変更後、古いリフレッシュトークンでの新規アクセストークン発行を防止
+    - jti (JWT ID) を使ってトークンを一意に識別
+    - 有効期限切れのエントリは定期的に削除（cleanup job）
+
+    OWASP A07:2021 Identification and Authentication Failures 対策
+    """
+    __tablename__ = 'refresh_token_blacklist'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid()
+    )
+    jti: Mapped[str] = mapped_column(
+        String(64),  # JWT ID (UUID)
+        unique=True,
+        index=True,
+        nullable=False
+    )
+    staff_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('staffs.id', ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    blacklisted_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True
+    )
+    reason: Mapped[str] = mapped_column(
+        String(100),
+        default="password_changed",
+        nullable=False
+    )
+    # トークンの有効期限（cleanup用）
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True
+    )
+
+    # リレーション
+    staff: Mapped["Staff"] = relationship("Staff", back_populates="blacklisted_refresh_tokens")
