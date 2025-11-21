@@ -94,7 +94,8 @@ class TestPasswordResetFlow:
         assert response.json()["valid"] is True
 
         # 4. パスワードリセット
-        new_password = "NewP@ssw0rd123"
+        # 修正: 漏洩していない安全なパスワードを使用
+        new_password = "MyV3ry$ecur3T3stP@ssw0rd!2024"
         response = await async_client.post(
             f"{settings.API_V1_STR}/auth/reset-password",
             json={
@@ -174,12 +175,13 @@ class TestPasswordResetFlow:
         )
         await db_session.commit()
 
+        # 修正: 漏洩していない安全なパスワードを使用
         # 1回目: 成功
         response1 = await async_client.post(
             f"{settings.API_V1_STR}/auth/reset-password",
             json={
                 "token": token,
-                "new_password": "NewP@ssw0rd123"
+                "new_password": "MyV3ry$ecur3T3stP@ssw0rd!2024_v1"
             }
         )
         assert response1.status_code == 200
@@ -189,7 +191,7 @@ class TestPasswordResetFlow:
             f"{settings.API_V1_STR}/auth/reset-password",
             json={
                 "token": token,
-                "new_password": "AnotherP@ssw0rd456"
+                "new_password": "MyV3ry$ecur3T3stP@ssw0rd!2024_v2"
             }
         )
         assert response2.status_code == 400
@@ -273,3 +275,45 @@ class TestPasswordResetFlow:
         assert audit_log is not None
         assert audit_log.email == test_staff.email
         assert audit_log.success is True
+
+    @pytest.mark.asyncio
+    async def test_reset_password_with_breached_password(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_staff: Staff
+    ):
+        """
+        セキュリティ: 漏洩したパスワードでリセット → エラー
+
+        Have I Been Pwned APIで検出される漏洩パスワードを使用した場合、
+        パスワードリセットが拒否されることを確認
+        """
+        # トークンを作成
+        token = str(uuid.uuid4())
+        db_token = await crud_password_reset.create_token(
+            db_session,
+            staff_id=test_staff.id,
+            token=token,
+        )
+        await db_session.commit()
+
+        # 漏洩したパスワード（実際に漏洩データベースに存在）
+        # "Password123!" は数百万回漏洩している
+        breached_password = "Password123!"
+
+        response = await async_client.post(
+            f"{settings.API_V1_STR}/auth/reset-password",
+            json={
+                "token": token,
+                "new_password": breached_password
+            }
+        )
+
+        # パスワード漏洩チェックで拒否される
+        assert response.status_code == 400
+        assert "データ侵害で流出" in response.json()["detail"]
+
+        # トークンはまだ使用されていない（リセット失敗のため）
+        await db_session.refresh(db_token)
+        assert db_token.used is False
