@@ -25,6 +25,7 @@ AUTH_LOGIN_SUCCESS = "ログインしました"
 
 # トークンリフレッシュ
 AUTH_INVALID_REFRESH_TOKEN = "リフレッシュトークンが無効です"
+AUTH_REFRESH_TOKEN_BLACKLISTED = "このリフレッシュトークンは無効化されています。再度ログインしてください。"
 AUTH_TOKEN_REFRESHED = "トークンを更新しました"
 
 # MFA検証（ログイン時）
@@ -44,6 +45,7 @@ AUTH_RESET_TOKEN_ALREADY_USED = "このトークンは既に使用されてい�
 AUTH_PASSWORD_RESET_SUCCESS = "パスワードが正常にリセットされました。新しいパスワードでログインしてください。"
 AUTH_PASSWORD_RESET_FAILED = "パスワードリセットに失敗しました。時間をおいて再度お試しください。"
 AUTH_PASSWORD_BREACHED = "このパスワードは過去のデータ侵害で流出しています。別のパスワードを選択してください。"
+AUTH_TOKEN_INVALIDATED_BY_PASSWORD_CHANGE = "パスワードが変更されたため、このトークンは無効化されました。再度ログインしてください。"
 
 # レート制限
 AUTH_RATE_LIMIT_EXCEEDED = "リクエスト回数が多すぎます。しばらくしてから再度お試しください。"
