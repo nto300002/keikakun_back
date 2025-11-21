@@ -311,10 +311,13 @@ async def login_for_access_token(
 @router.post("/refresh-token", response_model=schemas.TokenRefreshResponse)
 async def refresh_access_token(
     response: Response,  # Cookie設定のため追加
-    refresh_token_data: schemas.RefreshToken
+    refresh_token_data: schemas.RefreshToken,
+    db: AsyncSession = Depends(deps.get_db)
 ):
     """
     Refresh access token
+
+    Option 2: リフレッシュトークンのブラックリストチェックを実施
     """
     try:
         secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
@@ -324,6 +327,7 @@ async def refresh_access_token(
 
         # セッション情報を取得
         user_id = payload.get("sub")
+        jti = payload.get("jti")  # Option 2: JWT ID を取得
         session_duration = payload.get("session_duration", 3600)  # デフォルト1時間
         session_type = payload.get("session_type", "standard")
 
@@ -333,6 +337,19 @@ async def refresh_access_token(
                 detail=ja.AUTH_INVALID_REFRESH_TOKEN,
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+        # Option 2: ブラックリストチェック
+        if jti:
+            from app.crud import crud_password_reset
+            is_blacklisted = await crud_password_reset.is_refresh_token_blacklisted(
+                db, jti=jti
+            )
+            if is_blacklisted:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=ja.AUTH_REFRESH_TOKEN_BLACKLISTED,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
     except (JWTError, ValidationError):
         raise HTTPException(
