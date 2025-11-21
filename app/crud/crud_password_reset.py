@@ -193,3 +193,89 @@ async def create_audit_log(
     )
     db.add(audit_log)
     return audit_log
+
+
+# ==========================================
+# Option 2: Refresh Token Blacklist
+# ==========================================
+
+async def blacklist_refresh_token(
+    db: AsyncSession,
+    *,
+    jti: str,
+    staff_id: uuid.UUID,
+    expires_at: datetime,
+    reason: str = "password_changed"
+) -> None:
+    """
+    リフレッシュトークンをブラックリストに追加
+
+    Args:
+        db: データベースセッション
+        jti: JWT ID (トークン識別子)
+        staff_id: スタッフID
+        expires_at: トークンの有効期限
+        reason: ブラックリスト化の理由
+    """
+    from app.models.staff import RefreshTokenBlacklist
+
+    blacklist_entry = RefreshTokenBlacklist(
+        jti=jti,
+        staff_id=staff_id,
+        expires_at=expires_at,
+        reason=reason
+    )
+    db.add(blacklist_entry)
+
+
+async def is_refresh_token_blacklisted(
+    db: AsyncSession,
+    *,
+    jti: str
+) -> bool:
+    """
+    リフレッシュトークンがブラックリスト化されているか確認
+
+    Args:
+        db: データベースセッション
+        jti: JWT ID (トークン識別子)
+
+    Returns:
+        bool: ブラックリスト化されている場合True
+    """
+    from app.models.staff import RefreshTokenBlacklist
+
+    stmt = select(RefreshTokenBlacklist).where(
+        RefreshTokenBlacklist.jti == jti
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None
+
+
+async def blacklist_all_user_refresh_tokens(
+    db: AsyncSession,
+    *,
+    staff_id: uuid.UUID,
+    reason: str = "password_changed"
+) -> int:
+    """
+    ユーザーの全リフレッシュトークンをブラックリスト化
+
+    注: 実際には、現在有効なトークンのJTIを取得する方法がないため、
+    この関数は将来の実装のためのプレースホルダーです。
+    実際の運用では、ログイン時にJTIをセッション管理テーブルに保存し、
+    パスワード変更時にそれらをブラックリスト化する必要があります。
+
+    現在の実装では、password_changed_atを使った Option 1 が主な防御策となります。
+
+    Args:
+        db: データベースセッション
+        staff_id: スタッフID
+        reason: ブラックリスト化の理由
+
+    Returns:
+        int: ブラックリスト化されたトークン数 (現在は常に0)
+    """
+    # 将来の実装: セッション管理テーブルから有効なトークンを取得してブラックリスト化
+    # 現在はOption 1 (password_changed_at) が主な防御策
+    return 0
