@@ -11,21 +11,51 @@ import uuid
 
 from app.models.message import Message, MessageRecipient, MessageType, MessagePriority
 from app.models.staff import Staff
-from app.models.office import Office
+from app.models.office import Office, OfficeStaff
+from app.models.enums import OfficeType, StaffRole
 
 
 @pytest.fixture
-async def test_office(db_session: AsyncSession):
+async def test_creator(db_session: AsyncSession):
+    """テスト用の事務所作成者を作成"""
+    creator = Staff(
+        id=uuid.uuid4(),
+        email="creator@example.com",
+        first_name="作成",
+        last_name="太郎",
+        full_name="太郎 作成",
+        role=StaffRole.owner,
+        hashed_password="dummy_hash"
+    )
+    db_session.add(creator)
+    await db_session.commit()
+    await db_session.refresh(creator)
+    return creator
+
+
+@pytest.fixture
+async def test_office(db_session: AsyncSession, test_creator: Staff):
     """テスト用事務所を作成"""
     office = Office(
         id=uuid.uuid4(),
         name="テスト事務所",
-        address="東京都渋谷区",
-        phone_number="03-1234-5678"
+        type=OfficeType.type_A_office,
+        created_by=test_creator.id,
+        last_modified_by=test_creator.id
     )
     db_session.add(office)
     await db_session.commit()
     await db_session.refresh(office)
+
+    # 作成者とOfficeを関連付け
+    office_staff = OfficeStaff(
+        staff_id=test_creator.id,
+        office_id=office.id,
+        is_primary=True
+    )
+    db_session.add(office_staff)
+    await db_session.commit()
+
     return office
 
 
@@ -34,15 +64,26 @@ async def test_sender(db_session: AsyncSession, test_office: Office):
     """テスト用送信者スタッフを作成"""
     sender = Staff(
         id=uuid.uuid4(),
-        office_id=test_office.id,
         email="sender@example.com",
-        name="送信者",
-        role="owner",
+        first_name="送信",
+        last_name="太郎",
+        full_name="太郎 送信",
+        role=StaffRole.owner,
         hashed_password="dummy_hash"
     )
     db_session.add(sender)
     await db_session.commit()
     await db_session.refresh(sender)
+
+    # SenderとOfficeを関連付け
+    office_staff = OfficeStaff(
+        staff_id=sender.id,
+        office_id=test_office.id,
+        is_primary=True
+    )
+    db_session.add(office_staff)
+    await db_session.commit()
+
     return sender
 
 
@@ -51,15 +92,26 @@ async def test_recipient(db_session: AsyncSession, test_office: Office):
     """テスト用受信者スタッフを作成"""
     recipient = Staff(
         id=uuid.uuid4(),
-        office_id=test_office.id,
         email="recipient@example.com",
-        name="受信者",
-        role="staff",
+        first_name="受信",
+        last_name="太郎",
+        full_name="太郎 受信",
+        role=StaffRole.employee,
         hashed_password="dummy_hash"
     )
     db_session.add(recipient)
     await db_session.commit()
     await db_session.refresh(recipient)
+
+    # RecipientとOfficeを関連付け
+    office_staff = OfficeStaff(
+        staff_id=recipient.id,
+        office_id=test_office.id,
+        is_primary=True
+    )
+    db_session.add(office_staff)
+    await db_session.commit()
+
     return recipient
 
 
@@ -143,7 +195,7 @@ class TestMessageModel:
         await db_session.refresh(message, ["sender"])
         assert message.sender is not None
         assert message.sender.id == test_sender.id
-        assert message.sender.name == "送信者"
+        assert message.sender.full_name == "太郎 送信"
 
         # office リレーションシップの確認
         await db_session.refresh(message, ["office"])
@@ -384,7 +436,7 @@ class TestMessageRecipientModel:
         await db_session.refresh(recipient, ["recipient_staff"])
         assert recipient.recipient_staff is not None
         assert recipient.recipient_staff.id == test_recipient.id
-        assert recipient.recipient_staff.name == "受信者"
+        assert recipient.recipient_staff.full_name == "太郎 受信"
 
     @pytest.mark.asyncio
     async def test_message_with_multiple_recipients(
@@ -398,15 +450,25 @@ class TestMessageRecipientModel:
         # 追加の受信者を作成
         recipient2 = Staff(
             id=uuid.uuid4(),
-            office_id=test_office.id,
             email="recipient2@example.com",
-            name="受信者2",
-            role="staff",
+            first_name="受信2",
+            last_name="太郎",
+            full_name="太郎 受信2",
+            role=StaffRole.employee,
             hashed_password="dummy_hash"
         )
         db_session.add(recipient2)
         await db_session.commit()
         await db_session.refresh(recipient2)
+
+        # Recipient2とOfficeを関連付け
+        office_staff2 = OfficeStaff(
+            staff_id=recipient2.id,
+            office_id=test_office.id,
+            is_primary=True
+        )
+        db_session.add(office_staff2)
+        await db_session.commit()
 
         # メッセージを作成
         message = Message(
