@@ -19,3 +19,20 @@ from .terms_agreement import (
     AgreeToTermsRequest,
     AgreeToTermsResponse
 )
+from .message import (
+    MessagePersonalCreate,
+    MessageAnnouncementCreate,
+    MessageResponse,
+    MessageDetailResponse,
+    MessageSenderInfo,
+    MessageRecipientResponse,
+    MessageInboxItem,
+    MessageInboxResponse,
+    MessageStatsResponse,
+    UnreadCountResponse,
+    MessageListResponse,
+    MessageMarkAsReadRequest,
+    MessageArchiveRequest,
+    MessageBulkMarkAsReadRequest,
+    MessageBulkOperationResponse
+)
