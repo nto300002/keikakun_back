@@ -159,3 +159,52 @@ async def get_office_staffs(
     staffs = result_staffs.scalars().all()
 
     return staffs
+
+
+@router.get("/me/staffs/all", response_model=list[schemas.staff.StaffRead])
+async def get_all_office_staffs(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+) -> Any:
+    """
+    現在ログインしているユーザーの所属事務所の全スタッフを取得
+
+    権限: 全ユーザー（Employee/Manager/Owner）がアクセス可能
+    メッセージ送信などで使用
+    """
+    # ユーザーの所属情報を eager load する
+    stmt = (
+        select(models.Staff)
+        .options(selectinload(models.Staff.office_associations)
+        .selectinload(models.OfficeStaff.office))
+        .where(models.Staff.id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.office_associations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.OFFICE_NOT_FOUND_FOR_USER,
+        )
+
+    # ユーザーの所属事務所を取得（最初の事務所）
+    office = user.office_associations[0].office
+    if not office:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.OFFICE_INFO_NOT_FOUND,
+        )
+
+    # 事務所に所属する全スタッフを取得
+    stmt_staffs = (
+        select(models.Staff)
+        .join(models.OfficeStaff, models.Staff.id == models.OfficeStaff.staff_id)
+        .where(models.OfficeStaff.office_id == office.id)
+        .options(selectinload(models.Staff.office_associations))
+    )
+    result_staffs = await db.execute(stmt_staffs)
+    staffs = result_staffs.scalars().all()
+
+    return staffs
