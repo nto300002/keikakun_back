@@ -66,5 +66,18 @@ class CRUDStaff:
         result = await db.execute(query)
         return result.one_or_none()
 
+    async def get_by_office_id(self, db: AsyncSession, *, office_id: uuid.UUID) -> list[Staff]:
+        """
+        事業所IDに基づいて、その事業所に所属する全スタッフを取得します。
+        """
+        query = (
+            select(Staff)
+            .join(OfficeStaff, Staff.id == OfficeStaff.staff_id)
+            .where(OfficeStaff.office_id == office_id)
+            .options(selectinload(Staff.office_associations).selectinload(OfficeStaff.office))
+        )
+        result = await db.execute(query)
+        return list(result.scalars().all())
+
 
 staff = CRUDStaff()

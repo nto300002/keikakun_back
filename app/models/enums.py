@@ -241,3 +241,17 @@ class ResourceType(str, enum.Enum):
     welfare_recipient = 'welfare_recipient'
     support_plan_cycle = 'support_plan_cycle'
     support_plan_status = 'support_plan_status'
+
+class MessageType(str, enum.Enum):
+    """メッセージタイプ"""
+    personal = 'personal'           # 個別メッセージ
+    announcement = 'announcement'   # 一斉通知（お知らせ）
+    system = 'system'               # システム通知
+    inquiry = 'inquiry'             # 問い合わせ
+
+class MessagePriority(str, enum.Enum):
+    """メッセージ優先度"""
+    low = 'low'           # 低
+    normal = 'normal'     # 通常
+    high = 'high'         # 高
+    urgent = 'urgent'     # 緊急
