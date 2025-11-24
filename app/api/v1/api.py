@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     assessment,
     role_change_requests,
     notices,
+    messages,
     employee_action_requests,
     terms,
 )
@@ -34,5 +35,6 @@ api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"]
 api_router.include_router(assessment.router, tags=["assessment"])
 api_router.include_router(role_change_requests.router, prefix="/role-change-requests", tags=["role-change-requests"])
 api_router.include_router(notices.router, prefix="/notices", tags=["notices"])
+api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
 api_router.include_router(employee_action_requests.router, prefix="/employee-action-requests", tags=["employee-action-requests"])
 api_router.include_router(terms.router, prefix="/terms", tags=["terms"])
