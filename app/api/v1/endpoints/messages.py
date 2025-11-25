@@ -3,7 +3,7 @@
 
 個別メッセージ、一斉通知、受信箱、統計などのAPI
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from uuid import UUID
@@ -35,15 +35,18 @@ router = APIRouter()
 @router.post("/personal", response_model=MessageDetailResponse, status_code=status.HTTP_201_CREATED)
 async def send_personal_message(
     *,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
-    message_in: MessagePersonalCreate
+    message_in: MessagePersonalCreate,
+    _: None = Depends(deps.validate_csrf)
 ):
     """
     個別メッセージを送信
 
     - 受信者と送信者は同じ事務所に所属している必要がある
     - 受信者は1〜100人まで指定可能
+    - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
     # 送信者の事務所を取得
     if not current_user.office_associations:
@@ -107,15 +110,18 @@ async def send_personal_message(
 @router.post("/announcement", response_model=MessageDetailResponse, status_code=status.HTTP_201_CREATED)
 async def send_announcement(
     *,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
-    message_in: MessageAnnouncementCreate
+    message_in: MessageAnnouncementCreate,
+    _: None = Depends(deps.validate_csrf)
 ):
     """
     一斉通知を送信（事務所内の全スタッフへ）
 
     - オーナーまたは管理者権限が必要
     - バルクインサート処理で効率的に配信
+    - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
     # 権限チェック: オーナーまたは管理者のみ
     if current_user.role not in [StaffRole.owner, StaffRole.manager]:
@@ -210,9 +216,16 @@ async def get_inbox_messages(
         )
 
         if recipient_info:
-            sender_name = None
+            # 送信者情報をMessageSenderInfoオブジェクトとして構築
+            sender_info = None
             if message.sender:
-                sender_name = f"{message.sender.last_name} {message.sender.first_name}"
+                from app.schemas.message import MessageSenderInfo
+                sender_info = MessageSenderInfo(
+                    id=message.sender.id,
+                    first_name=message.sender.first_name,
+                    last_name=message.sender.last_name,
+                    email=message.sender.email
+                )
 
             inbox_item = MessageInboxItem(
                 message_id=message.id,
@@ -222,7 +235,7 @@ async def get_inbox_messages(
                 priority=message.priority,
                 created_at=message.created_at,
                 sender_staff_id=message.sender_staff_id,
-                sender_name=sender_name,
+                sender=sender_info,  # オブジェクトとして渡す
                 recipient_id=recipient_info.id,
                 is_read=recipient_info.is_read,
                 read_at=recipient_info.read_at,
@@ -240,14 +253,17 @@ async def get_inbox_messages(
 @router.post("/{message_id}/read", response_model=MessageRecipientResponse)
 async def mark_message_as_read(
     *,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
-    message_id: UUID
+    message_id: UUID,
+    _: None = Depends(deps.validate_csrf)
 ):
     """
     メッセージを既読にする
 
     - 自分宛のメッセージのみ既読化できる
+    - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
     try:
         recipient = await crud_message.mark_as_read(
@@ -326,11 +342,14 @@ async def get_unread_count(
 @router.post("/mark-all-read")
 async def mark_all_as_read(
     *,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
-    current_user: Staff = Depends(deps.get_current_user)
+    current_user: Staff = Depends(deps.get_current_user),
+    _: None = Depends(deps.validate_csrf)
 ):
     """
     全未読メッセージを既読にする
+    - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
     updated_count = await crud_message.mark_all_as_read(
         db=db,

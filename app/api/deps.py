@@ -121,6 +121,16 @@ async def get_current_user(
         logger.warning(f"User not found for id: {user_id}")
         raise credentials_exception
 
+    # 削除済みスタッフチェック
+    if user.is_deleted:
+        print(f"User is deleted: {user.email}")
+        logger.warning(f"Deleted user attempted access: {user.email}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.PERM_ACCOUNT_DELETED,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Option 1: password_changed_at 検証
     # パスワード変更後に発行されたトークンかをチェック
     # セキュリティ: OWASP A07:2021 Identification and Authentication Failures 対策
@@ -280,3 +290,42 @@ async def check_employee_restriction(
 
 # 型ヒント用のインポート
 get_current_staff = get_current_user  # エイリアス（get_current_staffという名前でも使えるようにする）
+
+
+# --- CSRF保護依存関数 ---
+
+async def validate_csrf(
+    request: Request,
+) -> None:
+    """
+    CSRFトークンを検証する依存関数
+
+    Cookie認証を使用している場合のみCSRF検証を行う。
+    Bearer認証（Authorizationヘッダー）の場合は検証をスキップ。
+
+    Args:
+        request: FastAPIリクエストオブジェクト
+
+    Raises:
+        HTTPException: CSRFトークンが無効な場合
+    """
+    from fastapi_csrf_protect import CsrfProtect
+    from fastapi_csrf_protect.exceptions import CsrfProtectError
+
+    # Authorizationヘッダーがある場合（Bearer認証）はCSRF検証をスキップ
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return
+
+    # Cookie認証を使用している場合、CSRF検証を行う
+    access_token_cookie = request.cookies.get("access_token")
+    if access_token_cookie:
+        csrf_protect = CsrfProtect()
+        try:
+            await csrf_protect.validate_csrf(request)
+        except CsrfProtectError as e:
+            logger.warning(f"CSRF validation failed: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"CSRF token validation failed"
+            )

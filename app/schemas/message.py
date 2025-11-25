@@ -150,9 +150,9 @@ class MessageInboxItem(BaseModel):
     priority: MessagePriority
     created_at: datetime
 
-    # 送信者情報
+    # 送信者情報（MessageSenderInfoオブジェクトとして返す）
     sender_staff_id: Optional[uuid.UUID] = None
-    sender_name: Optional[str] = None
+    sender: Optional[MessageSenderInfo] = None
 
     # 受信者状態
     recipient_id: uuid.UUID  # MessageRecipient.id

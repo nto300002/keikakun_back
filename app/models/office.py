@@ -2,7 +2,7 @@ import uuid
 import datetime
 from typing import List, Optional, TYPE_CHECKING
 
-from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean
+from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,6 +22,12 @@ class Office(Base):
     name: Mapped[str] = mapped_column(String(255))
     is_group: Mapped[bool] = mapped_column(Boolean, default=False)
     type: Mapped[OfficeType] = mapped_column(SQLAlchemyEnum(OfficeType))
+
+    # 事務所の連絡先情報
+    address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    phone_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id', ondelete="CASCADE"))
     last_modified_by: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id', ondelete="CASCADE"))
     billing_status: Mapped[BillingStatus] = mapped_column(
@@ -98,4 +104,47 @@ class OfficeStaff(Base):
         "Office",
         back_populates="staff_associations",
         foreign_keys=[office_id]
+    )
+
+
+class OfficeAuditLog(Base):
+    """事務所情報変更の監査ログ"""
+    __tablename__ = 'office_audit_logs'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid()
+    )
+    office_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('offices.id', ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    staff_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('staffs.id', ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    action_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="アクション種別: office_info_updated など"
+    )
+    details: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="変更内容の詳細（JSON形式）"
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True
+    )
+    is_test_data: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        comment="テストデータフラグ"
     )

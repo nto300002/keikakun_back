@@ -16,6 +16,21 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
+async def get_csrf_tokens(async_client: AsyncClient) -> tuple[str, str]:
+    """
+    CSRFトークンを取得するヘルパー関数
+
+    Returns:
+        tuple[str, str]: (csrf_token, csrf_cookie)
+            - csrf_token: X-CSRF-Tokenヘッダーに設定する値
+            - csrf_cookie: fastapi-csrf-token Cookieの値
+    """
+    csrf_response = await async_client.get("/api/v1/csrf-token")
+    csrf_token = csrf_response.json()["csrf_token"]
+    csrf_cookie = csrf_response.cookies.get("fastapi-csrf-token")
+    return csrf_token, csrf_cookie
+
+
 class TestPersonalMessageAPI:
     """個別メッセージ送信APIのテスト"""
 
@@ -40,14 +55,23 @@ class TestPersonalMessageAPI:
             "priority": "normal"
         }
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # メッセージ送信
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 201
@@ -82,12 +106,22 @@ class TestPersonalMessageAPI:
             "priority": "high"
         }
 
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 201
@@ -108,12 +142,22 @@ class TestPersonalMessageAPI:
             "content": "本文"
         }
 
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 422  # Validation Error
@@ -135,12 +179,22 @@ class TestPersonalMessageAPI:
             "content": "本文"
         }
 
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 422  # Validation Error
@@ -164,12 +218,22 @@ class TestPersonalMessageAPI:
             "content": "本文"
         }
 
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 403  # Forbidden
@@ -191,12 +255,22 @@ class TestPersonalMessageAPI:
             "content": "本文"
         }
 
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 400  # Bad Request（404から400に変更）
@@ -227,12 +301,22 @@ class TestPersonalMessageAPI:
             "content": "本文"
         }
 
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         response = await async_client.post(
             "/api/v1/messages/personal",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 400  # Bad Request
@@ -268,13 +352,22 @@ class TestInboxAPI:
         await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 受信者として認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 受信箱を取得
         response = await async_client.get(
-            "/api/v1/messages/inbox"
+            "/api/v1/messages/inbox",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -310,13 +403,22 @@ class TestInboxAPI:
         await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 未読のみ取得
         response = await async_client.get(
-            "/api/v1/messages/inbox?is_read=false"
+            "/api/v1/messages/inbox?is_read=false",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -353,13 +455,22 @@ class TestInboxAPI:
         await crud.message.mark_as_read(db=db_session, message_id=message.id, recipient_staff_id=recipient.id)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 既読のみ取得
         response = await async_client.get(
-            "/api/v1/messages/inbox?is_read=true"
+            "/api/v1/messages/inbox?is_read=true",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -392,13 +503,22 @@ class TestInboxAPI:
         await crud.message.create_announcement(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 一斉通知のみ取得
         response = await async_client.get(
-            "/api/v1/messages/inbox?message_type=announcement"
+            "/api/v1/messages/inbox?message_type=announcement",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -432,13 +552,22 @@ class TestInboxAPI:
             await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # ページネーション: 最初の5件
         response = await async_client.get(
-            "/api/v1/messages/inbox?skip=0&limit=5"
+            "/api/v1/messages/inbox?skip=0&limit=5",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -475,13 +604,22 @@ class TestMarkAsReadAPI:
         message = await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 既読化
         response = await async_client.post(
-            f"/api/v1/messages/{message.id}/read"
+            f"/api/v1/messages/{message.id}/read",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -518,13 +656,22 @@ class TestMarkAsReadAPI:
         message = await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 別のユーザーとして認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(other_user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 既読化しようとする
         response = await async_client.post(
-            f"/api/v1/messages/{message.id}/read"
+            f"/api/v1/messages/{message.id}/read",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 404  # Not Found
@@ -537,16 +684,25 @@ class TestMarkAsReadAPI:
         """存在しないメッセージを既読化しようとすると404エラー"""
         user = await employee_user_factory()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 存在しないUUID
         nonexistent_uuid = "00000000-0000-0000-0000-000000000000"
 
         # 既読化しようとする
         response = await async_client.post(
-            f"/api/v1/messages/{nonexistent_uuid}/read"
+            f"/api/v1/messages/{nonexistent_uuid}/read",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 404  # Not Found
@@ -581,13 +737,22 @@ class TestMarkAsReadAPI:
         message = await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 既読化
         response = await async_client.post(
-            f"/api/v1/messages/{message.id}/read"
+            f"/api/v1/messages/{message.id}/read",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -639,13 +804,22 @@ class TestUnreadCountAPI:
             await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 未読件数を取得
         response = await async_client.get(
-            "/api/v1/messages/unread-count"
+            "/api/v1/messages/unread-count",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -676,14 +850,23 @@ class TestAnnouncementAPI:
             "priority": "high"
         }
 
-        # オーナーとして認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(owner.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 一斉通知を送信
         response = await async_client.post(
             "/api/v1/messages/announcement",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 201
@@ -712,14 +895,23 @@ class TestAnnouncementAPI:
             "priority": "normal"
         }
 
-        # 管理者として認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(admin.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 一斉通知を送信
         response = await async_client.post(
             "/api/v1/messages/announcement",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 201
@@ -741,14 +933,23 @@ class TestAnnouncementAPI:
             "priority": "normal"
         }
 
-        # 一般スタッフとして認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 一斉通知を送信しようとする
         response = await async_client.post(
             "/api/v1/messages/announcement",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 403  # Forbidden
@@ -767,14 +968,23 @@ class TestAnnouncementAPI:
             "priority": "normal"
         }
 
-        # オーナーとして認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(owner.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 一斉通知を送信しようとする
         response = await async_client.post(
             "/api/v1/messages/announcement",
-            json=payload
+            json=payload,
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 422  # Validation Error
@@ -814,13 +1024,22 @@ class TestMessageStatsAPI:
         await crud.message.mark_as_read(db=db_session, message_id=message.id, recipient_staff_id=recipients[0].id)
         await db_session.commit()
 
-        # 送信者として認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(sender.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 統計情報を取得
         response = await async_client.get(
-            f"/api/v1/messages/{message.id}/stats"
+            f"/api/v1/messages/{message.id}/stats",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -856,13 +1075,22 @@ class TestMessageStatsAPI:
         message = await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 別のユーザーとして認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(other_user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 統計情報を取得しようとする
         response = await async_client.get(
-            f"/api/v1/messages/{message.id}/stats"
+            f"/api/v1/messages/{message.id}/stats",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 403  # Forbidden
@@ -875,16 +1103,25 @@ class TestMessageStatsAPI:
         """存在しないメッセージの統計情報を取得しようとすると404エラー"""
         user = await employee_user_factory()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 存在しないUUID
         nonexistent_uuid = "00000000-0000-0000-0000-000000000000"
 
         # 統計情報を取得しようとする
         response = await async_client.get(
-            f"/api/v1/messages/{nonexistent_uuid}/stats"
+            f"/api/v1/messages/{nonexistent_uuid}/stats",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 404  # Not Found
@@ -920,13 +1157,22 @@ class TestMarkAllAsReadAPI:
             await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 全既読化
         response = await async_client.post(
-            "/api/v1/messages/mark-all-read"
+            "/api/v1/messages/mark-all-read",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -941,13 +1187,22 @@ class TestMarkAllAsReadAPI:
         """未読メッセージがない場合、更新件数が0であること"""
         user = await employee_user_factory()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 全既読化
         response = await async_client.post(
-            "/api/v1/messages/mark-all-read"
+            "/api/v1/messages/mark-all-read",
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -984,14 +1239,23 @@ class TestArchiveMessageAPI:
         message = await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # アーカイブ
         response = await async_client.post(
             f"/api/v1/messages/{message.id}/archive",
-            json={"is_archived": True}
+            json={"is_archived": True},
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -1028,14 +1292,23 @@ class TestArchiveMessageAPI:
         await crud.message.archive_message(db=db_session, message_id=message.id, recipient_staff_id=recipient.id, is_archived=True)
         await db_session.commit()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(recipient.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # アーカイブ解除
         response = await async_client.post(
             f"/api/v1/messages/{message.id}/archive",
-            json={"is_archived": False}
+            json={"is_archived": False},
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 200
@@ -1071,14 +1344,23 @@ class TestArchiveMessageAPI:
         message = await crud.message.create_personal_message(db=db_session, obj_in=message_data)
         await db_session.commit()
 
-        # 別のユーザーとして認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(other_user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # アーカイブしようとする
         response = await async_client.post(
             f"/api/v1/messages/{message.id}/archive",
-            json={"is_archived": True}
+            json={"is_archived": True},
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 404  # Not Found
@@ -1091,9 +1373,16 @@ class TestArchiveMessageAPI:
         """存在しないメッセージをアーカイブしようとすると404エラー"""
         user = await employee_user_factory()
 
-        # 認証
+        # 認証 + CSRF トークン取得
         access_token = create_access_token(str(user.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-        async_client.cookies.set("access_token", access_token)
+        csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+
+        # Cookie とヘッダーを設定
+        cookies = {
+            "access_token": access_token,
+            "fastapi-csrf-token": csrf_cookie
+        }
+        headers = {"X-CSRF-Token": csrf_token}
 
         # 存在しないUUID
         nonexistent_uuid = "00000000-0000-0000-0000-000000000000"
@@ -1101,7 +1390,9 @@ class TestArchiveMessageAPI:
         # アーカイブしようとする
         response = await async_client.post(
             f"/api/v1/messages/{nonexistent_uuid}/archive",
-            json={"is_archived": True}
+            json={"is_archived": True},
+            cookies=cookies,
+            headers=headers
         )
 
         assert response.status_code == 404  # Not Found

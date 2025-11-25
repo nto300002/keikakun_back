@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -208,3 +208,176 @@ async def get_all_office_staffs(
     staffs = result_staffs.scalars().all()
 
     return staffs
+
+@router.put("/me", response_model=schemas.OfficeResponse)
+async def update_office_info(
+    *,
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+    office_in: schemas.OfficeInfoUpdate,
+    current_user: models.Staff = Depends(deps.require_owner),
+    _: None = Depends(deps.validate_csrf),
+) -> Any:
+    """
+    事務所情報を更新（オーナーのみ）
+
+    権限: Owner のみアクセス可能
+    更新と監査ログ作成を同一トランザクションで実行
+    CSRF保護: Cookie認証の場合はCSRFトークンが必要
+    """
+    # ユーザーの所属情報を eager load する
+    stmt = (
+        select(models.Staff)
+        .options(selectinload(models.Staff.office_associations)
+        .selectinload(models.OfficeStaff.office))
+        .where(models.Staff.id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.office_associations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.OFFICE_NOT_FOUND_FOR_USER,
+        )
+
+    # ユーザーの所属事務所を取得
+    office = user.office_associations[0].office
+    if not office:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.OFFICE_INFO_NOT_FOUND,
+        )
+
+    # 変更前の値を保存（監査ログ用）
+    update_data = office_in.model_dump(exclude_unset=True)
+    if not update_data:
+        # 更新データがない場合は現在の情報を返す
+        return office
+
+    old_values = {}
+    for key in update_data.keys():
+        if hasattr(office, key):
+            old_values[key] = getattr(office, key)
+
+    try:
+        # 事務所情報を更新（flush のみ）
+        updated_office = await crud.office.update_office_info(
+            db=db,
+            office_id=office.id,
+            update_data=update_data
+        )
+
+        # 監査ログを作成（flush のみ）
+        await crud.office_audit_log.create_office_update_log(
+            db=db,
+            office_id=office.id,
+            staff_id=current_user.id,
+            action_type="office_info_updated",
+            old_values=old_values,
+            new_values=update_data
+        )
+
+        # システム通知を作成（flush のみ）
+        # 事務所内の全スタッフに通知を送信
+        active_staffs = await crud.staff.get_by_office_id(
+            db=db,
+            office_id=office.id,
+            exclude_deleted=True
+        )
+
+        if active_staffs:
+            # フィールド名を日本語に変換するマッピング
+            field_name_mapping = {
+                "name": "名前",
+                "type": "事務所種別",
+                "address": "住所",
+                "phone_number": "電話番号",
+                "email": "メールアドレス"
+            }
+
+            # 変更されたフィールドを日本語名に変換
+            changed_fields_ja = [
+                field_name_mapping.get(field, field)
+                for field in update_data.keys()
+            ]
+            changed_fields_str = "、".join(changed_fields_ja)
+
+            # システム通知を作成
+            notification_title = "事務所情報が更新されました"
+            notification_content = f"変更内容: {changed_fields_str}"
+
+            await crud.message.create_announcement(
+                db=db,
+                obj_in={
+                    "sender_staff_id": None,  # システム通知はsender_idがNone
+                    "office_id": office.id,
+                    "recipient_ids": [staff.id for staff in active_staffs],
+                    "title": notification_title,
+                    "content": notification_content
+                }
+            )
+
+        # すべての操作が成功したら commit
+        await db.commit()
+        await db.refresh(updated_office)
+
+        return updated_office
+
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update office info: {str(e)}"
+        )
+
+
+@router.get("/me/audit-logs", response_model=dict)
+async def get_office_audit_logs(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.require_owner),
+    skip: int = 0,
+    limit: int = 100,
+) -> Any:
+    """
+    事務所の監査ログを取得（オーナーのみ）
+
+    権限: Owner のみアクセス可能
+    """
+    # ユーザーの所属情報を eager load する
+    stmt = (
+        select(models.Staff)
+        .options(selectinload(models.Staff.office_associations)
+        .selectinload(models.OfficeStaff.office))
+        .where(models.Staff.id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.office_associations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.OFFICE_NOT_FOUND_FOR_USER,
+        )
+
+    # ユーザーの所属事務所を取得
+    office = user.office_associations[0].office
+    if not office:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.OFFICE_INFO_NOT_FOUND,
+        )
+
+    # 監査ログを取得
+    logs = await crud.office_audit_log.get_by_office_id(
+        db=db,
+        office_id=office.id,
+        skip=skip,
+        limit=limit
+    )
+
+    return {
+        "logs": [schemas.OfficeAuditLogResponse.model_validate(log) for log in logs],
+        "total": len(logs)
+    }

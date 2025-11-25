@@ -193,6 +193,14 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # 削除済みスタッフチェック
+    if user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.PERM_ACCOUNT_DELETED,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # セッション期間を常に1時間に固定
     session_duration = 3600  # 1時間（秒）
     session_type = "standard"

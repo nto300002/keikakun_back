@@ -9,7 +9,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select, update, func, and_, Integer
+from sqlalchemy import select, update, func, and_, Integer, delete
 from sqlalchemy.exc import IntegrityError
 
 from app.crud.base import CRUDBase
@@ -76,6 +76,88 @@ class CRUDMessage(CRUDBase[Message, Dict[str, Any], Dict[str, Any]]):
         await db.refresh(message, ["recipients"])
 
         return message
+
+    async def create_personal_message_with_limit(
+        self,
+        db: AsyncSession,
+        *,
+        sender_staff_id: UUID,
+        recipient_staff_ids: List[UUID],
+        office_id: UUID,
+        title: str,
+        body: str,
+        priority: str = "normal",
+        limit: int = 50
+    ) -> Message:
+        """
+        個別メッセージを作成（事務所ごとのメッセージ数上限機能付き）
+
+        Args:
+            db: データベースセッション
+            sender_staff_id: 送信者スタッフID
+            recipient_staff_ids: 受信者スタッフIDリスト
+            office_id: 事務所ID
+            title: メッセージタイトル
+            body: メッセージ本文
+            priority: 優先度（normal, high, urgent）
+            limit: 事務所ごとのメッセージ数上限（デフォルト50件）
+
+        Returns:
+            作成されたメッセージ
+
+        Note:
+            - 事務所のメッセージ数がlimitを超える場合、古いメッセージから自動削除
+            - is_test_data=Trueのメッセージは上限カウント対象外
+            - commitはエンドポイントで行う
+        """
+        # 現在の事務所のメッセージ数をカウント（テストデータを除外）
+        count_stmt = select(func.count(Message.id)).where(
+            Message.office_id == office_id,
+            Message.is_test_data == False
+        )
+        result = await db.execute(count_stmt)
+        current_count = result.scalar()
+
+        # 上限チェック: 現在の数が上限以上なら古いメッセージを削除
+        if current_count >= limit:
+            # 削除すべきメッセージ数を計算
+            delete_count = current_count - limit + 1
+
+            # 最も古いメッセージのIDを取得（created_atが同じ場合はidでソート）
+            oldest_ids_stmt = (
+                select(Message.id)
+                .where(
+                    Message.office_id == office_id,
+                    Message.is_test_data == False
+                )
+                .order_by(Message.created_at.asc(), Message.id.asc())
+                .limit(delete_count)
+            )
+            oldest_ids_result = await db.execute(oldest_ids_stmt)
+            oldest_ids = [row[0] for row in oldest_ids_result.all()]
+
+            # 古いメッセージを削除
+            if oldest_ids:
+                delete_stmt = delete(Message).where(Message.id.in_(oldest_ids))
+                await db.execute(delete_stmt)
+                await db.flush()
+                # セッションキャッシュをクリアして、削除が確実に反映されるようにする
+                db.expire_all()
+
+        # 新しいメッセージを作成（既存のメソッドを使用）
+        obj_in = {
+            "sender_staff_id": sender_staff_id,
+            "recipient_ids": recipient_staff_ids,
+            "office_id": office_id,
+            "title": title,
+            "content": body,  # bodyをcontentに変換
+            "message_type": MessageType.personal,
+            "priority": priority
+        }
+
+        new_message = await self.create_personal_message(db=db, obj_in=obj_in)
+
+        return new_message
 
     async def create_announcement(
         self,

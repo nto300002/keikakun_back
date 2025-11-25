@@ -1,8 +1,9 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from fastapi import HTTPException
 
 from app.crud.base import CRUDBase
 from app.models.office import Office, OfficeStaff
@@ -53,6 +54,34 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         )
         result = await db.execute(query)
         return result.scalars().all()
+
+    async def update_office_info(
+        self,
+        db: AsyncSession,
+        *,
+        office_id: UUID,
+        update_data: Dict[str, Any]
+    ) -> Office:
+        """
+        事務所情報を更新
+        - flush のみ実行（commit は endpoint で実行）
+        - 存在しない場合は例外を発生
+        """
+        # 既存の事務所を取得
+        office = await db.get(Office, office_id)
+        if not office:
+            raise HTTPException(status_code=404, detail="Office not found")
+
+        # 更新データを適用
+        for key, value in update_data.items():
+            if hasattr(office, key):
+                setattr(office, key, value)
+
+        # flush のみ（commit はエンドポイントで）
+        await db.flush()
+        await db.refresh(office)
+
+        return office
 
 
 crud_office = CRUDOffice(Office)

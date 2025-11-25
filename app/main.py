@@ -4,6 +4,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from fastapi_csrf_protect.exceptions import CsrfProtectError
 import uvicorn
 import logging
 import sys
@@ -31,6 +32,15 @@ logger.info("Application starting...")
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(CsrfProtectError)
+async def csrf_protect_exception_handler(request: Request, exc: CsrfProtectError):
+    """CSRF保護のエラーハンドラー"""
+    return JSONResponse(
+        status_code=403,
+        content={"detail": f"CSRF token validation failed: {exc.message}"}
+    )
 
 
 @app.exception_handler(RequestValidationError)
@@ -113,6 +123,7 @@ if is_production:
         "Authorization",
         "X-Requested-With",
         "Accept",
+        "X-CSRF-Token",  # CSRF保護用ヘッダー
     ]
 else:
     # 開発環境: localhost + 本番確認用
@@ -126,6 +137,7 @@ else:
         "Authorization",
         "X-Requested-With",
         "Accept",
+        "X-CSRF-Token",  # CSRF保護用ヘッダー
     ]
 
 # CORSミドルウェアの設定
