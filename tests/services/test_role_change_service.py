@@ -35,7 +35,9 @@ async def db() -> AsyncSession:
             yield session
         finally:
             try:
-                await session.rollback()
+                # サービス層がcommit()を行うため、ここではrollbackしない
+                # 代わりに、セッションをクローズするだけ
+                await session.close()
             except Exception:
                 pass
 
@@ -204,10 +206,13 @@ async def test_manager_approve_employee_to_manager(
         obj_in=request_data
     )
 
+    # リクエストIDを保存（commit後にオブジェクトがexpireされる可能性があるため）
+    request_id = request.id
+
     # 承認処理
     approved_request = await role_change_service.approve_request(
         db=db,
-        request_id=request.id,
+        request_id=request_id,
         reviewer_staff_id=manager_id,
         reviewer_notes="承認します"
     )

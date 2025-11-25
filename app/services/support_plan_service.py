@@ -345,6 +345,9 @@ class SupportPlanService:
                 logger.info(f"[FINAL_PLAN] Future cycles reset completed")
 
             # 新しいサイクルを作成
+            # サイクルの変更をflushしてからrefreshが呼ばれるようにする
+            logger.info(f"[FINAL_PLAN] Flushing cycle changes before creating new cycle")
+            await db.flush()
             logger.info(f"[FINAL_PLAN] Creating new cycle from final_plan for cycle {cycle.id}")
             await SupportPlanService._create_new_cycle_from_final_plan(
                 db, old_cycle=cycle, final_plan_completed_at=current_status.completed_at

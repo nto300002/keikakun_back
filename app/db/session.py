@@ -29,7 +29,12 @@ async_engine = create_async_engine(
     pool_recycle=3600,      # 1時間後に接続を再利用
     echo=False,             # 本番環境ではSQLログを無効化
 )
-AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_engine)
+AsyncSessionLocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=async_engine,
+    expire_on_commit=False  # MissingGreenletエラーとStaleDataErrorを防ぐ
+)
 # Alias for backward compatibility
 async_session_maker = AsyncSessionLocal
 
