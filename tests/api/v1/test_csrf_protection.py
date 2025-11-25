@@ -200,7 +200,7 @@ class TestCSRFProtection:
         }
 
         response = await async_client.post(
-            "/api/v1/messages/",
+            "/api/v1/messages/personal",
             json=payload,
             cookies=cookies,
         )
