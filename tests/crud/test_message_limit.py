@@ -34,12 +34,14 @@ class TestMessageLimit:
         for i in range(10):
             await crud_message.create_personal_message(
                 db=db_session,
-                sender_staff_id=owner.id,
-                recipient_staff_ids=[manager.id],
-                office_id=office_id,
-                title=f"Test Message {i}",
-                body="Test Body",
-                priority="normal"
+                obj_in={
+                    "sender_staff_id": owner.id,
+                    "recipient_ids": [manager.id],
+                    "office_id": office_id,
+                    "title": f"Test Message {i}",
+                    "content": "Test Body",
+                    "priority": "normal"
+                }
             )
 
         await db_session.commit()
@@ -73,19 +75,31 @@ class TestMessageLimit:
         for i in range(50):
             msg = await crud_message.create_personal_message(
                 db=db_session,
-                sender_staff_id=owner.id,
-                recipient_staff_ids=[manager.id],
-                office_id=office_id,
-                title=f"Test Message {i}",
-                body="Test Body",
-                priority="normal"
+                obj_in={
+                    "sender_staff_id": owner.id,
+                    "recipient_ids": [manager.id],
+                    "office_id": office_id,
+                    "title": f"Test Message {i}",
+                    "content": "Test Body",
+                    "priority": "normal"
+                }
             )
             message_ids.append(msg.id)
 
         await db_session.commit()
 
-        # 最も古いメッセージのIDを保存
-        oldest_message_id = message_ids[0]
+        # 最も古いメッセージのIDを保存（DBのソート順で取得）
+        oldest_stmt = (
+            select(Message.id)
+            .where(
+                Message.office_id == office_id,
+                Message.is_test_data == False
+            )
+            .order_by(Message.created_at.asc(), Message.id.asc())
+            .limit(1)
+        )
+        oldest_result = await db_session.execute(oldest_stmt)
+        oldest_message_id = oldest_result.scalar_one()
 
         # 51件目のメッセージを作成（制限機能を使用）
         await crud_message.create_personal_message_with_limit(
@@ -138,19 +152,31 @@ class TestMessageLimit:
         for i in range(55):
             msg = await crud_message.create_personal_message(
                 db=db_session,
-                sender_staff_id=owner.id,
-                recipient_staff_ids=[manager.id],
-                office_id=office_id,
-                title=f"Test Message {i}",
-                body="Test Body",
-                priority="normal"
+                obj_in={
+                    "sender_staff_id": owner.id,
+                    "recipient_ids": [manager.id],
+                    "office_id": office_id,
+                    "title": f"Test Message {i}",
+                    "content": "Test Body",
+                    "priority": "normal"
+                }
             )
             message_ids.append(msg.id)
 
         await db_session.commit()
 
-        # 最も古い5件のメッセージIDを保存
-        oldest_5_ids = message_ids[:5]
+        # 最も古い6件のメッセージIDを保存（DBのソート順で取得）
+        oldest_stmt = (
+            select(Message.id)
+            .where(
+                Message.office_id == office_id,
+                Message.is_test_data == False
+            )
+            .order_by(Message.created_at.asc(), Message.id.asc())
+            .limit(6)
+        )
+        oldest_result = await db_session.execute(oldest_stmt)
+        oldest_6_ids = [row[0] for row in oldest_result.all()]
 
         # 56件目のメッセージを作成（制限機能を使用）
         await crud_message.create_personal_message_with_limit(
@@ -177,7 +203,7 @@ class TestMessageLimit:
         assert count == 50
 
         # 最も古い6件が削除されている（55 - 50 + 1 = 6）
-        for old_id in oldest_5_ids:
+        for old_id in oldest_6_ids:
             old_msg_stmt = select(Message).where(Message.id == old_id)
             old_msg_result = await db_session.execute(old_msg_stmt)
             old_msg = old_msg_result.scalar_one_or_none()
@@ -269,7 +295,7 @@ class TestMessageLimit:
                 office_id=office_id,
                 sender_staff_id=owner.id,
                 title=f"Test Data Message {i}",
-                body="Test Body",
+                content="Test Body",  # bodyではなくcontent
                 message_type="personal",
                 priority="normal",
                 is_test_data=True

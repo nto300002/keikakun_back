@@ -9,7 +9,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select, update, func, and_, Integer
+from sqlalchemy import select, update, func, and_, Integer, delete
 from sqlalchemy.exc import IntegrityError
 
 from app.crud.base import CRUDBase
@@ -123,24 +123,26 @@ class CRUDMessage(CRUDBase[Message, Dict[str, Any], Dict[str, Any]]):
             # 削除すべきメッセージ数を計算
             delete_count = current_count - limit + 1
 
-            # 最も古いメッセージを取得
-            oldest_stmt = (
-                select(Message)
+            # 最も古いメッセージのIDを取得（created_atが同じ場合はidでソート）
+            oldest_ids_stmt = (
+                select(Message.id)
                 .where(
                     Message.office_id == office_id,
                     Message.is_test_data == False
                 )
-                .order_by(Message.created_at.asc())
+                .order_by(Message.created_at.asc(), Message.id.asc())
                 .limit(delete_count)
             )
-            oldest_result = await db.execute(oldest_stmt)
-            oldest_messages = oldest_result.scalars().all()
+            oldest_ids_result = await db.execute(oldest_ids_stmt)
+            oldest_ids = [row[0] for row in oldest_ids_result.all()]
 
             # 古いメッセージを削除
-            for old_msg in oldest_messages:
-                await db.delete(old_msg)
-
-            await db.flush()
+            if oldest_ids:
+                delete_stmt = delete(Message).where(Message.id.in_(oldest_ids))
+                await db.execute(delete_stmt)
+                await db.flush()
+                # セッションキャッシュをクリアして、削除が確実に反映されるようにする
+                db.expire_all()
 
         # 新しいメッセージを作成（既存のメソッドを使用）
         obj_in = {
