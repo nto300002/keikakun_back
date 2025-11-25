@@ -62,6 +62,19 @@ PERM_OPERATION_FORBIDDEN = "この操作を行う権限がありません。"
 PERM_OPERATION_FORBIDDEN_GENERIC = "この操作を実行する権限がありません"
 PERM_MANAGER_OR_OWNER_APPROVE = "managerまたはownerのみがリクエストを承認できます"
 PERM_MANAGER_OR_OWNER_REJECT = "managerまたはownerのみがリクエストを却下できます"
+PERM_ACCOUNT_DELETED = "このアカウントは削除されています"
+
+# ==========================================
+# スタッフ管理関連 (staffs.py)
+# ==========================================
+
+STAFF_NOT_FOUND = "スタッフが見つかりません"
+STAFF_ALREADY_DELETED = "このスタッフは既に削除されています"
+STAFF_CANNOT_DELETE_SELF = "自分自身は削除できません"
+STAFF_CANNOT_DELETE_LAST_OWNER = "最後のOwnerは削除できません"
+STAFF_DIFFERENT_OFFICE = "異なる事務所のスタッフは削除できません"
+STAFF_DELETED_SUCCESS = "スタッフを削除しました"
+STAFF_DELETE_FAILED = "スタッフの削除に失敗しました: {error}"
 
 # ==========================================
 # MFA（多要素認証）関連 (mfa.py)
