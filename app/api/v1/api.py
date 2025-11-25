@@ -17,11 +17,13 @@ from app.api.v1.endpoints import (
     messages,
     employee_action_requests,
     terms,
+    csrf,
 )
 
 api_router = APIRouter()
 
 # Include routers from endpoints
+api_router.include_router(csrf.router, tags=["csrf"])
 api_router.include_router(auths.router, prefix="/auth", tags=["auth"])
 api_router.include_router(staffs.router, prefix="/staffs", tags=["staffs"])
 api_router.include_router(offices.router, prefix="/offices", tags=["offices"])

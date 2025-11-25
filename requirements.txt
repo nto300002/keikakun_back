@@ -23,6 +23,7 @@ pyotp>=2.8.0
 qrcode[pil]>=7.4.0
 cryptography>=3.4.8
 jwt
+fastapi-csrf-protect>=0.3.4
 
 # テスト用
 httpx
