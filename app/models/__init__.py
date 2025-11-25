@@ -9,8 +9,9 @@ from .enums import (
     WorkConditions, WorkOutsideFacility,
     RequestStatus, NoticeType, ActionType, ResourceType
 )
-from .office import Office, OfficeStaff
+from .office import Office, OfficeStaff, OfficeAuditLog
 from .staff import Staff, PasswordResetToken, PasswordResetAuditLog
+from .staff_audit_log import StaffAuditLog
 from .mfa import MFABackupCode, MFAAuditLog
 from .terms_agreement import TermsAgreement
 from .welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
