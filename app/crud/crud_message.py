@@ -77,6 +77,86 @@ class CRUDMessage(CRUDBase[Message, Dict[str, Any], Dict[str, Any]]):
 
         return message
 
+    async def create_personal_message_with_limit(
+        self,
+        db: AsyncSession,
+        *,
+        sender_staff_id: UUID,
+        recipient_staff_ids: List[UUID],
+        office_id: UUID,
+        title: str,
+        body: str,
+        priority: str = "normal",
+        limit: int = 50
+    ) -> Message:
+        """
+        個別メッセージを作成（事務所ごとのメッセージ数上限機能付き）
+
+        Args:
+            db: データベースセッション
+            sender_staff_id: 送信者スタッフID
+            recipient_staff_ids: 受信者スタッフIDリスト
+            office_id: 事務所ID
+            title: メッセージタイトル
+            body: メッセージ本文
+            priority: 優先度（normal, high, urgent）
+            limit: 事務所ごとのメッセージ数上限（デフォルト50件）
+
+        Returns:
+            作成されたメッセージ
+
+        Note:
+            - 事務所のメッセージ数がlimitを超える場合、古いメッセージから自動削除
+            - is_test_data=Trueのメッセージは上限カウント対象外
+            - commitはエンドポイントで行う
+        """
+        # 現在の事務所のメッセージ数をカウント（テストデータを除外）
+        count_stmt = select(func.count(Message.id)).where(
+            Message.office_id == office_id,
+            Message.is_test_data == False
+        )
+        result = await db.execute(count_stmt)
+        current_count = result.scalar()
+
+        # 上限チェック: 現在の数が上限以上なら古いメッセージを削除
+        if current_count >= limit:
+            # 削除すべきメッセージ数を計算
+            delete_count = current_count - limit + 1
+
+            # 最も古いメッセージを取得
+            oldest_stmt = (
+                select(Message)
+                .where(
+                    Message.office_id == office_id,
+                    Message.is_test_data == False
+                )
+                .order_by(Message.created_at.asc())
+                .limit(delete_count)
+            )
+            oldest_result = await db.execute(oldest_stmt)
+            oldest_messages = oldest_result.scalars().all()
+
+            # 古いメッセージを削除
+            for old_msg in oldest_messages:
+                await db.delete(old_msg)
+
+            await db.flush()
+
+        # 新しいメッセージを作成（既存のメソッドを使用）
+        obj_in = {
+            "sender_staff_id": sender_staff_id,
+            "recipient_ids": recipient_staff_ids,
+            "office_id": office_id,
+            "title": title,
+            "content": body,  # bodyをcontentに変換
+            "message_type": MessageType.personal,
+            "priority": priority
+        }
+
+        new_message = await self.create_personal_message(db=db, obj_in=obj_in)
+
+        return new_message
+
     async def create_announcement(
         self,
         db: AsyncSession,
