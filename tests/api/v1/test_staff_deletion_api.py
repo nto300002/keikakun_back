@@ -404,9 +404,9 @@ class TestDeleteStaffSystemNotification:
         notification = result.scalars().first()
 
         assert notification is not None
-        assert notification.title == "スタッフ削除のお知らせ"
+        assert notification.title == "スタッフ退会のお知らせ"
         assert target_staff_name in notification.content
-        assert f"{employee1.last_name} {employee1.first_name}が事務所から削除されました" in notification.content
+        assert f"{employee1.last_name} {employee1.first_name}さんが退会しました" in notification.content
 
 
 class TestDeletedStaffAuthentication:

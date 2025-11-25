@@ -355,8 +355,8 @@ async def delete_staff(
 
         if recipient_ids:
             # システム通知を作成
-            notification_title = "スタッフ削除のお知らせ"
-            notification_content = f"{target_staff.last_name} {target_staff.first_name}が事務所から削除されました。"
+            notification_title = "スタッフ退会のお知らせ"
+            notification_content = f"{target_staff.last_name} {target_staff.first_name}さんが退会しました。"
 
             await crud.message.create_announcement(
                 db=db,
