@@ -30,10 +30,10 @@ async def get_csrf_token(
     Returns:
         CsrfTokenResponse: CSRFトークン
     """
-    # CSRFトークンを生成
-    csrf_token = csrf_protect.generate_csrf()
+    # CSRFトークンを生成（タプル: (csrf_token, signed_token) を返す）
+    csrf_token, signed_token = csrf_protect.generate_csrf_tokens()
 
-    # トークンをCookieに設定
-    csrf_protect.set_csrf_cookie(csrf_token, response)
+    # 署名付きトークンをCookieに設定
+    csrf_protect.set_csrf_cookie(signed_token, response)
 
     return CsrfTokenResponse(csrf_token=csrf_token)
