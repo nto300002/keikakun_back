@@ -44,6 +44,11 @@ class Staff(Base):
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     locked_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # 論理削除関連（スタッフ削除機能用）
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    deleted_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey('staffs.id'), nullable=True)
+
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True, comment="テストデータフラグ。Factory関数で生成されたデータはTrue")
@@ -71,6 +76,14 @@ class Staff(Base):
         "RefreshTokenBlacklist",
         back_populates="staff",
         cascade="all, delete-orphan"
+    )
+
+    # 論理削除関連
+    deleted_by_staff: Mapped[Optional["Staff"]] = relationship(
+        "Staff",
+        foreign_keys=[deleted_by],
+        remote_side=[id],
+        uselist=False
     )
 
     @property

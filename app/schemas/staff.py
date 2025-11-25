@@ -1,6 +1,7 @@
 import uuid
 import re
 from typing import Optional
+from datetime import datetime
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field
 from app.models.enums import StaffRole
 from app.messages import ja
@@ -116,6 +117,10 @@ class Staff(BaseModel):
     # ふりがなフィールド（オプション）
     last_name_furigana: Optional[str] = None
     first_name_furigana: Optional[str] = None
+
+    # 論理削除フィールド
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
 
     # 後方互換性のためのフィールド（deprecated）
     name: Optional[str] = None  # ⚠️ Deprecated: full_nameを使用してください
