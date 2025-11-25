@@ -142,6 +142,42 @@ class TestUpdateOfficeInfo:
         assert data["name"] == original_name  # 名前は変更されていない
         assert data["address"] == "大阪府大阪市北区4-5-6"
 
+    async def test_update_office_type_only(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        owner_user_factory
+    ):
+        """正常系: 事務所種別のみを更新"""
+        owner = await owner_user_factory()
+        office = owner.office_associations[0].office if owner.office_associations else None
+        original_name = office.name
+        original_type = office.type
+
+        access_token = create_access_token(str(owner.id), timedelta(minutes=30))
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # 事務所種別のみ更新（type_B_office -> type_A_office）
+        new_type = "type_A_office" if original_type.value != "type_A_office" else "type_B_office"
+        payload = {
+            "type": new_type
+        }
+
+        response = await async_client.put(
+            "/api/v1/offices/me",
+            json=payload,
+            headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == original_name  # 名前は変更されていない
+        assert data["office_type"] == new_type  # 種別が更新されている
+
+        # DBで確認
+        await db_session.refresh(office)
+        assert office.type.value == new_type
+
     async def test_update_office_info_forbidden_manager(
         self,
         async_client: AsyncClient,

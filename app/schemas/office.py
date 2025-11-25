@@ -25,6 +25,7 @@ class OfficeUpdate(OfficeBase):
 class OfficeInfoUpdate(BaseModel):
     """事務所情報更新用スキーマ"""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    type: Optional[OfficeType] = None
     address: Optional[str] = Field(None, max_length=500)
     phone_number: Optional[str] = Field(None, pattern=r'^\d{2,4}-\d{2,4}-\d{4}$')
     email: Optional[EmailStr] = None
