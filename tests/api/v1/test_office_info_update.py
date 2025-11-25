@@ -390,8 +390,8 @@ class TestUpdateOfficeInfo:
         assert notification.sender_staff_id is None  # システム通知
         assert notification.message_type == MessageType.announcement
         assert "事務所情報が更新されました" in notification.title
-        assert "name" in notification.content  # 変更されたフィールド名が含まれる
-        assert "address" in notification.content  # 変更されたフィールド名が含まれる
+        assert "名前" in notification.content  # 変更されたフィールド名が含まれる（日本語）
+        assert "住所" in notification.content  # 変更されたフィールド名が含まれる（日本語）
 
         # 全スタッフが受信者に含まれているか確認
         from app.models.message import MessageRecipient

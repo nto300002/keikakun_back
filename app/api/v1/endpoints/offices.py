@@ -287,12 +287,25 @@ async def update_office_info(
         )
 
         if active_staffs:
-            # 変更されたフィールドのリスト
-            changed_fields = ", ".join(update_data.keys())
+            # フィールド名を日本語に変換するマッピング
+            field_name_mapping = {
+                "name": "名前",
+                "type": "事務所種別",
+                "address": "住所",
+                "phone_number": "電話番号",
+                "email": "メールアドレス"
+            }
+
+            # 変更されたフィールドを日本語名に変換
+            changed_fields_ja = [
+                field_name_mapping.get(field, field)
+                for field in update_data.keys()
+            ]
+            changed_fields_str = "、".join(changed_fields_ja)
 
             # システム通知を作成
             notification_title = "事務所情報が更新されました"
-            notification_content = f"変更内容: {changed_fields}"
+            notification_content = f"変更内容: {changed_fields_str}"
 
             await crud.message.create_announcement(
                 db=db,
