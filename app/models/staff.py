@@ -44,6 +44,18 @@ class Staff(Base):
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     locked_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # app_admin専用の合言葉（セカンドパスワード）
+    hashed_passphrase: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="app_admin専用の合言葉（bcryptハッシュ化）"
+    )
+    passphrase_changed_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="合言葉の最終変更日時"
+    )
+
     # 論理削除関連（スタッフ削除機能用）
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     deleted_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
