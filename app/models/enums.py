@@ -4,6 +4,7 @@ class StaffRole(str, enum.Enum):
     employee = 'employee'
     manager = 'manager'
     owner = 'owner'
+    app_admin = 'app_admin'  # アプリ管理者（退会承認、全体お知らせ送信等）
 
 class OfficeType(str, enum.Enum):
     transition_to_employment = 'transition_to_employment'
@@ -255,3 +256,10 @@ class MessagePriority(str, enum.Enum):
     normal = 'normal'     # 通常
     high = 'high'         # 高
     urgent = 'urgent'     # 緊急
+
+
+class ApprovalResourceType(str, enum.Enum):
+    """承認リクエストのリソースタイプ"""
+    role_change = 'role_change'           # ロール変更
+    employee_action = 'employee_action'   # 従業員制限
+    withdrawal = 'withdrawal'             # 退会
