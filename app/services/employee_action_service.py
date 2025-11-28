@@ -16,10 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
-from app.crud.crud_employee_action_request import crud_employee_action_request
+from app.crud.crud_approval_request import approval_request
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
 from app.crud.crud_notice import crud_notice
-from app.models.employee_action_request import EmployeeActionRequest
+from app.models.approval_request import ApprovalRequest
 from app.models.welfare_recipient import (
     WelfareRecipient,
     OfficeWelfareRecipient,
@@ -29,11 +29,32 @@ from app.models.welfare_recipient import (
     DisabilityDetail
 )
 from app.models.enums import RequestStatus, ActionType, ResourceType, GenderType, NoticeType, StaffRole
-from app.schemas.employee_action_request import EmployeeActionRequestCreate
 from app.schemas.notice import NoticeCreate
 from app.messages import ja
 
 logger = logging.getLogger(__name__)
+
+
+# ApprovalRequest互換性ヘルパー関数
+def _get_resource_type(request: ApprovalRequest) -> ResourceType:
+    """ApprovalRequestからresource_typeを取得"""
+    return ResourceType(request.request_data.get("resource_type"))
+
+
+def _get_action_type(request: ApprovalRequest) -> ActionType:
+    """ApprovalRequestからaction_typeを取得"""
+    return ActionType(request.request_data.get("action_type"))
+
+
+def _get_resource_id(request: ApprovalRequest) -> Optional[UUID]:
+    """ApprovalRequestからresource_idを取得"""
+    resource_id_str = request.request_data.get("resource_id")
+    return UUID(resource_id_str) if resource_id_str else None
+
+
+def _get_original_request_data(request: ApprovalRequest) -> dict:
+    """ApprovalRequestから元のrequest_dataを取得"""
+    return request.request_data.get("original_request_data", {})
 
 
 def _parse_birth_day(birth_day_value: Any) -> Optional[date]:
@@ -64,31 +85,40 @@ class EmployeeActionService:
         *,
         requester_staff_id: UUID,
         office_id: UUID,
-        obj_in: EmployeeActionRequestCreate
-    ) -> EmployeeActionRequest:
+        resource_type: ResourceType,
+        action_type: ActionType,
+        resource_id: Optional[UUID] = None,
+        request_data: Optional[dict] = None
+    ) -> ApprovalRequest:
         """
-        Employee制限リクエストを作成
+        Employee制限リクエストを作成（統合型ApprovalRequest）
 
         Args:
             db: データベースセッション
             requester_staff_id: リクエスト作成者のスタッフID
             office_id: 事業所ID
-            obj_in: リクエスト作成データ
+            resource_type: リソースタイプ（welfare_recipient, support_plan_cycle, etc.）
+            action_type: アクションタイプ（create, update, delete）
+            resource_id: リソースID（updateまたはdeleteの場合）
+            request_data: リクエストデータ（createまたはupdateの場合）
 
         Returns:
-            作成されたEmployee制限リクエスト
+            作成されたApprovalRequest
         """
         logger.info(
             f"Creating employee action request: staff={requester_staff_id}, "
-            f"resource_type={obj_in.resource_type}, action_type={obj_in.action_type}"
+            f"resource_type={resource_type}, action_type={action_type}"
         )
 
-        # リクエスト作成
-        request = await crud_employee_action_request.create(
+        # ApprovalRequestを作成（employee_action種別）
+        request = await approval_request.create_employee_action_request(
             db=db,
-            obj_in=obj_in,
             requester_staff_id=requester_staff_id,
-            office_id=office_id
+            office_id=office_id,
+            resource_type=resource_type.value,
+            action_type=action_type.value,
+            resource_id=resource_id,
+            original_request_data=request_data
         )
 
         # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
@@ -96,11 +126,11 @@ class EmployeeActionService:
 
         # 通知作成用に一時的にリレーションシップを含めて取得
         result = await db.execute(
-            select(EmployeeActionRequest)
-            .where(EmployeeActionRequest.id == request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == request_id)
             .options(
-                selectinload(EmployeeActionRequest.requester),
-                selectinload(EmployeeActionRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.office)
             )
         )
         request = result.scalar_one()
@@ -113,11 +143,11 @@ class EmployeeActionService:
 
         # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
         result = await db.execute(
-            select(EmployeeActionRequest)
-            .where(EmployeeActionRequest.id == request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == request_id)
             .options(
-                selectinload(EmployeeActionRequest.requester),
-                selectinload(EmployeeActionRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.office)
             )
         )
         request = result.scalar_one()
