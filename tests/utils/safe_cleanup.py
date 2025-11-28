@@ -113,7 +113,7 @@ class SafeTestDataCleanup:
                     result[table] = r.rowcount
 
             # 2-5. リクエスト・通知
-            for table in ["employee_action_requests", "role_change_requests", "notices"]:
+            for table in ["approval_requests", "notices"]:
                 r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
                 if r.rowcount > 0:
                     result[table] = r.rowcount
@@ -272,21 +272,13 @@ class SafeTestDataCleanup:
                 if notices_result.rowcount > 0:
                     result["notices"] = notices_result.rowcount
 
-                # 1-5. role_change_requests を削除
-                rcr_result = await db.execute(
-                    text("DELETE FROM role_change_requests WHERE office_id = ANY(:office_ids)"),
+                # 1-5. approval_requests を削除
+                approval_result = await db.execute(
+                    text("DELETE FROM approval_requests WHERE office_id = ANY(:office_ids)"),
                     {"office_ids": list(test_office_ids)}
                 )
-                if rcr_result.rowcount > 0:
-                    result["role_change_requests"] = rcr_result.rowcount
-
-                # 1-6. employee_action_requests を削除
-                ear_result = await db.execute(
-                    text("DELETE FROM employee_action_requests WHERE office_id = ANY(:office_ids)"),
-                    {"office_ids": list(test_office_ids)}
-                )
-                if ear_result.rowcount > 0:
-                    result["employee_action_requests"] = ear_result.rowcount
+                if approval_result.rowcount > 0:
+                    result["approval_requests"] = approval_result.rowcount
 
             # 2. テスト事業所を削除
             office_result = await db.execute(

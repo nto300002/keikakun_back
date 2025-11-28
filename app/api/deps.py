@@ -213,6 +213,23 @@ async def require_owner(
     return current_staff
 
 
+async def require_app_admin(
+    current_staff: Staff = Depends(get_current_user)
+) -> Staff:
+    """
+    app_admin のみアクセス可能
+    app_admin以外のスタッフがアクセスした場合は403エラーを返す
+    """
+    from app.models.enums import StaffRole
+
+    if current_staff.role != StaffRole.app_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="権限がありません。この操作はアプリ管理者のみが実行できます"
+        )
+    return current_staff
+
+
 async def check_employee_restriction(
     db: AsyncSession,
     current_staff: Staff,
@@ -220,11 +237,11 @@ async def check_employee_restriction(
     action_type: "ActionType",
     resource_id: Optional[uuid.UUID] = None,
     request_data: Optional[dict] = None
-) -> Optional["EmployeeActionRequest"]:
+) -> Optional["ApprovalRequest"]:
     """
     Employee制限チェック
     - Manager/Owner: None を返す（制限なし、直接実行可能）
-    - Employee: EmployeeActionRequest を作成して返す（承認が必要）
+    - Employee: ApprovalRequest を作成して返す（承認が必要）
 
     Args:
         db: データベースセッション
@@ -235,12 +252,11 @@ async def check_employee_restriction(
         request_data: リクエストデータ（createまたはupdateの場合）
 
     Returns:
-        EmployeeActionRequest: Employeeの場合は作成されたリクエスト
+        ApprovalRequest: Employeeの場合は作成されたリクエスト
         None: Manager/Ownerの場合は制限なし
     """
     from app.models.enums import StaffRole
-    from app.schemas.employee_action_request import EmployeeActionRequestCreate
-    from app.services import employee_action_service
+    from app.crud.crud_approval_request import approval_request
 
     # Manager/Ownerは制限なし
     if current_staff.role in [StaffRole.manager, StaffRole.owner]:
@@ -269,23 +285,18 @@ async def check_employee_restriction(
             detail=ja.PERM_OFFICE_REQUIRED
         )
 
-    # スキーマオブジェクトを作成
-    obj_in = EmployeeActionRequestCreate(
-        resource_type=resource_type,
-        action_type=action_type,
-        resource_id=resource_id,
-        request_data=request_data
-    )
-
-    # リクエストを作成
-    request = await employee_action_service.create_request(
+    # ApprovalRequestを作成（employee_action種別）
+    approval_req = await approval_request.create_employee_action_request(
         db=db,
         requester_staff_id=current_staff.id,
         office_id=office_id,
-        obj_in=obj_in
+        resource_type=resource_type.value,
+        action_type=action_type.value,
+        resource_id=resource_id,
+        original_request_data=request_data
     )
 
-    return request
+    return approval_req
 
 
 # 型ヒント用のインポート
