@@ -1,7 +1,10 @@
 """
-Employee制限リクエストAPIエンドポイント
+Employee制限リクエストAPIエンドポイント（統合テーブル版）
 
 Employeeが重要データを変更する際に、Manager/Ownerの承認を必須化するためのAPI
+
+注意: このエンドポイントは統合approval_requestsテーブルを使用しています。
+旧employee_action_requestsテーブルは削除されました。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -11,7 +14,7 @@ from uuid import UUID
 
 from app.api import deps
 from app.models.staff import Staff
-from app.models.enums import StaffRole, RequestStatus
+from app.models.enums import StaffRole, RequestStatus, ApprovalResourceType
 from app.schemas.employee_action_request import (
     EmployeeActionRequestCreate,
     EmployeeActionRequestRead,
@@ -19,7 +22,7 @@ from app.schemas.employee_action_request import (
     EmployeeActionRequestReject
 )
 from app.services.employee_action_service import employee_action_service
-from app.crud.crud_employee_action_request import crud_employee_action_request
+from app.crud import approval_request
 from app.messages import ja
 
 router = APIRouter()
@@ -70,7 +73,7 @@ async def get_employee_action_requests(
     status_filter: Optional[RequestStatus] = Query(None, alias="status")
 ) -> List[EmployeeActionRequestRead]:
     """
-    Employee制限リクエスト一覧を取得
+    Employee制限リクエスト一覧を取得（統合テーブル版）
 
     - 自分が作成したリクエスト
     - 自分が承認可能なリクエスト（manager/owner）
@@ -79,24 +82,30 @@ async def get_employee_action_requests(
     print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Current user: {current_user.id}, Role: {current_user.role}")
     print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Status filter: {status_filter}")
 
-    # 自分が作成したリクエストを取得
-    my_requests = await crud_employee_action_request.get_by_requester(
+    # 自分が作成したリクエストを取得（employee_actionタイプのみ）
+    my_requests = await approval_request.get_by_requester(
         db=db,
-        requester_staff_id=current_user.id
+        requester_staff_id=current_user.id,
+        resource_type=ApprovalResourceType.employee_action
     )
     print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] My requests count: {len(my_requests)}")
     for req in my_requests:
-        print(f"[DEBUG EMPLOYEE_ACTION_REQUEST]   - Request {req.id}: {req.resource_type}.{req.action_type}, status={req.status}")
+        req_data = req.request_data or {}
+        print(f"[DEBUG EMPLOYEE_ACTION_REQUEST]   - Request {req.id}: {req_data.get('resource_type')}.{req_data.get('action_type')}, status={req.status}")
 
     # 自分が承認可能なリクエストを取得（manager/owner のみ）
     approvable_requests = []
     if current_user.role in [StaffRole.manager, StaffRole.owner]:
         if current_user.office_associations:
             office_id = current_user.office_associations[0].office_id
-            approvable_requests = await crud_employee_action_request.get_pending_for_approver(
+            # Pendingかつemployee_actionタイプのリクエストを取得
+            pending_requests = await approval_request.get_pending_requests(
                 db=db,
-                office_id=office_id
+                office_id=office_id,
+                resource_type=ApprovalResourceType.employee_action
             )
+            # リクエスト作成者を除外
+            approvable_requests = [req for req in pending_requests if req.requester_staff_id != current_user.id]
             print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Approvable requests count: {len(approvable_requests)}")
 
     # 重複を除いてマージ
@@ -122,7 +131,7 @@ async def approve_employee_action_request(
     current_user: Staff = Depends(deps.get_current_user)
 ) -> EmployeeActionRequestRead:
     """
-    Employee制限リクエストを承認し、実際のアクションを実行
+    Employee制限リクエストを承認し、実際のアクションを実行（統合テーブル版）
 
     - Manager/Owner: 承認可能
     - Employee: 承認不可
@@ -134,9 +143,9 @@ async def approve_employee_action_request(
             detail=ja.PERM_MANAGER_OR_OWNER_APPROVE
         )
 
-    # リクエストを取得
-    request = await crud_employee_action_request.get(db=db, id=request_id)
-    if not request:
+    # リクエストを取得（統合テーブルから）
+    request = await approval_request.get(db=db, id=request_id)
+    if not request or request.resource_type != ApprovalResourceType.employee_action:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ja.REQUEST_NOT_FOUND
@@ -182,7 +191,7 @@ async def reject_employee_action_request(
     current_user: Staff = Depends(deps.get_current_user)
 ) -> EmployeeActionRequestRead:
     """
-    Employee制限リクエストを却下
+    Employee制限リクエストを却下（統合テーブル版）
 
     - Manager/Owner: 却下可能
     """
@@ -193,9 +202,9 @@ async def reject_employee_action_request(
             detail=ja.PERM_MANAGER_OR_OWNER_REJECT
         )
 
-    # リクエストを取得
-    request = await crud_employee_action_request.get(db=db, id=request_id)
-    if not request:
+    # リクエストを取得（統合テーブルから）
+    request = await approval_request.get(db=db, id=request_id)
+    if not request or request.resource_type != ApprovalResourceType.employee_action:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ja.REQUEST_NOT_FOUND
@@ -240,14 +249,14 @@ async def delete_employee_action_request(
     current_user: Staff = Depends(deps.get_current_user)
 ):
     """
-    Employee制限リクエストを削除
+    Employee制限リクエストを削除（統合テーブル版）
 
     - pending状態のリクエストのみ削除可能
     - 作成者のみ削除可能
     """
-    # リクエストを取得
-    request = await crud_employee_action_request.get(db=db, id=request_id)
-    if not request:
+    # リクエストを取得（統合テーブルから）
+    request = await approval_request.get(db=db, id=request_id)
+    if not request or request.resource_type != ApprovalResourceType.employee_action:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ja.REQUEST_NOT_FOUND
@@ -267,5 +276,5 @@ async def delete_employee_action_request(
             detail=ja.REQUEST_CANNOT_DELETE_PROCESSED.format(status=request.status.value)
         )
 
-    await crud_employee_action_request.remove(db=db, id=request_id)
+    await approval_request.remove(db=db, id=request_id)
     await db.commit()

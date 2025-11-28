@@ -1,3 +1,15 @@
+"""
+【非推奨】Employee制限リクエスト CRUD
+
+警告: このCRUDは非推奨です。
+- 対応するemployee_action_requestsテーブルは削除されました
+- 新しい統合テーブルapproval_requestsとapp.crud.crud_approval_requestを使用してください
+- このファイルは後方互換性のため残されていますが、使用しないでください
+
+移行先:
+  from app.crud import approval_request
+  approval_request.create_employee_action_request(...)
+"""
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
