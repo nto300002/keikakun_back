@@ -1,7 +1,9 @@
 """
-Employee制限リクエストAPIのテスト
+Employee制限リクエストAPIのテスト（統合テーブル版）
 
 TDD (Test-Driven Development) によるテスト実装
+
+注意: 統合approval_requestsテーブルを使用しています
 """
 
 import pytest
@@ -10,9 +12,9 @@ from datetime import timedelta, date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import StaffRole, RequestStatus, ActionType, ResourceType, GenderType
-from app.models.employee_action_request import EmployeeActionRequest
-from app.crud.crud_employee_action_request import crud_employee_action_request
+from app.models.enums import StaffRole, RequestStatus, ActionType, ResourceType, GenderType, ApprovalResourceType
+from app.models.approval_request import ApprovalRequest
+from app.crud.crud_approval_request import approval_request
 from app.schemas.employee_action_request import EmployeeActionRequestCreate
 from app.core.security import create_access_token
 from app.core.config import settings
