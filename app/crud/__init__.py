@@ -1,5 +1,4 @@
 from .crud_staff import staff
-from .crud_staff_audit_log import staff_audit_log
 from .crud_office import crud_office as office
 from .crud_office_staff import office_staff
 from .crud_office_audit_log import crud_office_audit_log as office_audit_log
@@ -17,7 +16,11 @@ from .crud_medical_info import crud_medical_info as medical_info
 from .crud_hospital_visit import crud_hospital_visit as hospital_visit
 from .crud_employment import crud_employment as employment
 from .crud_issue_analysis import crud_issue_analysis as issue_analysis
+# 非推奨: 以下のCRUDはcrud_approval_requestに統合されました（旧テーブルは削除済み）
+# 互換性のため残していますが、使用しないでください
 from .crud_role_change_request import crud_role_change_request as role_change_request
 from .crud_employee_action_request import crud_employee_action_request as employee_action_request
 from .crud_terms_agreement import terms_agreement
 from . import crud_password_reset as password_reset
+from .crud_audit_log import audit_log
+from .crud_approval_request import approval_request

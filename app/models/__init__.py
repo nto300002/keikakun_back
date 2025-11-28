@@ -17,6 +17,8 @@ from .terms_agreement import TermsAgreement
 from .welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from .support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 from .notice import Notice
+# 非推奨: 以下のモデルはapproval_requestsテーブルに統合されました（旧テーブルは削除済み）
+# 互換性のため残していますが、使用しないでください
 from .role_change_request import RoleChangeRequest
 from .employee_action_request import EmployeeActionRequest
 from .approval_request import ApprovalRequest

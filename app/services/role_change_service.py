@@ -15,12 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
-from app.crud.crud_role_change_request import crud_role_change_request
+from app.crud.crud_approval_request import approval_request
 from app.crud.crud_staff import staff as crud_staff
 from app.crud.crud_notice import crud_notice
-from app.models.role_change_request import RoleChangeRequest
-from app.models.enums import StaffRole, RequestStatus, NoticeType
-from app.schemas.role_change_request import RoleChangeRequestCreate
+from app.models.approval_request import ApprovalRequest
+from app.models.enums import StaffRole, RequestStatus, NoticeType, ApprovalResourceType
+from app.schemas.approval_request import ApprovalRequestCreate
 from app.schemas.notice import NoticeCreate
 from app.messages import ja
 
@@ -36,8 +36,8 @@ class RoleChangeService:
         *,
         requester_staff_id: UUID,
         office_id: UUID,
-        obj_in: RoleChangeRequestCreate
-    ) -> RoleChangeRequest:
+        obj_in: ApprovalRequestCreate
+    ) -> ApprovalRequest:
         """
         Role変更リクエストを作成
 
@@ -89,11 +89,11 @@ class RoleChangeService:
 
         # 通知作成用に一時的にリレーションシップを含めて取得
         result = await db.execute(
-            select(RoleChangeRequest)
-            .where(RoleChangeRequest.id == request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == request_id)
             .options(
-                selectinload(RoleChangeRequest.requester),
-                selectinload(RoleChangeRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.office)
             )
         )
         request = result.scalar_one()
@@ -107,11 +107,11 @@ class RoleChangeService:
         # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
         # refresh()ではリレーションシップは再ロードされないため、selectinloadで明示的に再取得
         result = await db.execute(
-            select(RoleChangeRequest)
-            .where(RoleChangeRequest.id == request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == request_id)
             .options(
-                selectinload(RoleChangeRequest.requester),
-                selectinload(RoleChangeRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.office)
             )
         )
         request = result.scalar_one()
@@ -125,7 +125,7 @@ class RoleChangeService:
         request_id: UUID,
         reviewer_staff_id: UUID,
         reviewer_notes: Optional[str] = None
-    ) -> RoleChangeRequest:
+    ) -> ApprovalRequest:
         """
         Role変更リクエストを承認し、実際にroleを変更
 
@@ -193,12 +193,12 @@ class RoleChangeService:
 
         # 4. 通知作成用に一時的にリレーションシップを含めて取得
         result = await db.execute(
-            select(RoleChangeRequest)
-            .where(RoleChangeRequest.id == approved_request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == approved_request_id)
             .options(
-                selectinload(RoleChangeRequest.requester),
-                selectinload(RoleChangeRequest.reviewer),
-                selectinload(RoleChangeRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.reviewer),
+                selectinload(ApprovalRequest.office)
             )
         )
         approved_request = result.scalar_one()
@@ -220,12 +220,12 @@ class RoleChangeService:
         # 6. commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
         # refresh()ではリレーションシップは再ロードされないため、selectinloadで明示的に再取得
         result = await db.execute(
-            select(RoleChangeRequest)
-            .where(RoleChangeRequest.id == approved_request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == approved_request_id)
             .options(
-                selectinload(RoleChangeRequest.requester),
-                selectinload(RoleChangeRequest.reviewer),
-                selectinload(RoleChangeRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.reviewer),
+                selectinload(ApprovalRequest.office)
             )
         )
         approved_request = result.scalar_one()
@@ -239,7 +239,7 @@ class RoleChangeService:
         request_id: UUID,
         reviewer_staff_id: UUID,
         reviewer_notes: Optional[str] = None
-    ) -> RoleChangeRequest:
+    ) -> ApprovalRequest:
         """
         Role変更リクエストを却下
 
@@ -273,12 +273,12 @@ class RoleChangeService:
 
         # 通知作成用に一時的にリレーションシップを含めて取得
         result = await db.execute(
-            select(RoleChangeRequest)
-            .where(RoleChangeRequest.id == rejected_request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == rejected_request_id)
             .options(
-                selectinload(RoleChangeRequest.requester),
-                selectinload(RoleChangeRequest.reviewer),
-                selectinload(RoleChangeRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.reviewer),
+                selectinload(ApprovalRequest.office)
             )
         )
         rejected_request = result.scalar_one()
@@ -299,12 +299,12 @@ class RoleChangeService:
 
         # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
         result = await db.execute(
-            select(RoleChangeRequest)
-            .where(RoleChangeRequest.id == rejected_request_id)
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == rejected_request_id)
             .options(
-                selectinload(RoleChangeRequest.requester),
-                selectinload(RoleChangeRequest.reviewer),
-                selectinload(RoleChangeRequest.office)
+                selectinload(ApprovalRequest.requester),
+                selectinload(ApprovalRequest.reviewer),
+                selectinload(ApprovalRequest.office)
             )
         )
         rejected_request = result.scalar_one()
@@ -314,7 +314,7 @@ class RoleChangeService:
     @staticmethod
     def validate_approval_permission(
         reviewer_role: StaffRole,
-        request: RoleChangeRequest
+        request: ApprovalRequest
     ) -> bool:
         """
         承認権限があるかをチェック
@@ -345,7 +345,7 @@ class RoleChangeService:
     async def _create_request_notification(
         self,
         db: AsyncSession,
-        request: RoleChangeRequest
+        request: ApprovalRequest
     ) -> None:
         """
         Role変更リクエスト作成時の通知を承認者と送信者に送信
@@ -410,7 +410,7 @@ class RoleChangeService:
     async def _create_approval_notification(
         self,
         db: AsyncSession,
-        request: RoleChangeRequest
+        request: ApprovalRequest
     ) -> None:
         """
         Role変更リクエスト承認時の通知をリクエスト作成者に送信
@@ -447,7 +447,7 @@ class RoleChangeService:
     async def _create_rejection_notification(
         self,
         db: AsyncSession,
-        request: RoleChangeRequest
+        request: ApprovalRequest
     ) -> None:
         """
         Role変更リクエスト却下時の通知をリクエスト作成者に送信

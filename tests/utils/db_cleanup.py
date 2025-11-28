@@ -38,7 +38,7 @@ class DatabaseCleanup:
             "calendar_events",
             "office_calendar_accounts",
             "notices",
-            "role_change_requests",
+            "approval_requests",  # 統合テーブル（旧: role_change_requests, employee_action_requests）
             "office_welfare_recipients",
             "welfare_recipients",
             "office_staffs",
@@ -174,18 +174,18 @@ class DatabaseCleanup:
                     result["notices"] = notices_result.rowcount
                     logger.info(f"Deleted {notices_result.rowcount} notices")
 
-                # role_change_requests
-                delete_rcr = text("""
-                    DELETE FROM role_change_requests
+                # approval_requests（統合テーブル）
+                delete_apr = text("""
+                    DELETE FROM approval_requests
                     WHERE office_id = ANY(:office_ids)
                 """)
-                rcr_result = await db.execute(
-                    delete_rcr,
+                apr_result = await db.execute(
+                    delete_apr,
                     {"office_ids": list(test_office_ids)}
                 )
-                if rcr_result.rowcount > 0:
-                    result["role_change_requests"] = rcr_result.rowcount
-                    logger.info(f"Deleted {rcr_result.rowcount} role_change_requests")
+                if apr_result.rowcount > 0:
+                    result["approval_requests"] = apr_result.rowcount
+                    logger.info(f"Deleted {apr_result.rowcount} approval_requests")
 
             # 1. テスト事業所の削除（関連データ削除後）
             office_query = text("""
@@ -366,7 +366,7 @@ class DatabaseCleanup:
             "offices",
             "staffs",
             "office_staffs",
-            "role_change_requests",
+            "approval_requests",  # 統合テーブル（旧: role_change_requests, employee_action_requests）
             "notices",
             "welfare_recipients",
             "office_welfare_recipients",
