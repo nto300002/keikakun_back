@@ -145,7 +145,7 @@ async def test_create_office_audit_log(
     owner_user_factory
 ) -> None:
     """
-    事務所情報変更の監査ログ作成テスト
+    事務所情報変更の監査ログ作成テスト（統合監査ログを使用）
     """
     owner = await owner_user_factory()
     office = owner.office_associations[0].office if owner.office_associations else None
@@ -161,21 +161,27 @@ async def test_create_office_audit_log(
         "address": "新しい住所"
     }
 
-    # 監査ログを作成
-    audit_log = await crud.office_audit_log.create_office_update_log(
+    # 統合監査ログを作成
+    audit_log = await crud.audit_log.create_log(
         db=db_session,
+        actor_id=owner.id,
+        action="office.updated",
+        target_type="office",
+        target_id=office.id,
         office_id=office.id,
-        staff_id=owner.id,
-        action_type="office_info_updated",
-        old_values=old_values,
-        new_values=new_values
+        actor_role=owner.role.value,
+        details={
+            "old_values": old_values,
+            "new_values": new_values
+        }
     )
 
     assert audit_log.id is not None
     assert audit_log.office_id == office.id
     assert audit_log.staff_id == owner.id
-    assert audit_log.action_type == "office_info_updated"
+    assert audit_log.action == "office.updated"
     # details に JSON 形式で保存されることを確認
+    assert audit_log.details is not None
     assert "name" in str(audit_log.details)
 
 
@@ -184,34 +190,40 @@ async def test_get_office_audit_logs(
     owner_user_factory
 ) -> None:
     """
-    事務所の監査ログ取得テスト
+    事務所の監査ログ取得テスト（統合監査ログを使用）
     """
     owner = await owner_user_factory()
     office = owner.office_associations[0].office if owner.office_associations else None
 
     assert office is not None
 
-    # 複数の監査ログを作成
+    # 複数の監査ログを作成（統合監査ログを使用）
     for i in range(3):
-        await crud.office_audit_log.create_office_update_log(
+        await crud.audit_log.create_log(
             db=db_session,
+            actor_id=owner.id,
+            action="office.updated",
+            target_type="office",
+            target_id=office.id,
             office_id=office.id,
-            staff_id=owner.id,
-            action_type="office_info_updated",
-            old_values={"name": f"旧名称{i}"},
-            new_values={"name": f"新名称{i}"}
+            actor_role=owner.role.value,
+            details={
+                "old_values": {"name": f"旧名称{i}"},
+                "new_values": {"name": f"新名称{i}"}
+            }
         )
 
     await db_session.flush()
 
-    # 監査ログを取得
-    audit_logs = await crud.office_audit_log.get_by_office_id(
+    # 統合監査ログから取得
+    audit_logs, total = await crud.audit_log.get_logs(
         db=db_session,
         office_id=office.id,
+        target_type="office",
         skip=0,
         limit=10
     )
 
     assert len(audit_logs) >= 3
     # 最新のログが先頭に来るように並んでいることを確認
-    assert audit_logs[0].created_at >= audit_logs[-1].created_at
+    assert audit_logs[0].timestamp >= audit_logs[-1].timestamp

@@ -269,13 +269,18 @@ async def update_office_info(
         )
 
         # 監査ログを作成（flush のみ）
-        await crud.office_audit_log.create_office_update_log(
+        await crud.audit_log.create_log(
             db=db,
+            actor_id=current_user.id,
+            action="office.updated",
+            target_type="office",
+            target_id=office.id,
             office_id=office.id,
-            staff_id=current_user.id,
-            action_type="office_info_updated",
-            old_values=old_values,
-            new_values=update_data
+            actor_role=current_user.role.value,
+            details={
+                "old_values": old_values,
+                "new_values": update_data
+            }
         )
 
         # システム通知を作成（flush のみ）
@@ -369,15 +374,28 @@ async def get_office_audit_logs(
             detail=ja.OFFICE_INFO_NOT_FOUND,
         )
 
-    # 監査ログを取得
-    logs = await crud.office_audit_log.get_by_office_id(
+    # 統合監査ログから事務所関連のログを取得
+    logs, total = await crud.audit_log.get_logs(
         db=db,
         office_id=office.id,
+        target_type="office",
         skip=skip,
         limit=limit
     )
 
+    # レスポンス形式に変換
+    log_responses = []
+    for log in logs:
+        log_responses.append({
+            "id": log.id,
+            "office_id": log.office_id,
+            "staff_id": log.staff_id,
+            "action_type": log.action,
+            "details": log.details,
+            "created_at": log.timestamp
+        })
+
     return {
-        "logs": [schemas.OfficeAuditLogResponse.model_validate(log) for log in logs],
-        "total": len(logs)
+        "logs": log_responses,
+        "total": total
     }
