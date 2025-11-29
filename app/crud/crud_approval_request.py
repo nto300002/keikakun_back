@@ -138,9 +138,13 @@ class CRUDApprovalRequest(CRUDBase[ApprovalRequest, Dict[str, Any], Dict[str, An
         Returns:
             作成された承認リクエスト
         """
+        # Enum を文字列に変換（JSON 互換性のため）
+        from_role_str = from_role.value if hasattr(from_role, 'value') else str(from_role)
+        requested_role_str = requested_role.value if hasattr(requested_role, 'value') else str(requested_role)
+
         request_data = {
-            "from_role": from_role,
-            "requested_role": requested_role,
+            "from_role": from_role_str,
+            "requested_role": requested_role_str,
         }
         if request_notes:
             request_data["request_notes"] = request_notes

@@ -263,3 +263,11 @@ class ApprovalResourceType(str, enum.Enum):
     role_change = 'role_change'           # ロール変更
     employee_action = 'employee_action'   # 従業員制限
     withdrawal = 'withdrawal'             # 退会
+
+
+class AuditLogTargetType(str, enum.Enum):
+    """監査ログの対象リソースタイプ"""
+    staff = 'staff'                           # スタッフ関連操作
+    office = 'office'                         # 事務所関連操作
+    withdrawal_request = 'withdrawal_request' # 退会リクエスト関連操作
+    terms_agreement = 'terms_agreement'       # 利用規約同意記録
