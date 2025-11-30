@@ -171,10 +171,11 @@ async def approve_employee_action_request(
         approved_request = await employee_action_service.approve_request(
             db=db,
             request_id=request_id,
-            approver_staff_id=current_user.id,
-            approver_notes=obj_in.approver_notes
+            reviewer_staff_id=current_user.id,
+            reviewer_notes=obj_in.approver_notes
         )
-        return approved_request
+        # 明示的にスキーマに変換
+        return EmployeeActionRequestRead.model_validate(approved_request)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -230,10 +231,11 @@ async def reject_employee_action_request(
         rejected_request = await employee_action_service.reject_request(
             db=db,
             request_id=request_id,
-            approver_staff_id=current_user.id,
-            approver_notes=obj_in.approver_notes
+            reviewer_staff_id=current_user.id,
+            reviewer_notes=obj_in.approver_notes
         )
-        return rejected_request
+        # 明示的にスキーマに変換
+        return EmployeeActionRequestRead.model_validate(rejected_request)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

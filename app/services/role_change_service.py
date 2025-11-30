@@ -20,11 +20,34 @@ from app.crud.crud_staff import staff as crud_staff
 from app.crud.crud_notice import crud_notice
 from app.models.approval_request import ApprovalRequest
 from app.models.enums import StaffRole, RequestStatus, NoticeType, ApprovalResourceType
-from app.schemas.approval_request import ApprovalRequestCreate
+from app.schemas.role_change_request import RoleChangeRequestCreate
 from app.schemas.notice import NoticeCreate
 from app.messages import ja
 
 logger = logging.getLogger(__name__)
+
+
+def _get_from_role(request: ApprovalRequest) -> StaffRole:
+    """request_dataからfrom_roleを取得"""
+    if request.request_data and "from_role" in request.request_data:
+        role_str = request.request_data["from_role"]
+        return StaffRole(role_str) if isinstance(role_str, str) else role_str
+    raise ValueError(f"from_role not found in request_data for request {request.id}")
+
+
+def _get_requested_role(request: ApprovalRequest) -> StaffRole:
+    """request_dataからrequested_roleを取得"""
+    if request.request_data and "requested_role" in request.request_data:
+        role_str = request.request_data["requested_role"]
+        return StaffRole(role_str) if isinstance(role_str, str) else role_str
+    raise ValueError(f"requested_role not found in request_data for request {request.id}")
+
+
+def _get_request_notes(request: ApprovalRequest) -> str | None:
+    """request_dataからrequest_notesを取得"""
+    if request.request_data and "request_notes" in request.request_data:
+        return request.request_data["request_notes"]
+    return None
 
 
 class RoleChangeService:
@@ -36,7 +59,7 @@ class RoleChangeService:
         *,
         requester_staff_id: UUID,
         office_id: UUID,
-        obj_in: ApprovalRequestCreate
+        obj_in: RoleChangeRequestCreate
     ) -> ApprovalRequest:
         """
         Role変更リクエストを作成
@@ -76,12 +99,13 @@ class RoleChangeService:
         )
 
         # リクエスト作成
-        request = await crud_role_change_request.create(
+        request = await approval_request.create_role_change_request(
             db=db,
-            obj_in=obj_in,
             requester_staff_id=requester_staff_id,
             office_id=office_id,
-            from_role=from_role
+            from_role=from_role,
+            requested_role=obj_in.requested_role,
+            request_notes=obj_in.request_notes if hasattr(obj_in, 'request_notes') else None
         )
 
         # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
@@ -142,7 +166,7 @@ class RoleChangeService:
             ValueError: リクエストが見つからない、または権限がない場合
         """
         # リクエストを取得
-        request = await crud_role_change_request.get(db, id=request_id)
+        request = await approval_request.get(db, id=request_id)
         if not request:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -166,11 +190,11 @@ class RoleChangeService:
 
         logger.info(
             f"Approving role change request: request_id={request_id}, "
-            f"reviewer={reviewer_staff_id}, target_role={request.requested_role}"
+            f"reviewer={reviewer_staff_id}, target_role={_get_requested_role(request)}"
         )
 
         # 1. リクエストを承認
-        approved_request = await crud_role_change_request.approve(
+        approved_request = await approval_request.approve(
             db=db,
             request_id=request_id,
             reviewer_staff_id=reviewer_staff_id,
@@ -180,12 +204,12 @@ class RoleChangeService:
         # 2. スタッフのroleを変更
         requester = await crud_staff.get(db, id=request.requester_staff_id)
         if requester:
-            requester.role = request.requested_role
+            requester.role = _get_requested_role(request)
             await db.flush()
 
             logger.info(
                 f"Staff role changed: staff_id={requester.id}, "
-                f"new_role={request.requested_role}"
+                f"new_role={_get_requested_role(request)}"
             )
 
         # 3. commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
@@ -261,7 +285,7 @@ class RoleChangeService:
         )
 
         # リクエストを却下
-        rejected_request = await crud_role_change_request.reject(
+        rejected_request = await approval_request.reject(
             db=db,
             request_id=request_id,
             reviewer_staff_id=reviewer_staff_id,
@@ -337,7 +361,7 @@ class RoleChangeService:
 
         # Managerはemployeeからのリクエストのみ承認可能
         if reviewer_role == StaffRole.manager:
-            return request.from_role == StaffRole.employee
+            return _get_from_role(request) == StaffRole.employee
 
         # Employeeは承認不可
         return False
@@ -360,12 +384,12 @@ class RoleChangeService:
         # _get_approvers呼び出し前に必要な値を変数に格納
         # (_get_approvers内のdb.execute()でrequestオブジェクトがexpireされるため)
         office_id = request.office_id
-        from_role = request.from_role
-        requested_role = request.requested_role
+        from_role = _get_from_role(request)
+        requested_role = _get_requested_role(request)
         requester_full_name = request.requester.full_name
         requester_staff_id = request.requester_staff_id
         request_id = request.id
-        request_notes = request.request_notes
+        request_notes = _get_request_notes(request)
 
         # 1. 承認可能なスタッフ（manager/owner）に通知を作成
         approvers = await self._get_approvers(db, office_id, from_role)
@@ -426,8 +450,8 @@ class RoleChangeService:
         office_id = request.office_id
         requester_staff_id = request.requester_staff_id
         request_id = request.id
-        from_role = request.from_role
-        requested_role = request.requested_role
+        from_role = _get_from_role(request)
+        requested_role = _get_requested_role(request)
 
         notice_data = NoticeCreate(
             recipient_staff_id=requester_staff_id,
@@ -463,8 +487,8 @@ class RoleChangeService:
         office_id = request.office_id
         requester_staff_id = request.requester_staff_id
         request_id = request.id
-        from_role = request.from_role
-        requested_role = request.requested_role
+        from_role = _get_from_role(request)
+        requested_role = _get_requested_role(request)
 
         notice_data = NoticeCreate(
             recipient_staff_id=requester_staff_id,

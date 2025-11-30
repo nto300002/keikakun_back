@@ -151,10 +151,10 @@ async def test_employee_request_to_manager(
 
     assert request is not None
     assert request.requester_staff_id == employee_id
-    assert request.from_role == StaffRole.employee
-    assert request.requested_role == StaffRole.manager
+    assert request.request_data["from_role"] == StaffRole.employee.value
+    assert request.request_data["requested_role"] == StaffRole.manager.value
     assert request.status == RequestStatus.pending
-    assert request.request_notes == "マネージャーへの昇格を希望します"
+    assert request.request_data["request_notes"] == "マネージャーへの昇格を希望します"
 
 
 async def test_manager_request_to_owner(
@@ -177,8 +177,8 @@ async def test_manager_request_to_owner(
     )
 
     assert request is not None
-    assert request.from_role == StaffRole.manager
-    assert request.requested_role == StaffRole.owner
+    assert request.request_data["from_role"] == StaffRole.manager.value
+    assert request.request_data["requested_role"] == StaffRole.owner.value
     assert request.status == RequestStatus.pending
 
 

@@ -30,6 +30,7 @@ from app.models.welfare_recipient import (
 )
 from app.models.enums import RequestStatus, ActionType, ResourceType, GenderType, NoticeType, StaffRole
 from app.schemas.notice import NoticeCreate
+from app.schemas.employee_action_request import EmployeeActionRequestCreate
 from app.messages import ja
 
 logger = logging.getLogger(__name__)
@@ -85,10 +86,7 @@ class EmployeeActionService:
         *,
         requester_staff_id: UUID,
         office_id: UUID,
-        resource_type: ResourceType,
-        action_type: ActionType,
-        resource_id: Optional[UUID] = None,
-        request_data: Optional[dict] = None
+        obj_in: EmployeeActionRequestCreate
     ) -> ApprovalRequest:
         """
         Employee制限リクエストを作成（統合型ApprovalRequest）
@@ -97,17 +95,14 @@ class EmployeeActionService:
             db: データベースセッション
             requester_staff_id: リクエスト作成者のスタッフID
             office_id: 事業所ID
-            resource_type: リソースタイプ（welfare_recipient, support_plan_cycle, etc.）
-            action_type: アクションタイプ（create, update, delete）
-            resource_id: リソースID（updateまたはdeleteの場合）
-            request_data: リクエストデータ（createまたはupdateの場合）
+            obj_in: リクエスト作成スキーマ
 
         Returns:
             作成されたApprovalRequest
         """
         logger.info(
             f"Creating employee action request: staff={requester_staff_id}, "
-            f"resource_type={resource_type}, action_type={action_type}"
+            f"resource_type={obj_in.resource_type}, action_type={obj_in.action_type}"
         )
 
         # ApprovalRequestを作成（employee_action種別）
@@ -115,10 +110,10 @@ class EmployeeActionService:
             db=db,
             requester_staff_id=requester_staff_id,
             office_id=office_id,
-            resource_type=resource_type.value,
-            action_type=action_type.value,
-            resource_id=resource_id,
-            original_request_data=request_data
+            resource_type=obj_in.resource_type.value,
+            action_type=obj_in.action_type.value,
+            resource_id=obj_in.resource_id,
+            original_request_data=obj_in.request_data
         )
 
         # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
@@ -159,8 +154,8 @@ class EmployeeActionService:
         db: AsyncSession,
         *,
         request_id: UUID,
-        approver_staff_id: UUID,
-        approver_notes: Optional[str] = None
+        reviewer_staff_id: UUID,
+        reviewer_notes: Optional[str] = None
     ) -> ApprovalRequest:
         """
         Employee制限リクエストを承認し、実際の作成、編集を実行
@@ -168,8 +163,8 @@ class EmployeeActionService:
         Args:
             db: データベースセッション
             request_id: リクエストID
-            approver_staff_id: 承認者のスタッフID
-            approver_notes: 承認コメント（オプション）
+            reviewer_staff_id: 承認者のスタッフID
+            reviewer_notes: 承認コメント（オプション）
 
         Returns:
             承認されたEmployee制限リクエスト
@@ -184,7 +179,7 @@ class EmployeeActionService:
 
         logger.info(
             f"Approving employee action request: request_id={request_id}, "
-            f"approver={approver_staff_id}, action={_get_action_type(request)}"
+            f"approver={reviewer_staff_id}, action={_get_action_type(request)}"
         )
 
         # 承認処理と作成、編集、実行
@@ -197,8 +192,8 @@ class EmployeeActionService:
             approved_request = await approval_request.approve(
                 db=db,
                 request_id=request_id,
-                reviewer_staff_id=approver_staff_id,
-                reviewer_notes=approver_notes
+                reviewer_staff_id=reviewer_staff_id,
+                reviewer_notes=reviewer_notes
             )
 
             # 実行結果を設定
@@ -233,8 +228,8 @@ class EmployeeActionService:
             approved_request = await approval_request.approve(
                 db=db,
                 request_id=request_id,
-                reviewer_staff_id=approver_staff_id,
-                reviewer_notes=approver_notes
+                reviewer_staff_id=reviewer_staff_id,
+                reviewer_notes=reviewer_notes
             )
 
             # 実行結果を設定（エラー情報）
@@ -334,8 +329,8 @@ class EmployeeActionService:
         db: AsyncSession,
         *,
         request_id: UUID,
-        approver_staff_id: UUID,
-        approver_notes: Optional[str] = None
+        reviewer_staff_id: UUID,
+        reviewer_notes: Optional[str] = None
     ) -> ApprovalRequest:
         """
         Employee制限リクエストを却下
@@ -343,23 +338,23 @@ class EmployeeActionService:
         Args:
             db: データベースセッション
             request_id: リクエストID
-            approver_staff_id: 却下者のスタッフID
-            approver_notes: 却下理由（オプション）
+            reviewer_staff_id: 却下者のスタッフID
+            reviewer_notes: 却下理由（オプション）
 
         Returns:
             却下されたEmployee制限リクエスト
         """
         logger.info(
             f"Rejecting employee action request: request_id={request_id}, "
-            f"approver={approver_staff_id}"
+            f"approver={reviewer_staff_id}"
         )
 
         # リクエストを却下
         rejected_request = await approval_request.reject(
             db=db,
             request_id=request_id,
-            reviewer_staff_id=approver_staff_id,
-            reviewer_notes=approver_notes
+            reviewer_staff_id=reviewer_staff_id,
+            reviewer_notes=reviewer_notes
         )
 
         # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
@@ -371,7 +366,7 @@ class EmployeeActionService:
             .where(ApprovalRequest.id == rejected_request_id)
             .options(
                 selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.approver),
+                selectinload(ApprovalRequest.reviewer),
                 selectinload(ApprovalRequest.office)
             )
         )
@@ -389,7 +384,7 @@ class EmployeeActionService:
         # 既存の承認待ち通知を削除（承認者向けの通知）※commitはしない
         # typeだけ更新するとtitle/contentと矛盾するため、削除して新しい通知を作成
         # デッドロック対策: SELECT FOR UPDATEでロックを取得してから削除
-        link_url = f"/employee-action-requests/{rejected_request.id}"
+        link_url = f"/approval-requests/{rejected_request.id}"
 
         # 1つのクエリで両方のタイプの通知を取得（デッドロック対策）
         delete_stmt = select(crud_notice.model).where(
@@ -439,7 +434,7 @@ class EmployeeActionService:
             .where(ApprovalRequest.id == rejected_request_id)
             .options(
                 selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.approver),
+                selectinload(ApprovalRequest.reviewer),
                 selectinload(ApprovalRequest.office)
             )
         )
@@ -768,7 +763,7 @@ class EmployeeActionService:
         # TODO: Phase 7で実装
         return {
             "success": True,
-            "action": str(request.action_type),
+            "action": str(_get_action_type(request)),
             "message": "SupportPlanCycle actions not yet implemented"
         }
 
@@ -778,7 +773,7 @@ class EmployeeActionService:
         request: ApprovalRequest
     ) -> Dict[str, Any]:
         """SupportPlanStatusに対するアクションを実行"""
-        action_type = request.action_type
+        action_type = _get_action_type(request)
         request_data = request.request_data or {}
 
         logger.info(f"Executing support_plan_status action: {action_type}")
@@ -857,7 +852,7 @@ class EmployeeActionService:
                 type=NoticeType.employee_action_pending.value,
                 title=f"{requester_full_name}さんが{detail_info}リクエストしました。",
                 content=f"{requester_full_name}さんが{detail_info}リクエストしました。",
-                link_url=f"/employee-action-requests/{request_id}"
+                link_url=f"/approval-requests/{request_id}"
             )
             await crud_notice.create(db, obj_in=notice_data)
 
@@ -868,7 +863,7 @@ class EmployeeActionService:
             type=NoticeType.employee_action_request_sent.value,
             title="作成、編集、削除リクエストを送信しました",
             content=f"あなたの{detail_info}リクエストを送信しました。承認をお待ちください。",
-            link_url=f"/employee-action-requests/{request_id}"
+            link_url=f"/approval-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=requester_notice_data)
 
@@ -906,7 +901,7 @@ class EmployeeActionService:
             type=NoticeType.employee_action_approved.value,
             title="作成、編集、削除リクエストが承認されました",
             content=f"あなたの{detail_info}リクエストが承認されました。",
-            link_url=f"/employee-action-requests/{request_id}"
+            link_url=f"/approval-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=notice_data)
 
@@ -944,7 +939,7 @@ class EmployeeActionService:
             type=NoticeType.employee_action_rejected.value,
             title="作成、編集、削除リクエストが却下されました",
             content=f"あなたの{detail_info}リクエストが却下されました。",
-            link_url=f"/employee-action-requests/{request_id}"
+            link_url=f"/approval-requests/{request_id}"
         )
         await crud_notice.create(db, obj_in=notice_data)
 
@@ -1021,10 +1016,10 @@ class EmployeeActionService:
             "monitoring": "モニタリング報告"
         }
 
-        action_name = action_ja.get(request.action_type, str(request.action_type))
+        action_name = action_ja.get(_get_action_type(request), str(_get_action_type(request)))
 
         # SupportPlanStatusの場合は特別な処理
-        if request.resource_type == ResourceType.support_plan_status:
+        if _get_resource_type(request) == ResourceType.support_plan_status:
             if request.request_data:
                 # 利用者名を取得
                 recipient_name = request.request_data.get("welfare_recipient_full_name", "")
@@ -1041,12 +1036,12 @@ class EmployeeActionService:
                 return f"サポート計画ステータスの{action_name}を"
 
         # WelfareRecipientやその他のリソースタイプの処理
-        resource_name = resource_ja.get(request.resource_type, str(request.resource_type))
+        resource_name = resource_ja.get(_get_resource_type(request), str(_get_resource_type(request)))
 
         # request_dataから対象名を取得
         target_name = ""
         if request.request_data:
-            if request.resource_type == ResourceType.welfare_recipient:
+            if _get_resource_type(request) == ResourceType.welfare_recipient:
                 # 利用者の場合、full_nameを取得
                 full_name = request.request_data.get("full_name")
                 if full_name:

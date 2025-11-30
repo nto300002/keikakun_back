@@ -72,9 +72,10 @@ class EmployeeActionRequestRead(BaseModel):
         return None
 
     # reviewed_by_staff_id を approved_by_staff_id にマッピング（後方互換性）
-    approved_by_staff_id: Optional[uuid.UUID] = Field(None, alias="reviewed_by_staff_id")
-    approved_at: Optional[datetime] = Field(None, alias="reviewed_at")
-    approver_notes: Optional[str] = Field(None, alias="reviewer_notes")
+    # Pydantic v2: serialization_aliasを使用してレスポンスのフィールド名を変更
+    reviewed_by_staff_id: Optional[uuid.UUID] = Field(None, serialization_alias="approved_by_staff_id")
+    reviewed_at: Optional[datetime] = Field(None, serialization_alias="approved_at")
+    reviewer_notes: Optional[str] = Field(None, serialization_alias="approver_notes")
 
 
 class EmployeeActionRequestApprove(BaseModel):
