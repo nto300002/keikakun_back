@@ -142,6 +142,9 @@ async def create_withdrawal_request(
     # commit前にリレーションをロード（ResourceClosedError対策）
     loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
 
+    # MissingGreenletエラー対策: commit前に必要な属性をアクセスしてメモリにロード
+    _ = loaded_request.request_data
+
     await db.commit()
 
     return _to_withdrawal_response(loaded_request)
@@ -299,6 +302,9 @@ async def approve_withdrawal_request(
     # commit前にリレーションをロード（ResourceClosedError対策）
     loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
 
+    # MissingGreenletエラー対策: commit前に必要な属性をアクセスしてメモリにロード
+    _ = loaded_request.request_data
+
     await db.commit()
 
     return _to_withdrawal_response(loaded_request)
@@ -373,6 +379,9 @@ async def reject_withdrawal_request(
 
     # commit前にリレーションをロード（ResourceClosedError対策）
     loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
+
+    # MissingGreenletエラー対策: commit前に必要な属性をアクセスしてメモリにロード
+    _ = loaded_request.request_data
 
     await db.commit()
 
