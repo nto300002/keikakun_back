@@ -139,12 +139,16 @@ async def create_withdrawal_request(
         is_test_data=getattr(current_user, 'is_test_data', False)
     )
 
-    # commit前にリレーションをロード（ResourceClosedError対策）
+    # commit前にリレーションをロード
     loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
 
+    # commit前にレスポンスデータを生成（MissingGreenletエラー対策）
+    response_data = _to_withdrawal_response(loaded_request)
+
+    # commitはレスポンス生成後に実行
     await db.commit()
 
-    return _to_withdrawal_response(loaded_request)
+    return response_data
 
 
 @router.get("")
@@ -296,12 +300,16 @@ async def approve_withdrawal_request(
         is_test_data=getattr(approval_req, 'is_test_data', False)
     )
 
-    # commit前にリレーションをロード（ResourceClosedError対策）
+    # commit前にリレーションをロード
     loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
 
+    # commit前にレスポンスデータを生成（MissingGreenletエラー対策）
+    response_data = _to_withdrawal_response(loaded_request)
+
+    # commitはレスポンス生成後に実行
     await db.commit()
 
-    return _to_withdrawal_response(loaded_request)
+    return response_data
 
 
 @router.patch("/{request_id}/reject", response_model=WithdrawalRequestRead)
@@ -371,9 +379,13 @@ async def reject_withdrawal_request(
         is_test_data=getattr(approval_req, 'is_test_data', False)
     )
 
-    # commit前にリレーションをロード（ResourceClosedError対策）
+    # commit前にリレーションをロード
     loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
 
+    # commit前にレスポンスデータを生成（MissingGreenletエラー対策）
+    response_data = _to_withdrawal_response(loaded_request)
+
+    # commitはレスポンス生成後に実行
     await db.commit()
 
-    return _to_withdrawal_response(loaded_request)
+    return response_data
