@@ -18,6 +18,11 @@ from app.api.v1.endpoints import (
     employee_action_requests,
     terms,
     csrf,
+    withdrawal_requests,
+    admin_offices,
+    admin_audit_logs,
+    admin_inquiries,
+    admin_announcements,
 )
 
 api_router = APIRouter()
@@ -40,3 +45,8 @@ api_router.include_router(notices.router, prefix="/notices", tags=["notices"])
 api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
 api_router.include_router(employee_action_requests.router, prefix="/employee-action-requests", tags=["employee-action-requests"])
 api_router.include_router(terms.router, prefix="/terms", tags=["terms"])
+api_router.include_router(withdrawal_requests.router, prefix="/withdrawal-requests", tags=["withdrawal-requests"])
+api_router.include_router(admin_offices.router, prefix="/admin/offices", tags=["admin-offices"])
+api_router.include_router(admin_audit_logs.router, prefix="/admin/audit-logs", tags=["admin-audit-logs"])
+api_router.include_router(admin_inquiries.router, prefix="/admin/inquiries", tags=["admin-inquiries"])
+api_router.include_router(admin_announcements.router, prefix="/admin/announcements", tags=["admin-announcements"])

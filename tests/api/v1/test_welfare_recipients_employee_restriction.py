@@ -19,12 +19,20 @@ from sqlalchemy.orm import selectinload
 from app.models.staff import Staff
 from app.models.office import OfficeStaff
 from app.models.welfare_recipient import WelfareRecipient
-from app.models.employee_action_request import EmployeeActionRequest
-from app.models.enums import StaffRole, ResourceType, ActionType, RequestStatus
+from app.models.approval_request import ApprovalRequest
+from app.models.enums import StaffRole, ResourceType, ActionType, RequestStatus, ApprovalResourceType
 from app.main import app
 from app.api.deps import get_current_user
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def cleanup_dependency_overrides():
+    """各テスト後にdependency_overridesをクリーンアップ"""
+    yield
+    # テスト完了後にクリーンアップ
+    app.dependency_overrides.clear()
 
 
 # テストデータ用のヘルパー関数
@@ -118,16 +126,17 @@ async def test_employee_create_welfare_recipient_creates_request(
     assert "申請を作成しました。承認待ちです" in response_data["message"]
     assert "request_id" in response_data
 
-    # EmployeeActionRequest が作成されていることを確認
+    # ApprovalRequest (employee_action) が作成されていることを確認
     request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
+    request = await db_session.get(ApprovalRequest, request_id)
     assert request is not None
     assert request.requester_staff_id == employee.id
     assert request.office_id == office_id
-    assert request.resource_type == ResourceType.welfare_recipient
-    assert request.action_type == ActionType.create
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert request.request_data["action_type"] == ActionType.create.value
     assert request.status == RequestStatus.pending
-    assert request.request_data is not None
+    assert request.request_data["original_request_data"] is not None
 
     # WelfareRecipient は作成されていないことを確認（承認待ち）
     # 特定の名前で検索して、このテストで作成されたものが存在しないことを確認
@@ -248,13 +257,14 @@ async def test_employee_update_welfare_recipient_creates_request(
     assert "申請を作成しました。承認待ちです" in response_data["message"]
     assert "request_id" in response_data
 
-    # EmployeeActionRequest が作成されていることを確認
+    # ApprovalRequest (employee_action) が作成されていることを確認
     request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
+    request = await db_session.get(ApprovalRequest, request_id)
     assert request is not None
-    assert request.resource_type == ResourceType.welfare_recipient
-    assert request.action_type == ActionType.update
-    assert request.resource_id == recipient_id
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert request.request_data["action_type"] == ActionType.update.value
+    assert str(request.request_data["resource_id"]) == str(recipient_id)
     assert request.status == RequestStatus.pending
 
 
@@ -326,13 +336,14 @@ async def test_employee_delete_welfare_recipient_creates_request(
     response_data = response.json()
     assert "申請を作成しました。承認待ちです" in response_data["message"]
 
-    # EmployeeActionRequest が作成されていることを確認
+    # ApprovalRequest (employee_action) が作成されていることを確認
     request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
+    request = await db_session.get(ApprovalRequest, request_id)
     assert request is not None
-    assert request.resource_type == ResourceType.welfare_recipient
-    assert request.action_type == ActionType.delete
-    assert request.resource_id == recipient_id
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert request.request_data["action_type"] == ActionType.delete.value
+    assert str(request.request_data["resource_id"]) == str(recipient_id)
 
     # WelfareRecipient はまだ削除されていないことを確認
     recipient = await db_session.get(WelfareRecipient, recipient_id)

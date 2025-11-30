@@ -1,3 +1,12 @@
+"""
+注意: このテストファイルは非推奨です。
+
+旧テーブル (role_change_requests) は削除され、
+統合approval_requestsテーブルに移行されました。
+
+統合テーブルのテストは以下を参照:
+- tests/crud/test_crud_approval_request.py
+"""
 import pytest
 import uuid
 from datetime import datetime, timezone
@@ -6,6 +15,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.role_change_request import RoleChangeRequest
 from app.models.enums import StaffRole, RequestStatus
+
+pytestmark = pytest.mark.skip(reason="旧モデルテーブル(role_change_requests)は削除済み。統合ApprovalRequestを使用")
 
 
 class TestRoleChangeRequestModel:

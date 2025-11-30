@@ -4,7 +4,7 @@
 SupportPlans (PlanDeliverable) API の Employee 制限機能のテスト
 
 このテストは、Employee が PlanDeliverable の CREATE/UPDATE/DELETE を実行しようとした場合に、
-EmployeeActionRequest が作成されることを確認します。
+ApprovalRequest が作成されることを確認します。
 
 また、Manager/Owner は制限なく直接実行できることも確認します。
 """
@@ -22,7 +22,7 @@ from app.models.staff import Staff
 from app.models.office import OfficeStaff
 from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, PlanDeliverable, SupportPlanStatus
-from app.models.employee_action_request import EmployeeActionRequest
+from app.models.approval_request import ApprovalRequest
 from app.models.enums import StaffRole, ResourceType, ActionType, RequestStatus, GenderType, SupportPlanStep
 from app.main import app
 from app.api.deps import get_current_user

@@ -1,6 +1,9 @@
 """
 RoleChangeRequest (Role変更リクエスト) CRUDのテスト
 TDD方式でテストを先に作成
+
+注意: このテストは非推奨です。統合approval_requests CRUDテストを使用してください。
+テストは tests/crud/test_crud_approval_request.py に移行済み（13テスト全てパス）
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 import pytest
@@ -10,7 +13,11 @@ from app import crud
 from app.models.enums import StaffRole, RequestStatus
 from app.schemas.role_change_request import RoleChangeRequestCreate
 
-pytestmark = pytest.mark.asyncio
+# 旧role_change_requests CRUDは非推奨。統合approval_request CRUDを使用
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skip(reason="旧role_change_requests CRUDは削除済み。tests/crud/test_crud_approval_request.py を使用")
+]
 
 
 async def test_create_role_change_request(

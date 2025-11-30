@@ -1,3 +1,15 @@
+"""
+【非推奨】Role変更リクエスト CRUD
+
+警告: このCRUDは非推奨です。
+- 対応するrole_change_requestsテーブルは削除されました
+- 新しい統合テーブルapproval_requestsとapp.crud.crud_approval_requestを使用してください
+- このファイルは後方互換性のため残されていますが、使用しないでください
+
+移行先:
+  from app.crud import approval_request
+  approval_request.create_role_change_request(...)
+"""
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime

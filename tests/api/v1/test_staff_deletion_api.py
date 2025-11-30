@@ -338,20 +338,20 @@ class TestDeleteStaffAuditLog:
         assert response.status_code == 200
 
         # 監査ログを確認
-        from app.models.staff_audit_log import StaffAuditLog
+        from app.models.staff_profile import AuditLog
         from sqlalchemy import select
 
         stmt = (
-            select(StaffAuditLog)
-            .where(StaffAuditLog.staff_id == target_staff_id)
-            .where(StaffAuditLog.action == "deleted")
+            select(AuditLog)
+            .where(AuditLog.target_id == target_staff_id)
+            .where(AuditLog.action == "staff.deleted")
         )
         result = await db_session.execute(stmt)
         audit_log = result.scalar_one_or_none()
 
         assert audit_log is not None
-        assert audit_log.performed_by == owner.id
-        assert audit_log.action == "deleted"
+        assert audit_log.staff_id == owner.id
+        assert audit_log.action == "staff.deleted"
 
 
 class TestDeleteStaffSystemNotification:

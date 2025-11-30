@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.models.welfare_recipient import WelfareRecipient
-from app.models.employee_action_request import EmployeeActionRequest
+from app.models.approval_request import ApprovalRequest
 from app.models.notice import Notice
 from app.models.enums import (
     RequestStatus,
@@ -27,7 +27,8 @@ from app.models.enums import (
     ResourceType,
     NoticeType,
     GenderType,
-    StaffRole
+    StaffRole,
+    ApprovalResourceType
 )
 from app.schemas.employee_action_request import (
     EmployeeActionRequestCreate,
@@ -36,7 +37,7 @@ from app.schemas.employee_action_request import (
 from app.schemas.welfare_recipient import WelfareRecipientCreate
 from app.services.employee_action_service import employee_action_service
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
-from app.crud.crud_employee_action_request import crud_employee_action_request
+from app.crud.crud_approval_request import approval_request
 from app.crud.crud_notice import crud_notice
 
 
@@ -118,8 +119,9 @@ async def test_employee_create_request_manager_approve_flow(
 
     # Assert 1: リクエストが正しく作成されたか
     assert request.status == RequestStatus.pending
-    assert request.resource_type == ResourceType.welfare_recipient
-    assert request.action_type == ActionType.create
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert request.request_data["action_type"] == ActionType.create.value
     assert request.requester_staff_id == employee.id
 
     print(f"\n✅ Step 1: Employee がリクエストを作成")
@@ -137,21 +139,17 @@ async def test_employee_create_request_manager_approve_flow(
     assert welfare_recipient_before is None, "承認前にWelfareRecipientが作成されてはいけない"
 
     # Act 2: Manager が承認
-    approve_data = EmployeeActionRequestApprove(
-        approver_notes="承認します"
-    )
-
     approved_request = await employee_action_service.approve_request(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=manager.id,
-        approver_notes=approve_data.approver_notes
+        reviewer_staff_id=manager.id,
+        reviewer_notes="承認します"
     )
     await db_session.commit()
 
     # Assert 2: リクエストが承認され、WelfareRecipient が作成されたか
     assert approved_request.status == RequestStatus.approved
-    assert approved_request.approved_by_staff_id == manager.id
+    assert approved_request.reviewed_by_staff_id == manager.id
     assert approved_request.execution_result is not None
     assert approved_request.execution_result["success"] is True
 
@@ -256,8 +254,9 @@ async def test_employee_update_request_owner_approve_flow(
 
     # Assert 1: リクエストが正しく作成されたか
     assert request.status == RequestStatus.pending
-    assert request.resource_type == ResourceType.welfare_recipient
-    assert request.action_type == ActionType.update
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert request.request_data["action_type"] == ActionType.update.value
 
     print(f"\n✅ Step 1: Employee が更新リクエストを作成")
     print(f"   Request ID: {request.id}")
@@ -271,14 +270,14 @@ async def test_employee_update_request_owner_approve_flow(
     approved_request = await employee_action_service.approve_request(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=owner.id,
-        approver_notes="更新を承認します"
+        reviewer_staff_id=owner.id,
+        reviewer_notes="更新を承認します"
     )
     await db_session.commit()
 
     # Assert 2: リクエストが承認され、データが更新されたか
     assert approved_request.status == RequestStatus.approved
-    assert approved_request.approved_by_staff_id == owner.id
+    assert approved_request.reviewed_by_staff_id == owner.id
     assert approved_request.execution_result["success"] is True
 
     print(f"\n✅ Step 2: Owner がリクエストを承認")
@@ -363,7 +362,8 @@ async def test_employee_delete_request_manager_reject_flow(
 
     # Assert 1: リクエストが正しく作成されたか
     assert request.status == RequestStatus.pending
-    assert request.action_type == ActionType.delete
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["action_type"] == ActionType.delete.value
 
     print(f"\n✅ Step 1: Employee が削除リクエストを作成")
     print(f"   Request ID: {request.id}")
@@ -373,18 +373,18 @@ async def test_employee_delete_request_manager_reject_flow(
     rejected_request = await employee_action_service.reject_request(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=manager.id,
-        approver_notes="削除は認められません"
+        reviewer_staff_id=manager.id,
+        reviewer_notes="削除は認められません"
     )
     await db_session.commit()
 
     # Assert 2: リクエストが却下され、データは削除されていないか
     assert rejected_request.status == RequestStatus.rejected
-    assert rejected_request.approved_by_staff_id == manager.id
-    assert rejected_request.approver_notes == "削除は認められません"
+    assert rejected_request.reviewed_by_staff_id == manager.id
+    assert rejected_request.reviewer_notes == "削除は認められません"
 
     print(f"\n✅ Step 2: Manager がリクエストを却下")
-    print(f"   Rejection Reason: {rejected_request.approver_notes}")
+    print(f"   Rejection Reason: {rejected_request.reviewer_notes}")
 
     # データが削除されていないことを確認
     result = await db_session.execute(
@@ -408,7 +408,7 @@ async def test_employee_delete_request_manager_reject_flow(
 
     print(f"\n✅ Step 4: Employee に却下通知が届いた")
     print(f"   Notice Type: {latest_notice.notice_type}")
-    print(f"   Rejection Reason in Notice: {rejected_request.approver_notes}")
+    print(f"   Rejection Reason in Notice: {rejected_request.reviewer_notes}")
 
 
 @pytest.mark.asyncio
@@ -490,8 +490,8 @@ async def test_employee_restriction_all_resources(
     approved_request = await employee_action_service.approve_request(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=manager.id,
-        approver_notes="承認"
+        reviewer_staff_id=manager.id,
+        reviewer_notes="承認"
     )
     await db_session.commit()
 
@@ -636,8 +636,8 @@ async def test_other_office_employee_request_access_denied(
     approved_request = await employee_action_service.approve_request(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=manager_office2.id,
-        approver_notes="他の事業所だが承認しようとする"
+        reviewer_staff_id=manager_office2.id,
+        reviewer_notes="他の事業所だが承認しようとする"
     )
 
     # サービス層では現在チェックしていないため、成功してしまう

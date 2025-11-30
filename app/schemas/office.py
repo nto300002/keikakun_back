@@ -65,3 +65,50 @@ class OfficeAuditLogResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
     )
+
+
+# --- app_admin用レスポンススキーマ ---
+
+class StaffInOffice(BaseModel):
+    """事務所詳細レスポンス内のスタッフ情報"""
+    id: UUID
+    full_name: str
+    email: str
+    role: str
+    is_mfa_enabled: bool
+    is_email_verified: bool
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
+
+class OfficeListItemResponse(BaseModel):
+    """事務所一覧アイテム（app_admin用）"""
+    id: UUID
+    name: str
+    type: OfficeType = Field(serialization_alias="office_type")
+    is_deleted: bool
+    created_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
+
+class OfficeDetailResponse(BaseModel):
+    """事務所詳細（app_admin用）"""
+    id: UUID
+    name: str
+    type: OfficeType = Field(serialization_alias="office_type")
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+    staffs: list[StaffInOffice] = []
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )

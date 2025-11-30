@@ -608,6 +608,74 @@ async def owner_user_factory(db_session: AsyncSession, office_factory):
 
 
 @pytest_asyncio.fixture
+async def app_admin_user_factory(db_session: AsyncSession):
+    """アプリ管理者ロールのユーザーを作成するFactory（事業所なし）"""
+    counter = {"count": 0}  # ローカルカウンター
+
+    async def _create_user(
+        name: Optional[str] = None,  # DEPRECATED: 後方互換性のため残す
+        first_name: str = "管理者",
+        last_name: str = "アプリ",
+        email: Optional[str] = None,
+        password: str = "a-very-secure-password",
+        role: StaffRole = StaffRole.app_admin,
+        is_email_verified: bool = True,
+        is_mfa_enabled: bool = False,
+        session: Optional[AsyncSession] = None,
+        is_test_data: bool = True,
+    ) -> Staff:
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.models.office import OfficeStaff
+        import time
+
+        # 後方互換性: nameが指定されている場合は分割
+        if name is not None:
+            parts = name.split(maxsplit=1)
+            if len(parts) == 2:
+                last_name, first_name = parts
+            else:
+                first_name = parts[0]
+                last_name = "テスト"
+
+        # full_nameを生成
+        full_name = f"{last_name} {first_name}"
+
+        # デフォルトのメールアドレスを生成（UUID + タイムスタンプ + カウンター）
+        if email is None:
+            counter["count"] += 1
+            timestamp = int(time.time() * 1000000)  # マイクロ秒単位
+            email = f"app_admin_{uuid.uuid4().hex}_{timestamp}_{counter['count']}@example.com"
+
+        active_session = session or db_session
+        new_user = Staff(
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
+            email=email,
+            hashed_password=get_password_hash(password),
+            role=role,
+            is_email_verified=is_email_verified,
+            is_mfa_enabled=is_mfa_enabled,
+            is_test_data=is_test_data,
+        )
+        active_session.add(new_user)
+        await active_session.flush()
+
+        # app_adminは事業所に関連付けない（アプリ全体の管理者）
+
+        # リレーションシップをeager loadしてからrefresh
+        stmt = select(Staff).where(Staff.id == new_user.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await active_session.execute(stmt)
+        new_user = result.scalars().first()
+
+        return new_user
+    yield _create_user
+
+
+@pytest_asyncio.fixture
 async def office_factory(db_session: AsyncSession):
     """事業所を作成するFactory"""
     counter = {"count": 0}

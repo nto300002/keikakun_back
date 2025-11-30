@@ -272,6 +272,7 @@ def test_message_sender_info_valid():
 
 def test_message_inbox_item_valid():
     """正常なデータでMessageInboxItemモデルが作成できることをテスト"""
+    sender_id = uuid.uuid4()
     inbox_data = {
         "message_id": str(uuid.uuid4()),
         "title": "受信メッセージ",
@@ -279,8 +280,13 @@ def test_message_inbox_item_valid():
         "message_type": MessageType.personal,
         "priority": MessagePriority.normal,
         "created_at": datetime.now(),
-        "sender_staff_id": str(uuid.uuid4()),
-        "sender_name": "山田 太郎",
+        "sender_staff_id": str(sender_id),
+        "sender": {
+            "id": str(sender_id),
+            "first_name": "太郎",
+            "last_name": "山田",
+            "email": "yamada@example.com"
+        },
         "recipient_id": str(uuid.uuid4()),
         "is_read": False,
         "read_at": None,
@@ -288,7 +294,7 @@ def test_message_inbox_item_valid():
     }
     inbox_item = MessageInboxItem(**inbox_data)
     assert inbox_item.is_read is False
-    assert inbox_item.sender_name == "山田 太郎"
+    assert inbox_item.sender.full_name == "山田 太郎"
 
 
 # ========================================

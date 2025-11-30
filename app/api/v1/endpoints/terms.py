@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud, schemas
 from app.api import deps
 from app.models.staff import Staff
+from app.models.enums import AuditLogTargetType
 
 router = APIRouter()
 
@@ -57,6 +58,23 @@ async def agree_to_terms(
         privacy_version=agreement_data.privacy_version,
         ip_address=ip_address,
         user_agent=user_agent
+    )
+
+    # 監査ログを記録
+    await crud.audit_log.create_log(
+        db=db,
+        actor_id=current_user.id,
+        action="terms.agreed",
+        target_type=AuditLogTargetType.terms_agreement.value,
+        target_id=agreement.id,
+        office_id=None,  # 利用規約同意は事務所に紐づかない
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details={
+            "terms_version": agreement_data.terms_version,
+            "privacy_version": agreement_data.privacy_version,
+            "agreed_at": agreement.terms_of_service_agreed_at.isoformat() if agreement.terms_of_service_agreed_at else None
+        }
     )
 
     await db.commit()

@@ -23,6 +23,11 @@ AUTH_INCORRECT_CREDENTIALS = "メールアドレスまたはパスワードが�
 AUTH_EMAIL_NOT_VERIFIED = "メールアドレスの確認が完了していません"
 AUTH_LOGIN_SUCCESS = "ログインしました"
 
+# app_admin合言葉認証
+AUTH_PASSPHRASE_REQUIRED = "合言葉を入力してください"
+AUTH_INVALID_PASSPHRASE = "認証に失敗しました"  # セキュリティのため詳細は明かさない
+AUTH_PASSPHRASE_NOT_SET = "合言葉が設定されていません。管理者に連絡してください。"
+
 # トークンリフレッシュ
 AUTH_INVALID_REFRESH_TOKEN = "リフレッシュトークンが無効です"
 AUTH_REFRESH_TOKEN_BLACKLISTED = "このリフレッシュトークンは無効化されています。再度ログインしてください。"
@@ -362,3 +367,27 @@ TERMS_UPDATE_DENIED = "この同意履歴を更新する権限がありません
 # スタッフ関連
 TERMS_STAFF_NOT_FOUND = "スタッフ {staff_id} が見つかりません"
 TERMS_STAFF_REQUIRED = "スタッフIDが必要です"
+
+# ==========================================
+# 退会リクエスト関連 (withdrawal_requests.py)
+# ==========================================
+
+# リクエスト作成
+WITHDRAWAL_OWNER_ONLY = "退会リクエストはオーナーのみ作成できます"
+WITHDRAWAL_TITLE_REQUIRED = "タイトルを入力してください"
+WITHDRAWAL_REASON_REQUIRED = "申請内容を入力してください"
+WITHDRAWAL_NO_OFFICE = "事業所に所属していません"
+
+# リクエスト取得
+WITHDRAWAL_LIST_OWNER_OR_ADMIN_ONLY = "退会リクエスト一覧はオーナーまたはアプリ管理者のみ取得できます"
+
+# 承認/却下
+WITHDRAWAL_APPROVE_APP_ADMIN_ONLY = "退会リクエストを承認する権限がありません"
+WITHDRAWAL_REJECT_APP_ADMIN_ONLY = "退会リクエストを却下する権限がありません"
+WITHDRAWAL_REQUEST_NOT_FOUND = "退会リクエストが見つかりません"
+WITHDRAWAL_ALREADY_PROCESSED = "このリクエストは既に{status}です"
+
+# 成功メッセージ
+WITHDRAWAL_REQUEST_CREATED = "退会リクエストを作成しました"
+WITHDRAWAL_REQUEST_APPROVED = "退会リクエストを承認しました"
+WITHDRAWAL_REQUEST_REJECTED = "退会リクエストを却下しました"

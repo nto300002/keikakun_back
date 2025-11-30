@@ -285,10 +285,11 @@ class TestUpdateOfficeInfo:
         access_token = create_access_token(str(owner.id), timedelta(minutes=30))
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        # 更新前のログ件数を確認
-        logs_before = await crud.office_audit_log.get_by_office_id(
+        # 更新前のログ件数を確認（統合監査ログから取得）
+        logs_before, total_before = await crud.audit_log.get_logs(
             db=db_session,
             office_id=office.id,
+            target_type="office",
             skip=0,
             limit=100
         )
@@ -305,10 +306,11 @@ class TestUpdateOfficeInfo:
 
         assert response.status_code == 200
 
-        # 更新後のログ件数を確認
-        logs_after = await crud.office_audit_log.get_by_office_id(
+        # 更新後のログ件数を確認（統合監査ログから取得）
+        logs_after, total_after = await crud.audit_log.get_logs(
             db=db_session,
             office_id=office.id,
+            target_type="office",
             skip=0,
             limit=100
         )
@@ -320,7 +322,7 @@ class TestUpdateOfficeInfo:
         latest_log = logs_after[0]
         assert latest_log.office_id == office.id
         assert latest_log.staff_id == owner.id
-        assert latest_log.action_type == "office_info_updated"
+        assert latest_log.action == "office.updated"
 
     async def test_update_office_info_sends_notification(
         self,
@@ -425,15 +427,20 @@ class TestGetOfficeAuditLogs:
         owner = await owner_user_factory()
         office = owner.office_associations[0].office if owner.office_associations else None
 
-        # テスト用の監査ログを作成
+        # テスト用の監査ログを作成（統合監査ログを使用）
         for i in range(3):
-            await crud.office_audit_log.create_office_update_log(
+            await crud.audit_log.create_log(
                 db=db_session,
+                actor_id=owner.id,
+                action="office.updated",
+                target_type="office",
+                target_id=office.id,
                 office_id=office.id,
-                staff_id=owner.id,
-                action_type="office_info_updated",
-                old_values={"name": f"旧名称{i}"},
-                new_values={"name": f"新名称{i}"}
+                actor_role=owner.role.value,
+                details={
+                    "old_values": {"name": f"旧名称{i}"},
+                    "new_values": {"name": f"新名称{i}"}
+                }
             )
         await db_session.commit()
 

@@ -20,8 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.office import Office
 from app.models.staff import Staff
 from app.models.welfare_recipient import WelfareRecipient
-from app.models.role_change_request import RoleChangeRequest
-from app.models.employee_action_request import EmployeeActionRequest
+from app.models.approval_request import ApprovalRequest
 from app.models.notice import Notice
 from tests.utils.db_cleanup import db_cleanup
 
@@ -69,20 +68,14 @@ class TestDatabaseCleanup:
             "gmail.comなどの実ユーザーは問題ありません。"
         )
 
-        # RoleChangeRequestsテーブル（すべてテストデータと仮定）
+        # ApprovalRequestsテーブル（すべてテストデータと仮定）
+        # 注: RoleChangeRequest と EmployeeActionRequest は ApprovalRequest に統合済み
         result = await db_session.execute(
-            select(func.count()).select_from(RoleChangeRequest)
+            select(func.count()).select_from(ApprovalRequest)
         )
-        request_count = result.scalar()
-        assert request_count == 0, f"RoleChangeRequestsが{request_count}件残っています"
-
-        # EmployeeActionRequestsテーブル（すべてテストデータと仮定）
-        result = await db_session.execute(
-            select(func.count()).select_from(EmployeeActionRequest)
-        )
-        action_request_count = result.scalar()
-        assert action_request_count == 0, (
-            f"EmployeeActionRequestsが{action_request_count}件残っています"
+        approval_request_count = result.scalar()
+        assert approval_request_count == 0, (
+            f"ApprovalRequestsが{approval_request_count}件残っています"
         )
 
     async def test_transaction_rollback_after_test(

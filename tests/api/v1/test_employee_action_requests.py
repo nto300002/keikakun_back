@@ -1,7 +1,9 @@
 """
-Employee制限リクエストAPIのテスト
+Employee制限リクエストAPIのテスト（統合テーブル版）
 
 TDD (Test-Driven Development) によるテスト実装
+
+注意: 統合approval_requestsテーブルを使用しています
 """
 
 import pytest
@@ -10,9 +12,9 @@ from datetime import timedelta, date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import StaffRole, RequestStatus, ActionType, ResourceType, GenderType
-from app.models.employee_action_request import EmployeeActionRequest
-from app.crud.crud_employee_action_request import crud_employee_action_request
+from app.models.enums import StaffRole, RequestStatus, ActionType, ResourceType, GenderType, ApprovalResourceType
+from app.models.approval_request import ApprovalRequest
+from app.crud.crud_approval_request import approval_request
 from app.schemas.employee_action_request import EmployeeActionRequestCreate
 from app.core.security import create_access_token
 from app.core.config import settings
@@ -61,7 +63,8 @@ async def test_create_employee_action_request(
     assert data["resource_type"] == "welfare_recipient"
     assert data["action_type"] == "create"
     assert data["status"] == "pending"
-    assert data["request_data"]["last_name"] == "テスト"
+    # 統合テーブルではrequest_data内にoriginal_request_dataがネストされている
+    assert data["request_data"]["original_request_data"]["last_name"] == "テスト"
 
 
 async def test_create_employee_action_request_update(
@@ -158,26 +161,22 @@ async def test_get_my_employee_action_requests(
     office_id = employee.office_associations[0].office_id
 
     # リクエストを2つ作成
-    request1 = await crud_employee_action_request.create(
+    request1 = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data1"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office_id
+        office_id=office_id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data1"}
     )
-    request2 = await crud_employee_action_request.create(
+    request2 = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.update,
-            resource_id=uuid.uuid4(),
-            request_data={"test": "data2"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office_id
+        office_id=office_id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.update.value,
+        resource_id=uuid.uuid4(),
+        original_request_data={"test": "data2"}
     )
     await db_session.commit()
 
@@ -209,15 +208,13 @@ async def test_get_pending_requests_for_approval_as_manager(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # employeeからのリクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
     await db_session.commit()
 
@@ -251,22 +248,20 @@ async def test_approve_employee_action_request_as_manager(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={
-                "last_name": "テスト",
-                "first_name": "太郎",
-                "last_name_furigana": "テスト",
-                "first_name_furigana": "タロウ",
-                "birth_day": "1990-01-01",
-                "gender": "male"
-            }
-        ),
         requester_staff_id=employee.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={
+            "last_name": "テスト",
+            "first_name": "太郎",
+            "last_name_furigana": "テスト",
+            "first_name_furigana": "タロウ",
+            "birth_day": "1990-01-01",
+            "gender": "male"
+        }
     )
     await db_session.commit()
 
@@ -305,22 +300,20 @@ async def test_approve_employee_action_request_as_owner(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={
-                "last_name": "テスト",
-                "first_name": "花子",
-                "last_name_furigana": "テスト",
-                "first_name_furigana": "ハナコ",
-                "birth_day": "1995-05-05",
-                "gender": "female"
-            }
-        ),
         requester_staff_id=employee.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={
+            "last_name": "テスト",
+            "first_name": "花子",
+            "last_name_furigana": "テスト",
+            "first_name_furigana": "ハナコ",
+            "birth_day": "1995-05-05",
+            "gender": "female"
+        }
     )
     await db_session.commit()
 
@@ -355,15 +348,13 @@ async def test_approve_employee_action_request_insufficient_permission(
     requester = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=requester.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
     await db_session.commit()
 
@@ -397,21 +388,19 @@ async def test_approve_employee_action_request_already_approved(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成と承認
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
-    await crud_employee_action_request.approve(
+    await approval_request.approve(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=manager.id,
-        approver_notes="承認済み"
+        reviewer_staff_id=manager.id,
+        reviewer_notes="承認済み"
     )
     await db_session.commit()
 
@@ -449,15 +438,13 @@ async def test_reject_employee_action_request(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
     await db_session.commit()
 
@@ -497,15 +484,13 @@ async def test_delete_pending_employee_action_request(
     office_id = employee.office_associations[0].office_id
 
     # リクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office_id
+        office_id=office_id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
     await db_session.commit()
 
@@ -519,7 +504,7 @@ async def test_delete_pending_employee_action_request(
     assert response.status_code == 204
 
     # DBから削除されていることを確認
-    deleted_request = await crud_employee_action_request.get(db_session, id=request.id)
+    deleted_request = await approval_request.get(db_session, id=request.id)
     assert deleted_request is None
 
 
@@ -536,20 +521,18 @@ async def test_delete_approved_employee_action_request_fails(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成と承認
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=employee.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
-    await crud_employee_action_request.approve(
+    await approval_request.approve(
         db=db_session,
         request_id=request.id,
-        approver_staff_id=manager.id
+        reviewer_staff_id=manager.id
     )
     await db_session.commit()
 
@@ -575,15 +558,13 @@ async def test_delete_others_employee_action_request_fails(
     employee2 = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # employee1がリクエスト作成
-    request = await crud_employee_action_request.create(
+    request = await approval_request.create_employee_action_request(
         db=db_session,
-        obj_in=EmployeeActionRequestCreate(
-            resource_type=ResourceType.welfare_recipient,
-            action_type=ActionType.create,
-            request_data={"test": "data"}
-        ),
         requester_staff_id=employee1.id,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={"test": "data"}
     )
     await db_session.commit()
 

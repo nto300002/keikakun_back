@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, computed_field
 from typing import Optional
 from datetime import datetime
 import uuid
@@ -20,23 +20,62 @@ class EmployeeActionRequestCreate(EmployeeActionRequestBase):
 
 
 class EmployeeActionRequestRead(BaseModel):
-    """Employee制限リクエスト読み取りスキーマ"""
+    """
+    Employee制限リクエスト読み取りスキーマ（統合ApprovalRequest対応）
+
+    注意: 統合approval_requestsテーブルのデータを旧フォーマットに変換して返します
+    """
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     requester_staff_id: uuid.UUID
     office_id: uuid.UUID
-    resource_type: ResourceType
-    action_type: ActionType
-    resource_id: Optional[uuid.UUID]
-    request_data: Optional[dict]
     status: RequestStatus
-    approved_by_staff_id: Optional[uuid.UUID]
-    approved_at: Optional[datetime]
-    approver_notes: Optional[str]
-    execution_result: Optional[dict]
     created_at: datetime
     updated_at: datetime
+    execution_result: Optional[dict] = None
+
+    # 統合モデルのrequest_dataから抽出
+    request_data: Optional[dict] = None
+
+    @computed_field
+    @property
+    def resource_type(self) -> Optional[ResourceType]:
+        """request_dataからresource_typeを抽出"""
+        if self.request_data and "resource_type" in self.request_data:
+            try:
+                return ResourceType(self.request_data["resource_type"])
+            except (ValueError, KeyError):
+                return None
+        return None
+
+    @computed_field
+    @property
+    def action_type(self) -> Optional[ActionType]:
+        """request_dataからaction_typeを抽出"""
+        if self.request_data and "action_type" in self.request_data:
+            try:
+                return ActionType(self.request_data["action_type"])
+            except (ValueError, KeyError):
+                return None
+        return None
+
+    @computed_field
+    @property
+    def resource_id(self) -> Optional[uuid.UUID]:
+        """request_dataからresource_idを抽出"""
+        if self.request_data and "resource_id" in self.request_data:
+            try:
+                return uuid.UUID(self.request_data["resource_id"])
+            except (ValueError, KeyError, TypeError):
+                return None
+        return None
+
+    # reviewed_by_staff_id を approved_by_staff_id にマッピング（後方互換性）
+    # Pydantic v2: serialization_aliasを使用してレスポンスのフィールド名を変更
+    reviewed_by_staff_id: Optional[uuid.UUID] = Field(None, serialization_alias="approved_by_staff_id")
+    reviewed_at: Optional[datetime] = Field(None, serialization_alias="approved_at")
+    reviewer_notes: Optional[str] = Field(None, serialization_alias="approver_notes")
 
 
 class EmployeeActionRequestApprove(BaseModel):

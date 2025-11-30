@@ -1,8 +1,10 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
+import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import and_
 from fastapi import HTTPException
 
 from app.crud.base import CRUDBase
@@ -82,6 +84,94 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         await db.refresh(office)
 
         return office
+
+    async def soft_delete(
+        self,
+        db: AsyncSession,
+        *,
+        office_id: UUID,
+        deleted_by: UUID
+    ) -> Office:
+        """
+        事務所を論理削除
+
+        Args:
+            db: データベースセッション
+            office_id: 削除対象の事務所ID
+            deleted_by: 削除実行者のスタッフID
+
+        Returns:
+            論理削除された事務所
+
+        Raises:
+            HTTPException: 事務所が見つからない場合、既に削除済みの場合
+        """
+        office = await db.get(Office, office_id)
+        if not office:
+            raise HTTPException(status_code=404, detail="Office not found")
+
+        if office.is_deleted:
+            raise HTTPException(status_code=409, detail="Office is already deleted")
+
+        office.is_deleted = True
+        office.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        office.deleted_by = deleted_by
+
+        await db.flush()
+        await db.refresh(office)
+
+        return office
+
+    async def get_active_offices(
+        self,
+        db: AsyncSession,
+        *,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Office]:
+        """
+        アクティブな（論理削除されていない）事務所一覧を取得
+        """
+        result = await db.execute(
+            select(Office)
+            .where(Office.is_deleted == False)  # noqa: E712
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_active_by_id(
+        self,
+        db: AsyncSession,
+        office_id: UUID
+    ) -> Optional[Office]:
+        """
+        IDでアクティブな事務所を取得（論理削除されたものは除外）
+        """
+        result = await db.execute(
+            select(Office)
+            .where(
+                and_(
+                    Office.id == office_id,
+                    Office.is_deleted == False  # noqa: E712
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_staff_ids_by_office(
+        self,
+        db: AsyncSession,
+        office_id: UUID
+    ) -> List[UUID]:
+        """
+        事務所に所属するスタッフIDの一覧を取得
+        """
+        result = await db.execute(
+            select(OfficeStaff.staff_id)
+            .where(OfficeStaff.office_id == office_id)
+        )
+        return [row[0] for row in result.all()]
 
 
 crud_office = CRUDOffice(Office)

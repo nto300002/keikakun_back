@@ -10,9 +10,9 @@ from datetime import timedelta
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import StaffRole, RequestStatus
-from app.models.role_change_request import RoleChangeRequest
-from app.crud.crud_role_change_request import crud_role_change_request
+from app.models.enums import StaffRole, RequestStatus, ApprovalResourceType
+from app.models.approval_request import ApprovalRequest
+from app.crud.crud_approval_request import approval_request
 from app.core.security import create_access_token
 from app.core.config import settings
 
@@ -56,7 +56,7 @@ async def test_create_role_change_request_employee_to_manager(
     assert data["request_notes"] == payload["request_notes"]
 
     # DB確認
-    request = await crud_role_change_request.get(db_session, id=uuid.UUID(data["id"]))
+    request = await approval_request.get(db_session, id=uuid.UUID(data["id"]))
     assert request is not None
     assert request.requester_staff_id == employee.id
 
@@ -169,20 +169,23 @@ async def test_get_my_role_change_requests(
     office_id = employee.office_associations[0].office_id
 
     # リクエストを2つ作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request1 = await crud_role_change_request.create(
+    request1 = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager, request_notes="リクエスト1"),
         requester_staff_id=employee.id,
         office_id=office_id,
-        from_role=StaffRole.employee
+        from_role=StaffRole.employee,
+        requested_role=StaffRole.manager,
+        request_notes="リクエスト1",
+        is_test_data=False
     )
-    request2 = await crud_role_change_request.create(
+    request2 = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.owner, request_notes="リクエスト2"),
         requester_staff_id=employee.id,
         office_id=office_id,
-        from_role=StaffRole.employee
+        from_role=StaffRole.employee,
+        requested_role=StaffRole.owner,
+        request_notes="リクエスト2",
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -216,13 +219,13 @@ async def test_get_pending_requests_for_approval_as_manager(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # employeeからのリクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee.id,
         office_id=office.id,
-        from_role=StaffRole.employee
+        from_role=StaffRole.employee,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -256,13 +259,14 @@ async def test_approve_role_change_request_as_manager(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee.id,
         office_id=office.id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -304,13 +308,14 @@ async def test_approve_role_change_request_as_owner(
     manager = await manager_user_factory(office=office, role=StaffRole.manager)
 
     # リクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.owner),
         requester_staff_id=manager.id,
         office_id=office.id,
         from_role=StaffRole.manager
+    ,
+        requested_role=StaffRole.owner,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -349,13 +354,14 @@ async def test_approve_role_change_request_insufficient_permission(
     requester = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=requester.id,
         office_id=office.id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -388,13 +394,14 @@ async def test_approve_role_change_request_manager_cannot_approve_manager_to_own
     requester_manager = await manager_user_factory(office=office, role=StaffRole.manager)
 
     # リクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.owner),
         requester_staff_id=requester_manager.id,
         office_id=office.id,
         from_role=StaffRole.manager
+    ,
+        requested_role=StaffRole.owner,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -428,15 +435,16 @@ async def test_approve_role_change_request_already_approved(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成と承認
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee.id,
         office_id=office.id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
-    await crud_role_change_request.approve(
+    await approval_request.approve(
         db=db_session,
         request_id=request.id,
         reviewer_staff_id=manager.id,
@@ -478,13 +486,14 @@ async def test_reject_role_change_request(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee.id,
         office_id=office.id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -528,13 +537,14 @@ async def test_delete_pending_role_change_request(
     office_id = employee.office_associations[0].office_id
 
     # リクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee.id,
         office_id=office_id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
     await db_session.commit()
 
@@ -548,7 +558,7 @@ async def test_delete_pending_role_change_request(
     assert response.status_code == 204
 
     # DBから削除されていることを確認
-    deleted_request = await crud_role_change_request.get(db_session, id=request.id)
+    deleted_request = await approval_request.get(db_session, id=request.id)
     assert deleted_request is None
 
 
@@ -565,15 +575,16 @@ async def test_delete_approved_role_change_request_fails(
     employee = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # リクエスト作成と承認
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee.id,
         office_id=office.id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
-    await crud_role_change_request.approve(
+    await approval_request.approve(
         db=db_session,
         request_id=request.id,
         reviewer_staff_id=manager.id
@@ -602,13 +613,14 @@ async def test_delete_others_role_change_request_fails(
     employee2 = await employee_user_factory(office=office, role=StaffRole.employee)
 
     # employee1がリクエスト作成
-    from app.schemas.role_change_request import RoleChangeRequestCreate
-    request = await crud_role_change_request.create(
+    request = await approval_request.create_role_change_request(
         db=db_session,
-        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager),
         requester_staff_id=employee1.id,
         office_id=office.id,
         from_role=StaffRole.employee
+    ,
+        requested_role=StaffRole.manager,
+        is_test_data=False
     )
     await db_session.commit()
 
