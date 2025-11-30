@@ -18,8 +18,8 @@ class TestStaffRole:
         assert StaffRole.owner.value == 'owner'
 
     def test_staff_role_members(self):
-        """StaffRoleのメンバーが3つであることを確認"""
-        assert len(StaffRole) == 3
+        """StaffRoleのメンバーが4つであることを確認 (employee, manager, owner, app_admin)"""
+        assert len(StaffRole) == 4
 
     def test_staff_role_comparison(self):
         """StaffRoleの比較テスト"""

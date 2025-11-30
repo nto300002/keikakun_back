@@ -42,7 +42,14 @@ class AuditLog(Base):
     - staff.*: スタッフ関連操作（削除、作成、更新、パスワード変更等）
     - office.*: 事務所関連操作（情報更新等）
     - withdrawal.*: 退会関連操作（リクエスト、承認、実行等）
+    - terms.*: 利用規約同意関連操作（同意記録等）
     - profile.*: プロフィール変更（名前、メール等）
+
+    target_type: AuditLogTargetType (app/models/enums.py)
+        - staff: スタッフ関連操作
+        - office: 事務所関連操作
+        - withdrawal_request: 退会リクエスト関連操作
+        - terms_agreement: 利用規約同意記録
     """
     __tablename__ = 'audit_logs'
 
