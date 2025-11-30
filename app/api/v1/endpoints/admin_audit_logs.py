@@ -62,7 +62,7 @@ async def get_audit_logs(
         items.append(log_dict)
 
     return {
-        "items": items,  # 標準的なページネーション形式
+        "logs": items,  # フロントエンドの期待値に合わせて "logs" を使用
         "total": total,
         "skip": skip,
         "limit": limit

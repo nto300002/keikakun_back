@@ -92,13 +92,13 @@ async def test_get_audit_logs_success(
     assert response.status_code == 200
     data = response.json()
 
-    assert "items" in data
+    assert "logs" in data
     assert "total" in data
-    assert len(data["items"]) >= 2  # 最低2件
+    assert len(data["logs"]) >= 2  # 最低2件
     assert data["total"] >= 2
 
     # 最新のログが最初に来る（降順）
-    assert data["items"][0]["action"] == "staff.deleted"
+    assert data["logs"][0]["action"] == "staff.deleted"
 
 
 async def test_filter_by_target_type_staff(
@@ -166,8 +166,8 @@ async def test_filter_by_target_type_staff(
     assert response.status_code == 200
     data = response.json()
 
-    assert len(data["items"]) >= 1
-    for item in data["items"]:
+    assert len(data["logs"]) >= 1
+    for item in data["logs"]:
         assert item["target_type"] == "staff"
 
 
@@ -223,7 +223,7 @@ async def test_pagination(
     assert response1.status_code == 200
     data1 = response1.json()
 
-    assert len(data1["items"]) == 2
+    assert len(data1["logs"]) == 2
     assert data1["total"] >= 4
     assert data1["skip"] == 0
     assert data1["limit"] == 2
@@ -238,7 +238,7 @@ async def test_pagination(
     assert response2.status_code == 200
     data2 = response2.json()
 
-    assert len(data2["items"]) >= 2
+    assert len(data2["logs"]) >= 2
     assert data2["total"] >= 4
     assert data2["skip"] == 2
     assert data2["limit"] == 2
