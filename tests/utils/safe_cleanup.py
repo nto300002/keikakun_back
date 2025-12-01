@@ -281,10 +281,12 @@ class SafeTestDataCleanup:
                     result["approval_requests"] = approval_result.rowcount
 
             # 2. テスト事業所を削除
+            # 解決策C: is_test_dataフラグも条件に含める
             office_result = await db.execute(
                 text("""
                     DELETE FROM offices
-                    WHERE name LIKE '%テスト事業所%'
+                    WHERE is_test_data = TRUE
+                       OR name LIKE '%テスト事業所%'
                        OR name LIKE '%test%'
                        OR name LIKE '%Test%'
                 """)
@@ -349,6 +351,24 @@ class SafeTestDataCleanup:
                             "target_ids": list(target_staff_ids)
                         }
                     )
+                else:
+                    # 解決策C: replacement staffが見つからない場合、
+                    # 削除対象staffを参照しているofficesを先に削除
+                    offices_to_delete = await db.execute(
+                        text("""
+                            DELETE FROM offices
+                            WHERE created_by = ANY(:target_ids)
+                               OR last_modified_by = ANY(:target_ids)
+                            RETURNING id
+                        """),
+                        {"target_ids": list(target_staff_ids)}
+                    )
+                    deleted_office_count = len(offices_to_delete.fetchall())
+                    if deleted_office_count > 0:
+                        logger.info(
+                            f"Deleted {deleted_office_count} offices referencing target staffs "
+                            "(no replacement staff found)"
+                        )
 
                 # スタッフを削除
                 delete_staff_result = await db.execute(

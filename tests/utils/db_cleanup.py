@@ -188,9 +188,11 @@ class DatabaseCleanup:
                     logger.info(f"Deleted {apr_result.rowcount} approval_requests")
 
             # 1. テスト事業所の削除（関連データ削除後）
+            # 解決策C: is_test_dataフラグも条件に含める
             office_query = text("""
                 DELETE FROM offices
-                WHERE name LIKE '%テスト%'
+                WHERE is_test_data = TRUE
+                   OR name LIKE '%テスト%'
                    OR name LIKE '%test%'
                    OR name LIKE '%Test%'
                 RETURNING id
@@ -258,6 +260,24 @@ class DatabaseCleanup:
                             "target_ids": list(target_staff_ids)
                         }
                     )
+                else:
+                    # 解決策C: replacement staffが見つからない場合、
+                    # 削除対象staffを参照しているofficesを先に削除
+                    offices_to_delete = await db.execute(
+                        text("""
+                            DELETE FROM offices
+                            WHERE created_by = ANY(:target_ids)
+                               OR last_modified_by = ANY(:target_ids)
+                            RETURNING id
+                        """),
+                        {"target_ids": list(target_staff_ids)}
+                    )
+                    deleted_office_count = len(offices_to_delete.fetchall())
+                    if deleted_office_count > 0:
+                        logger.info(
+                            f"Deleted {deleted_office_count} offices referencing target staffs "
+                            "(no replacement staff found)"
+                        )
 
                 # スタッフを削除（CASCADE）
                 delete_staff_query = text("""
