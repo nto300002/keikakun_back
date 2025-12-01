@@ -198,11 +198,32 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 削除済みスタッフチェック
+    # app_admin以外の場合、所属事務所の削除済みチェック（スタッフチェックより先に実行）
+    if user.role != StaffRole.app_admin:
+        # 事務所情報を取得（office_associationsを利用）
+        stmt = select(models.Staff).options(
+            selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
+        ).where(models.Staff.id == user.id)
+        result = await db.execute(stmt)
+        user_with_offices = result.scalar_one_or_none()
+
+        if user_with_offices and user_with_offices.office_associations:
+            # いずれかの事務所が削除済みの場合、ログイン拒否
+            for office_assoc in user_with_offices.office_associations:
+                if office_assoc.office and office_assoc.office.is_deleted:
+                    # 事務所退会の場合は専用のメッセージ
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="所属事務所が退会済みのため、ログインできません",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+    # 削除済みスタッフチェック（事務所チェックの後に実行）
     if user.is_deleted:
+        # スタッフ個人が削除された場合のメッセージ
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=ja.PERM_ACCOUNT_DELETED,
+            detail="このアカウントは削除されています",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

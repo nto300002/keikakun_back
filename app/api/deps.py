@@ -121,7 +121,22 @@ async def get_current_user(
         logger.warning(f"User not found for id: {user_id}")
         raise credentials_exception
 
-    # 削除済みスタッフチェック
+    # app_admin以外の場合、所属事務所の削除済みチェック（スタッフチェックより先に実行）
+    from app.models.enums import StaffRole
+    if user.role != StaffRole.app_admin:
+        if user.office_associations:
+            # いずれかの事務所が削除済みの場合、アクセス拒否
+            for office_assoc in user.office_associations:
+                if office_assoc.office and office_assoc.office.is_deleted:
+                    print(f"User's office is deleted: office_id={office_assoc.office.id}")
+                    logger.warning(f"User {user.email} attempted access with deleted office: office_id={office_assoc.office.id}")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="所属事務所が退会済みのため、アクセスできません",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+    # 削除済みスタッフチェック（事務所チェックの後に実行）
     if user.is_deleted:
         print(f"User is deleted: {user.email}")
         logger.warning(f"Deleted user attempted access: {user.email}")
