@@ -1,4 +1,5 @@
 import uuid
+import os
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
@@ -27,6 +28,9 @@ class CRUDStaff:
         return result.scalar_one_or_none()
 
     async def create_admin(self, db: AsyncSession, *, obj_in: AdminCreate) -> Staff:
+        # テスト環境の場合はis_test_data=Trueを設定
+        is_test_data = os.getenv("TESTING") == "1"
+
         db_obj = Staff(
             email=obj_in.email,
             hashed_password=get_password_hash(obj_in.password),
@@ -34,6 +38,7 @@ class CRUDStaff:
             last_name=obj_in.last_name,
             full_name=f"{obj_in.last_name} {obj_in.first_name}",
             role=StaffRole.owner,
+            is_test_data=is_test_data,
         )
         db.add(db_obj)
         await db.flush()  # トランザクションはテスト側で管理するためcommitはしない
@@ -41,6 +46,9 @@ class CRUDStaff:
         return db_obj
 
     async def create_staff(self, db: AsyncSession, *, obj_in: StaffCreate) -> Staff:
+        # テスト環境の場合はis_test_data=Trueを設定
+        is_test_data = os.getenv("TESTING") == "1"
+
         db_obj = Staff(
             email=obj_in.email,
             hashed_password=get_password_hash(obj_in.password),
@@ -48,6 +56,7 @@ class CRUDStaff:
             last_name=obj_in.last_name,
             full_name=f"{obj_in.last_name} {obj_in.first_name}",
             role=obj_in.role,
+            is_test_data=is_test_data,
         )
         db.add(db_obj)
         await db.flush()  # トランザクションはテスト側で管理するためcommitはしない

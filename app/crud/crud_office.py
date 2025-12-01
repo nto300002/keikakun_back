@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import datetime
+import os
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -21,11 +22,15 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         """
         Officeを作成し、作成者をOfficeStaffとして関連付けます。
         """
+        # テスト環境の場合はis_test_data=Trueを設定
+        is_test_data = os.getenv("TESTING") == "1"
+
         db_office = Office(
             name=obj_in.name,
             type=obj_in.office_type,  # スキーマのoffice_typeをモデルのtypeにマッピング
             created_by=user.id,
             last_modified_by=user.id,
+            is_test_data=is_test_data,
         )
         db.add(db_office)
         await db.flush()  # OfficeをDBにINSERTし、IDを確定させる
@@ -34,9 +39,10 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
             staff_id=user.id,
             office_id=db_office.id,
             is_primary=True,
+            is_test_data=is_test_data,
         )
         db.add(office_staff)
-        
+
         await db.commit()
         await db.refresh(db_office)
         return db_office
