@@ -21,6 +21,7 @@ from app.models.enums import StaffRole, RequestStatus, ApprovalResourceType
 from app.models.approval_request import ApprovalRequest
 from app.crud.crud_approval_request import approval_request as crud_approval_request
 from app.crud.crud_audit_log import audit_log as crud_audit_log
+from app.services.withdrawal_service import withdrawal_service
 from app.schemas.withdrawal_request import (
     WithdrawalRequestCreate,
     WithdrawalRequestRead,
@@ -273,38 +274,38 @@ async def approve_withdrawal_request(
             detail=ja.WITHDRAWAL_ALREADY_PROCESSED.format(status=approval_req.status.value)
         )
 
-    # CRUD層を使用して承認処理
-    approved_request = await crud_approval_request.approve(
-        db,
+    # レスポンス用に必要な情報を事前にキャッシュ（退会処理でリソースが削除される前に）
+    requester_name = approval_req.requester.full_name if approval_req.requester else None
+    office_name = approval_req.office.name if approval_req.office else None
+    request_data = approval_req.request_data or {}
+
+    # withdrawal_serviceを使用して承認処理（実際の退会処理も実行）
+    ip_address, user_agent = _get_client_info(request)
+    approved_request = await withdrawal_service.approve_withdrawal(
+        db=db,
         request_id=request_id,
         reviewer_staff_id=current_user.id,
-        reviewer_notes=obj_in.reviewer_notes
-    )
-
-    # 監査ログを記録
-    ip_address, user_agent = _get_client_info(request)
-    await crud_audit_log.create_log(
-        db,
-        actor_id=current_user.id,
-        action="withdrawal.approved",
-        target_type="withdrawal_request",
-        target_id=request_id,
-        office_id=approval_req.office_id,
-        actor_role=current_user.role.value,
+        reviewer_notes=obj_in.reviewer_notes,
         ip_address=ip_address,
-        user_agent=user_agent,
-        details={
-            "reviewer_notes": obj_in.reviewer_notes,
-            "requester_staff_id": str(approval_req.requester_staff_id)
-        },
-        is_test_data=getattr(approval_req, 'is_test_data', False)
+        user_agent=user_agent
     )
 
-    # commit前にリレーションをロード
-    loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
-
-    # commit前にレスポンスデータを生成（MissingGreenletエラー対策）
-    response_data = _to_withdrawal_response(loaded_request)
+    # レスポンスデータを生成（キャッシュした情報を使用）
+    response_data = WithdrawalRequestRead(
+        id=approved_request.id,
+        requester_staff_id=approved_request.requester_staff_id,
+        office_id=approved_request.office_id,
+        status=approved_request.status,
+        title=request_data.get("title", ""),
+        reason=request_data.get("reason", ""),
+        reviewed_by_staff_id=approved_request.reviewed_by_staff_id,
+        reviewed_at=approved_request.reviewed_at,
+        reviewer_notes=approved_request.reviewer_notes,
+        created_at=approved_request.created_at,
+        updated_at=approved_request.updated_at,
+        requester_name=requester_name,
+        office_name=office_name
+    )
 
     # commitはレスポンス生成後に実行
     await db.commit()
@@ -352,38 +353,38 @@ async def reject_withdrawal_request(
             detail=ja.WITHDRAWAL_ALREADY_PROCESSED.format(status=approval_req.status.value)
         )
 
-    # CRUD層を使用して却下処理
-    rejected_request = await crud_approval_request.reject(
-        db,
+    # レスポンス用に必要な情報を事前にキャッシュ
+    requester_name = approval_req.requester.full_name if approval_req.requester else None
+    office_name = approval_req.office.name if approval_req.office else None
+    request_data = approval_req.request_data or {}
+
+    # withdrawal_serviceを使用して却下処理
+    ip_address, user_agent = _get_client_info(request)
+    rejected_request = await withdrawal_service.reject_withdrawal(
+        db=db,
         request_id=request_id,
         reviewer_staff_id=current_user.id,
-        reviewer_notes=obj_in.reviewer_notes
-    )
-
-    # 監査ログを記録
-    ip_address, user_agent = _get_client_info(request)
-    await crud_audit_log.create_log(
-        db,
-        actor_id=current_user.id,
-        action="withdrawal.rejected",
-        target_type="withdrawal_request",
-        target_id=request_id,
-        office_id=approval_req.office_id,
-        actor_role=current_user.role.value,
+        reviewer_notes=obj_in.reviewer_notes,
         ip_address=ip_address,
-        user_agent=user_agent,
-        details={
-            "reviewer_notes": obj_in.reviewer_notes,
-            "requester_staff_id": str(approval_req.requester_staff_id)
-        },
-        is_test_data=getattr(approval_req, 'is_test_data', False)
+        user_agent=user_agent
     )
 
-    # commit前にリレーションをロード
-    loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
-
-    # commit前にレスポンスデータを生成（MissingGreenletエラー対策）
-    response_data = _to_withdrawal_response(loaded_request)
+    # レスポンスデータを生成（キャッシュした情報を使用）
+    response_data = WithdrawalRequestRead(
+        id=rejected_request.id,
+        requester_staff_id=rejected_request.requester_staff_id,
+        office_id=rejected_request.office_id,
+        status=rejected_request.status,
+        title=request_data.get("title", ""),
+        reason=request_data.get("reason", ""),
+        reviewed_by_staff_id=rejected_request.reviewed_by_staff_id,
+        reviewed_at=rejected_request.reviewed_at,
+        reviewer_notes=rejected_request.reviewer_notes,
+        created_at=rejected_request.created_at,
+        updated_at=rejected_request.updated_at,
+        requester_name=requester_name,
+        office_name=office_name
+    )
 
     # commitはレスポンス生成後に実行
     await db.commit()

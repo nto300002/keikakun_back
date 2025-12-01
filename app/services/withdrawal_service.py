@@ -446,7 +446,7 @@ class WithdrawalService:
         """
         スタッフ退会処理を実行
 
-        スタッフを物理削除（CASCADE設定により関連データも削除）
+        スタッフを論理削除（30日後に物理削除される予定）
 
         Args:
             db: データベースセッション
@@ -480,7 +480,7 @@ class WithdrawalService:
         await crud_audit_log.create_log(
             db,
             actor_id=executor_id,
-            action="staff.deleted",
+            action="staff.soft_deleted",
             target_type="staff",
             target_id=target_staff_id,
             office_id=request.office_id,
@@ -488,30 +488,30 @@ class WithdrawalService:
             user_agent=user_agent,
             details={
                 "deleted_staff": staff_info,
-                "withdrawal_request_id": str(request.id)
+                "withdrawal_request_id": str(request.id),
+                "deletion_type": "soft_delete",
+                "note": "30日後に物理削除される予定"
             }
         )
 
-        # 関連するoffice_staffsレコードを先に削除
-        await db.execute(
-            delete(OfficeStaff).where(OfficeStaff.staff_id == target_staff_id)
-        )
-
-        # スタッフを物理削除
-        await db.execute(
-            delete(Staff).where(Staff.id == target_staff_id)
+        # スタッフを論理削除
+        await crud_staff.soft_delete(
+            db,
+            staff_id=target_staff_id,
+            deleted_by=executor_id
         )
         await db.flush()
 
         logger.info(
-            f"Staff withdrawn (hard deleted): staff_id={target_staff_id}, "
-            f"email={staff_info['email']}"
+            f"Staff withdrawn (soft deleted): staff_id={target_staff_id}, "
+            f"email={staff_info['email']}, will be hard deleted after 30 days"
         )
 
         return {
             "success": True,
             "withdrawal_type": "staff",
-            "deleted_staff": staff_info
+            "deleted_staff": staff_info,
+            "deletion_type": "soft_delete"
         }
 
     async def _execute_office_withdrawal(
@@ -588,13 +588,13 @@ class WithdrawalService:
             }
         )
 
-        # 所属スタッフを全員削除（物理削除）
+        # 所属スタッフを全員論理削除（30日後に物理削除される予定）
         for staff_id in staff_ids:
             # 各スタッフの削除ログを記録
             await crud_audit_log.create_log(
                 db,
                 actor_id=executor_id,
-                action="staff.deleted",
+                action="staff.soft_deleted",
                 target_type="staff",
                 target_id=staff_id,
                 office_id=office_id,
@@ -603,27 +603,17 @@ class WithdrawalService:
                 details={
                     "reason": "office_withdrawal",
                     "office_id": str(office_id),
-                    "withdrawal_request_id": str(request.id)
+                    "withdrawal_request_id": str(request.id),
+                    "deletion_type": "soft_delete",
+                    "note": "30日後に物理削除される予定"
                 }
             )
 
-        # 関連するoffice_staffsレコードを一括削除
-        await db.execute(
-            delete(OfficeStaff).where(OfficeStaff.office_id == office_id)
-        )
-
-        # 事務所のcreated_by, last_modified_byをexecutor_idに更新
-        # （削除対象スタッフを参照している可能性があるため）
-        await db.execute(
-            update(Office)
-            .where(Office.id == office_id)
-            .values(created_by=executor_id, last_modified_by=executor_id)
-        )
-
-        # スタッフを一括削除
-        if staff_ids:
-            await db.execute(
-                delete(Staff).where(Staff.id.in_(staff_ids))
+            # スタッフを論理削除
+            await crud_staff.soft_delete(
+                db,
+                staff_id=staff_id,
+                deleted_by=executor_id
             )
 
         # 事務所を論理削除
@@ -637,14 +627,16 @@ class WithdrawalService:
 
         logger.info(
             f"Office withdrawn (soft deleted): office_id={office_id}, "
-            f"name={office_info['name']}, deleted_staff_count={len(staff_ids)}"
+            f"name={office_info['name']}, soft_deleted_staff_count={len(staff_ids)}, "
+            f"staff will be hard deleted after 30 days"
         )
 
         return {
             "success": True,
             "withdrawal_type": "office",
             "deleted_office": office_info,
-            "deleted_staff_count": len(staff_ids)
+            "deleted_staff_count": len(staff_ids),
+            "staff_deletion_type": "soft_delete"
         }
 
     # =====================================================

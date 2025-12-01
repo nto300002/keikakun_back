@@ -330,9 +330,12 @@ class TestWithdrawalApproval:
         assert approved_request.reviewed_by_staff_id == app_admin_id
         assert approved_request.reviewer_notes == "承認します"
 
-        # スタッフが削除されたことを確認
+        # スタッフが論理削除されたことを確認
         deleted_staff = await crud_staff.get(db, id=employee_id)
-        assert deleted_staff is None
+        assert deleted_staff is not None
+        assert deleted_staff.is_deleted is True
+        assert deleted_staff.deleted_at is not None
+        assert deleted_staff.deleted_by == app_admin_id
 
     async def test_approve_office_withdrawal(
         self,
@@ -368,13 +371,16 @@ class TestWithdrawalApproval:
         assert office.deleted_at is not None
         assert office.deleted_by == app_admin_id
 
-        # 全スタッフが削除されたことを確認
+        # 全スタッフが論理削除されたことを確認
         owner_check = await crud_staff.get(db, id=owner_id)
         manager_check = await crud_staff.get(db, id=manager_id)
         employee_check = await crud_staff.get(db, id=employee_id)
-        assert owner_check is None
-        assert manager_check is None
-        assert employee_check is None
+        assert owner_check is not None
+        assert owner_check.is_deleted is True
+        assert manager_check is not None
+        assert manager_check.is_deleted is True
+        assert employee_check is not None
+        assert employee_check.is_deleted is True
 
     async def test_approve_withdrawal_by_non_admin(
         self,
@@ -619,19 +625,20 @@ class TestWithdrawalRequestQuery:
 class TestWithdrawalExecution:
     """退会処理実行の検証テスト"""
 
-    async def test_staff_hard_delete_verification(
+    async def test_staff_soft_delete_verification(
         self,
         db: AsyncSession,
         setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
         setup_app_admin: UUID
     ):
-        """スタッフ退会時に物理削除されることを確認"""
+        """スタッフ退会時に論理削除されることを確認"""
         office_id, owner_id, manager_id, employee_id = setup_office_with_staff
         app_admin_id = setup_app_admin
 
         # 削除前の確認
         employee_before = await crud_staff.get(db, id=employee_id)
         assert employee_before is not None
+        assert employee_before.is_deleted is False
         employee_email = employee_before.email
 
         # リクエスト作成・承認
@@ -650,9 +657,12 @@ class TestWithdrawalExecution:
             reviewer_notes="承認"
         )
 
-        # 削除後の確認（物理削除なのでNone）
+        # 削除後の確認（論理削除なので存在するがis_deleted=True）
         employee_after = await crud_staff.get(db, id=employee_id)
-        assert employee_after is None
+        assert employee_after is not None
+        assert employee_after.is_deleted is True
+        assert employee_after.deleted_at is not None
+        assert employee_after.deleted_by == app_admin_id
 
     async def test_office_soft_delete_verification(
         self,
@@ -691,13 +701,13 @@ class TestWithdrawalExecution:
         assert office_after.deleted_at is not None
         assert office_after.deleted_by == app_admin_id
 
-    async def test_office_withdrawal_deletes_all_staff(
+    async def test_office_withdrawal_soft_deletes_all_staff(
         self,
         db: AsyncSession,
         setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
         setup_app_admin: UUID
     ):
-        """事務所退会時に全スタッフが物理削除されることを確認"""
+        """事務所退会時に全スタッフが論理削除されることを確認"""
         office_id, owner_id, manager_id, employee_id = setup_office_with_staff
         app_admin_id = setup_app_admin
 
@@ -720,10 +730,13 @@ class TestWithdrawalExecution:
             reviewer_notes="承認"
         )
 
-        # 全スタッフが削除されたことを確認
+        # 全スタッフが論理削除されたことを確認
         for staff_id in staff_ids_before:
             staff = await crud_staff.get(db, id=staff_id)
-            assert staff is None, f"Staff {staff_id} should be deleted"
+            assert staff is not None, f"Staff {staff_id} should exist"
+            assert staff.is_deleted is True, f"Staff {staff_id} should be soft deleted"
+            assert staff.deleted_at is not None
+            assert staff.deleted_by == app_admin_id
 
     async def test_execution_result_recorded(
         self,
@@ -756,3 +769,52 @@ class TestWithdrawalExecution:
         assert updated_request.execution_result is not None
         assert updated_request.execution_result["success"] is True
         assert updated_request.execution_result["withdrawal_type"] == "staff"
+
+    async def test_cannot_login_after_office_withdrawal(
+        self,
+        db: AsyncSession,
+        setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
+        setup_app_admin: UUID
+    ):
+        """事務所退会後は、その事務所のスタッフでログインできないことを確認"""
+        office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+        app_admin_id = setup_app_admin
+
+        # ログイン前の確認 - 事務所が有効であることを確認
+        office_before = await crud_office.get(db, id=office_id)
+        assert office_before is not None
+        assert office_before.is_deleted is False
+
+        # 事務所退会リクエスト作成・承認
+        request = await withdrawal_service.create_office_withdrawal_request(
+            db=db,
+            requester_staff_id=owner_id,
+            office_id=office_id,
+            reason="事業終了のため"
+        )
+
+        await withdrawal_service.approve_withdrawal(
+            db=db,
+            request_id=request.id,
+            reviewer_staff_id=app_admin_id,
+            reviewer_notes="承認"
+        )
+
+        # 退会後の確認 - 事務所が論理削除されていることを確認
+        office_after = await crud_office.get(db, id=office_id)
+        assert office_after is not None
+        assert office_after.is_deleted is True
+
+        # 全スタッフが論理削除されていることを確認
+        owner_check = await crud_staff.get(db, id=owner_id)
+        manager_check = await crud_staff.get(db, id=manager_id)
+        employee_check = await crud_staff.get(db, id=employee_id)
+        assert owner_check is not None
+        assert owner_check.is_deleted is True
+        assert manager_check is not None
+        assert manager_check.is_deleted is True
+        assert employee_check is not None
+        assert employee_check.is_deleted is True
+
+        # ログイン試行は、スタッフが論理削除されているため拒否される
+        # （is_deleted=Trueまたは所属事務所のis_deleted=Trueのチェックで失敗する）
