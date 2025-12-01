@@ -21,8 +21,7 @@ from app.models.support_plan_cycle import (
 from app.models.calendar_events import (
     CalendarEvent, CalendarEventSeries, CalendarEventInstance
 )
-from app.models.role_change_request import RoleChangeRequest
-from app.models.employee_action_request import EmployeeActionRequest
+from app.models.approval_request import ApprovalRequest
 from app.models.assessment import (
     FamilyOfServiceRecipients, WelfareServicesUsed, MedicalMatters,
     HistoryOfHospitalVisits, EmploymentRelated, IssueAnalysis
@@ -30,9 +29,10 @@ from app.models.assessment import (
 
 
 class TestIsTestDataFieldExistence:
-    """is_test_data フィールドが24モデルすべてに存在することを確認"""
+    """is_test_data フィールドが23モデルすべてに存在することを確認"""
 
-    # 必須テーブル群 (19モデル)
+    # 必須テーブル群 (18モデル)
+    # 注: RoleChangeRequest と EmployeeActionRequest は ApprovalRequest に統合済み
     REQUIRED_MODELS = [
         Office,
         Staff,
@@ -44,8 +44,7 @@ class TestIsTestDataFieldExistence:
         CalendarEventSeries,
         CalendarEventInstance,
         Notice,
-        RoleChangeRequest,
-        EmployeeActionRequest,
+        ApprovalRequest,
         ServiceRecipientDetail,
         DisabilityStatus,
         DisabilityDetail,
@@ -66,7 +65,7 @@ class TestIsTestDataFieldExistence:
 
     @pytest.mark.parametrize("model_class", REQUIRED_MODELS)
     def test_required_models_have_is_test_data_field(self, model_class):
-        """必須モデル(19個)に is_test_data フィールドが存在することを確認"""
+        """必須モデル(18個)に is_test_data フィールドが存在することを確認"""
         assert hasattr(model_class, 'is_test_data'), \
             f"{model_class.__name__} には is_test_data フィールドが必要です"
 
@@ -106,8 +105,8 @@ class TestIsTestDataFieldExistence:
         except AttributeError:
             pytest.fail(f"{model_class.__name__}.is_test_data のカラム定義が不正です")
 
-    def test_all_24_models_covered(self):
-        """24モデルすべてがテストでカバーされていることを確認"""
+    def test_all_23_models_covered(self):
+        """23モデルすべてがテストでカバーされていることを確認"""
         total_models = len(self.REQUIRED_MODELS) + len(self.OPTIONAL_MODELS)
-        assert total_models == 24, \
-            f"24モデルすべてをテストする必要があります（現在: {total_models}モデル）"
+        assert total_models == 23, \
+            f"23モデルすべてをテストする必要があります（現在: {total_models}モデル）"

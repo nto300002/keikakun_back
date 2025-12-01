@@ -242,12 +242,15 @@ class TestStaffAuditLogCRUDCreateAuditLog:
         target_staff = await employee_user_factory(office=office)
         performer = await owner_user_factory(office=office)
 
-        # create_audit_logを実行
-        audit_log = await crud.staff_audit_log.create_audit_log(
+        # create_logを実行
+        audit_log = await crud.audit_log.create_log(
             db=db_session,
-            staff_id=target_staff.id,
-            action="deleted",
-            performed_by=performer.id,
+            actor_id=performer.id,
+            actor_role=performer.role,
+            action="staff.deleted",
+            target_type="staff",
+            target_id=target_staff.id,
+            office_id=office.id,
             ip_address="192.168.1.1",
             user_agent="Mozilla/5.0...",
             details={
@@ -260,11 +263,11 @@ class TestStaffAuditLogCRUDCreateAuditLog:
         await db_session.refresh(audit_log)
 
         # 全フィールドが正しく保存されているか確認
-        assert audit_log.staff_id == target_staff.id
-        assert audit_log.action == "deleted"
-        assert audit_log.performed_by == performer.id
+        assert audit_log.target_id == target_staff.id
+        assert audit_log.action == "staff.deleted"
+        assert audit_log.staff_id == performer.id
         assert audit_log.ip_address == "192.168.1.1"
         assert audit_log.user_agent == "Mozilla/5.0..."
         assert audit_log.details["deleted_staff_email"] == target_staff.email
-        assert audit_log.created_at is not None
-        assert audit_log.created_at.tzinfo is not None  # タイムゾーン情報あり
+        assert audit_log.timestamp is not None
+        assert audit_log.timestamp.tzinfo is not None  # タイムゾーン情報あり

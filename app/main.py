@@ -16,6 +16,7 @@ from app.core.limiter import limiter  # 新しいファイルからインポー�
 from app.core.config import settings # settingsをインポート
 from app.api.v1.api import api_router
 from app.scheduler.calendar_sync_scheduler import calendar_sync_scheduler
+from app.scheduler.cleanup_scheduler import cleanup_scheduler
 
 # ログ設定（標準出力に出力）
 logging.basicConfig(
@@ -96,6 +97,10 @@ async def startup_event():
         logger.info("Starting calendar sync scheduler...")
         calendar_sync_scheduler.start()
         logger.info("Calendar sync scheduler started successfully")
+
+        logger.info("Starting cleanup scheduler...")
+        cleanup_scheduler.start()
+        logger.info("Cleanup scheduler started successfully")
     else:
         logger.info("Test environment detected - skipping scheduler startup")
 
@@ -106,6 +111,10 @@ async def shutdown_event():
     logger.info("Shutting down calendar sync scheduler...")
     calendar_sync_scheduler.shutdown()
     logger.info("Calendar sync scheduler stopped successfully")
+
+    logger.info("Shutting down cleanup scheduler...")
+    cleanup_scheduler.shutdown()
+    logger.info("Cleanup scheduler stopped successfully")
 
 # 環境に応じてCORS設定を変更
 is_production = os.getenv("ENVIRONMENT") == "production"

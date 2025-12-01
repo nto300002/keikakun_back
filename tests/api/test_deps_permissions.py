@@ -194,7 +194,7 @@ async def test_check_employee_restriction_employee_creates_request(
     service_admin_user_factory,
     office_factory
 ):
-    """正常系: Employee権限のスタッフはEmployeeActionRequestを作成"""
+    """正常系: Employee権限のスタッフはApprovalRequest（employee_action）を作成"""
     # Arrange
     employee = await service_admin_user_factory(
         email="employee3@example.com",
@@ -219,9 +219,11 @@ async def test_check_employee_restriction_employee_creates_request(
     # Assert
     assert result is not None
     assert result.requester_staff_id == employee.id
-    assert result.resource_type == ResourceType.welfare_recipient
-    assert result.action_type == ActionType.create
-    assert result.request_data == request_data
+    # ApprovalRequestのrequest_dataフィールドに詳細が格納されている
+    assert result.request_data is not None
+    assert result.request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert result.request_data["action_type"] == ActionType.create.value
+    assert result.request_data["original_request_data"] == request_data
     assert result.status.value == "pending"
 
 
@@ -256,9 +258,10 @@ async def test_check_employee_restriction_employee_update_request(
 
     # Assert
     assert result is not None
-    assert result.resource_id == resource_id
-    assert result.resource_type == ResourceType.support_plan_cycle
-    assert result.action_type == ActionType.update
+    assert result.request_data is not None
+    assert result.request_data["resource_id"] == str(resource_id)
+    assert result.request_data["resource_type"] == ResourceType.support_plan_cycle.value
+    assert result.request_data["action_type"] == ActionType.update.value
 
 
 async def test_check_employee_restriction_employee_delete_request(
@@ -290,7 +293,9 @@ async def test_check_employee_restriction_employee_delete_request(
 
     # Assert
     assert result is not None
-    assert result.resource_id == resource_id
-    assert result.resource_type == ResourceType.support_plan_status
-    assert result.action_type == ActionType.delete
-    assert result.request_data is None  # 削除時はrequest_dataなし
+    assert result.request_data is not None
+    assert result.request_data["resource_id"] == str(resource_id)
+    assert result.request_data["resource_type"] == ResourceType.support_plan_status.value
+    assert result.request_data["action_type"] == ActionType.delete.value
+    # 削除時はoriginal_request_dataなし
+    assert "original_request_data" not in result.request_data

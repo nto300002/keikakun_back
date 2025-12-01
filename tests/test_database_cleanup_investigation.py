@@ -30,8 +30,7 @@ class TestDatabaseDataInvestigation:
             "office_staffs",
             "welfare_recipients",
             "office_welfare_recipients",
-            "role_change_requests",
-            "employee_action_requests",
+            "approval_requests",
             "notices"
         ]
 

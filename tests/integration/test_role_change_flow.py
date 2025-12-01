@@ -19,12 +19,12 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
 from app.models.staff import Staff
-from app.models.role_change_request import RoleChangeRequest
+from app.models.approval_request import ApprovalRequest
 from app.models.notice import Notice
-from app.models.enums import StaffRole, RequestStatus, NoticeType
+from app.models.enums import StaffRole, RequestStatus, NoticeType, ApprovalResourceType
 from app.schemas.role_change_request import RoleChangeRequestCreate
 from app.services.role_change_service import role_change_service
-from app.crud.crud_role_change_request import crud_role_change_request
+from app.crud.crud_approval_request import approval_request
 from app.crud.crud_notice import crud_notice
 
 
@@ -76,13 +76,14 @@ async def test_employee_request_manager_role_and_get_approved(
 
     # Assert 1: リクエストが正しく作成されたか
     assert request.status == RequestStatus.pending
-    assert request.from_role == StaffRole.employee
-    assert request.requested_role == StaffRole.manager
+    assert request.resource_type == ApprovalResourceType.role_change
+    assert request.request_data["from_role"] == StaffRole.employee.value
+    assert request.request_data["requested_role"] == StaffRole.manager.value
     assert request.requester_staff_id == employee.id
 
     print(f"\n✅ Step 1: Employee が Manager role をリクエスト")
     print(f"   Request ID: {request.id}")
-    print(f"   From: {request.from_role} → To: {request.requested_role}")
+    print(f"   From: {request.request_data['from_role']} → To: {request.request_data['requested_role']}")
 
     # Employee の role がまだ変更されていないことを確認
     await db_session.refresh(employee)
@@ -177,11 +178,12 @@ async def test_manager_request_owner_role_and_get_approved(
 
     # Assert 1: リクエストが正しく作成されたか
     assert request.status == RequestStatus.pending
-    assert request.from_role == StaffRole.manager
-    assert request.requested_role == StaffRole.owner
+    assert request.resource_type == ApprovalResourceType.role_change
+    assert request.request_data["from_role"] == StaffRole.manager.value
+    assert request.request_data["requested_role"] == StaffRole.owner.value
 
     print(f"\n✅ Step 1: Manager が Owner role をリクエスト")
-    print(f"   From: {request.from_role} → To: {request.requested_role}")
+    print(f"   From: {request.request_data['from_role']} → To: {request.request_data['requested_role']}")
 
     # Act 2: Owner が承認
     approved_request = await role_change_service.approve_request(
@@ -449,11 +451,10 @@ async def test_get_pending_requests_for_approver(
     await db_session.commit()
 
     # Act: Manager が承認可能なリクエスト一覧を取得
-    pending_requests = await crud_role_change_request.get_pending_for_approver(
+    pending_requests = await approval_request.get_pending_requests(
         db=db_session,
-        approver_staff_id=manager.id,
-        approver_role=manager.role,
-        office_id=office.id
+        office_id=office.id,
+        resource_type=ApprovalResourceType.role_change
     )
 
     # Assert: 2件のリクエストが取得される
@@ -464,4 +465,6 @@ async def test_get_pending_requests_for_approver(
     print(f"\n✅ Manager が承認可能なリクエスト一覧を取得")
     print(f"   Pending Requests: {len(pending_requests)}")
     for req in pending_requests:
-        print(f"   - Request ID: {req.id}, From: {req.from_role} → {req.requested_role}")
+        from_role = req.request_data.get("from_role") if req.request_data else "N/A"
+        requested_role = req.request_data.get("requested_role") if req.request_data else "N/A"
+        print(f"   - Request ID: {req.id}, From: {from_role} → {requested_role}")

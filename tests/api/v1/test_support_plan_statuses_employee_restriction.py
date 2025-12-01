@@ -21,8 +21,8 @@ from app.models.staff import Staff
 from app.models.office import OfficeStaff
 from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
-from app.models.employee_action_request import EmployeeActionRequest
-from app.models.enums import StaffRole, ResourceType, ActionType, RequestStatus, GenderType, SupportPlanStep
+from app.models.approval_request import ApprovalRequest
+from app.models.enums import StaffRole, ResourceType, ActionType, RequestStatus, GenderType, SupportPlanStep, ApprovalResourceType
 from app.main import app
 from app.api.deps import get_current_user
 
@@ -164,16 +164,17 @@ async def test_employee_update_monitoring_deadline_creates_request(
     assert "Request created and pending approval" in response_data["message"]
     assert "request_id" in response_data
 
-    # EmployeeActionRequest が作成されていることを確認
+    # ApprovalRequest (employee_action) が作成されていることを確認
     request_id = uuid.UUID(response_data["request_id"])
-    request = await db_session.get(EmployeeActionRequest, request_id)
+    request = await db_session.get(ApprovalRequest, request_id)
     assert request is not None
     assert request.requester_staff_id == employee.id
     assert request.office_id == office_id
-    assert request.resource_type == ResourceType.support_plan_status
-    assert request.action_type == ActionType.update
+    assert request.resource_type == ApprovalResourceType.employee_action
+    assert request.request_data["resource_type"] == ResourceType.support_plan_status.value
+    assert request.request_data["action_type"] == ActionType.update.value
     assert request.status == RequestStatus.pending
-    assert request.request_data["monitoring_deadline"] == 14
+    assert request.request_data["original_request_data"]["monitoring_deadline"] == 14
 
     # モニタリング期限は更新されていないことを確認（承認待ち）
     status = await db_session.get(SupportPlanStatus, status_id)

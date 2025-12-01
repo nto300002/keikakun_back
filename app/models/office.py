@@ -40,6 +40,25 @@ class Office(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True, comment="テストデータフラグ。Factory関数で生成されたデータはTrue")
 
+    # 論理削除カラム（退会機能用）
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        comment="論理削除フラグ"
+    )
+    deleted_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="削除日時"
+    )
+    deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('staffs.id', ondelete="SET NULL"),
+        nullable=True,
+        comment="削除実行者のスタッフID"
+    )
+
     # Office -> OfficeStaff (one-to-many)
     staff_associations: Mapped[List["OfficeStaff"]] = relationship(back_populates="office")
 

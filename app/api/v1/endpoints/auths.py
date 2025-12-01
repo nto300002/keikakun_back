@@ -174,11 +174,16 @@ async def login_for_access_token(
     db: AsyncSession = Depends(deps.get_db),
     username: str = Form(...),
     password: str = Form(...),
+    passphrase: Optional[str] = Form(None),  # app_admin用合言葉
     staff_crud=Depends(get_staff_crud),
 ):
     """
     OAuth2 compatible token login, get an access token for future requests
+
+    app_adminの場合は追加で合言葉（passphrase）の検証が必要
     """
+    from app.models.enums import StaffRole
+
     user = await staff_crud.get_by_email(db, email=username)
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
@@ -193,13 +198,59 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 削除済みスタッフチェック
+    # app_admin以外の場合、所属事務所の削除済みチェック（スタッフチェックより先に実行）
+    if user.role != StaffRole.app_admin:
+        # 事務所情報を取得（office_associationsを利用）
+        stmt = select(models.Staff).options(
+            selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
+        ).where(models.Staff.id == user.id)
+        result = await db.execute(stmt)
+        user_with_offices = result.scalar_one_or_none()
+
+        if user_with_offices and user_with_offices.office_associations:
+            # いずれかの事務所が削除済みの場合、ログイン拒否
+            for office_assoc in user_with_offices.office_associations:
+                if office_assoc.office and office_assoc.office.is_deleted:
+                    # 事務所退会の場合は専用のメッセージ
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="所属事務所が退会済みのため、ログインできません",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+    # 削除済みスタッフチェック（事務所チェックの後に実行）
     if user.is_deleted:
+        # スタッフ個人が削除された場合のメッセージ
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=ja.PERM_ACCOUNT_DELETED,
+            detail="このアカウントは削除されています",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # app_adminの場合は合言葉検証
+    if user.role == StaffRole.app_admin:
+        # 合言葉が設定されているか確認
+        if not user.hashed_passphrase:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ja.AUTH_PASSPHRASE_NOT_SET,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        # 合言葉が入力されているか確認
+        if not passphrase:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ja.AUTH_PASSPHRASE_REQUIRED,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        # 合言葉を検証
+        if not verify_password(passphrase, user.hashed_passphrase):
+            logger.warning(f"[LOGIN] Invalid passphrase attempt for app_admin: {username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ja.AUTH_INVALID_PASSPHRASE,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     # セッション期間を常に1時間に固定
     session_duration = 3600  # 1時間（秒）

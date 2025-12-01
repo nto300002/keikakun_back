@@ -324,18 +324,19 @@ async def delete_staff(
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
 
-        await crud.staff_audit_log.create_audit_log(
+        await crud.audit_log.create_log(
             db=db,
-            staff_id=staff_id,
-            action="deleted",
-            performed_by=current_user.id,
+            actor_id=current_user.id,
+            action="staff.deleted",
+            target_type="staff",
+            target_id=staff_id,
+            office_id=current_user_office.id,
             ip_address=ip_address,
             user_agent=user_agent,
             details={
                 "deleted_staff_email": target_staff.email,
                 "deleted_staff_name": f"{target_staff.last_name} {target_staff.first_name}",
-                "deleted_staff_role": target_staff.role.value,
-                "office_id": str(current_user_office.id)
+                "deleted_staff_role": target_staff.role.value
             }
         )
 

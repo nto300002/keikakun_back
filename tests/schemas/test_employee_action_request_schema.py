@@ -158,16 +158,16 @@ class TestEmployeeActionRequestRead:
             "resource_id": None,
             "request_data": {"last_name": "山田", "first_name": "太郎"},
             "status": RequestStatus.pending,
-            "approved_by_staff_id": None,
-            "approved_at": None,
-            "approver_notes": None,
+            "reviewed_by_staff_id": None,
+            "reviewed_at": None,
+            "reviewer_notes": None,
             "execution_result": None,
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }
         schema = EmployeeActionRequestRead(**valid_data)
         assert schema.status == RequestStatus.pending
-        assert schema.approved_by_staff_id is None
+        assert schema.reviewed_by_staff_id is None
         assert schema.execution_result is None
 
     def test_employee_action_request_read_approved(self):
@@ -183,9 +183,9 @@ class TestEmployeeActionRequestRead:
             "resource_id": None,
             "request_data": {"last_name": "山田", "first_name": "太郎"},
             "status": RequestStatus.approved,
-            "approved_by_staff_id": str(approver_id),
-            "approved_at": approved_at,
-            "approver_notes": "承認しました",
+            "reviewed_by_staff_id": str(approver_id),
+            "reviewed_at": approved_at,
+            "reviewer_notes": "承認しました",
             "execution_result": {
                 "success": True,
                 "resource_id": str(uuid.uuid4()),
@@ -196,7 +196,7 @@ class TestEmployeeActionRequestRead:
         }
         schema = EmployeeActionRequestRead(**valid_data)
         assert schema.status == RequestStatus.approved
-        assert schema.approved_by_staff_id == approver_id
+        assert schema.reviewed_by_staff_id == approver_id
         assert schema.execution_result["success"] is True
         assert "resource_id" in schema.execution_result
 
@@ -211,16 +211,16 @@ class TestEmployeeActionRequestRead:
             "resource_id": str(uuid.uuid4()),
             "request_data": None,
             "status": RequestStatus.rejected,
-            "approved_by_staff_id": str(uuid.uuid4()),
-            "approved_at": datetime.now(),
-            "approver_notes": "削除は承認できません",
+            "reviewed_by_staff_id": str(uuid.uuid4()),
+            "reviewed_at": datetime.now(),
+            "reviewer_notes": "削除は承認できません",
             "execution_result": None,
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }
         schema = EmployeeActionRequestRead(**valid_data)
         assert schema.status == RequestStatus.rejected
-        assert schema.approver_notes == "削除は承認できません"
+        assert schema.reviewer_notes == "削除は承認できません"
         assert schema.execution_result is None
 
     def test_employee_action_request_read_from_attributes(self):
