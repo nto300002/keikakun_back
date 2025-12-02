@@ -122,17 +122,11 @@ BEGIN
         GET DIAGNOSTICS v_count = ROW_COUNT;
         IF v_count > 0 THEN RAISE NOTICE '  ✓ notices: %', v_count; END IF;
 
-        -- role_change_requests
-        DELETE FROM role_change_requests
+        -- approval_requests (統合テーブル: role_change, employee_action, withdrawal)
+        DELETE FROM approval_requests
         WHERE office_id = ANY(target_office_ids);
         GET DIAGNOSTICS v_count = ROW_COUNT;
-        IF v_count > 0 THEN RAISE NOTICE '  ✓ role_change_requests: %', v_count; END IF;
-
-        -- employee_action_requests
-        DELETE FROM employee_action_requests
-        WHERE office_id = ANY(target_office_ids);
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        IF v_count > 0 THEN RAISE NOTICE '  ✓ employee_action_requests: %', v_count; END IF;
+        IF v_count > 0 THEN RAISE NOTICE '  ✓ approval_requests: %', v_count; END IF;
 
         -- office_welfare_recipients
         DELETE FROM office_welfare_recipients
@@ -214,37 +208,142 @@ BEGIN
         LIMIT 1;
 
         IF replacement_staff_id IS NOT NULL THEN
-            RAISE NOTICE '  ✓ 再割当先スタッフを発見';
+            RAISE NOTICE '  ✓ 再割当先スタッフを発見: %', replacement_staff_id;
 
-            -- offices.created_by を再割当
+            -- offices.created_by を再割当（全てのofficesが対象）
             UPDATE offices
             SET created_by = replacement_staff_id
             WHERE created_by = ANY(target_staff_ids);
             GET DIAGNOSTICS v_count = ROW_COUNT;
-            IF v_count > 0 THEN RAISE NOTICE '    offices.created_by: %', v_count; END IF;
+            IF v_count > 0 THEN RAISE NOTICE '    offices.created_by → 再割当: %', v_count; END IF;
 
-            -- offices.last_modified_by を再割当
+            -- offices.last_modified_by を再割当（全てのofficesが対象）
             UPDATE offices
             SET last_modified_by = replacement_staff_id
             WHERE last_modified_by = ANY(target_staff_ids);
             GET DIAGNOSTICS v_count = ROW_COUNT;
-            IF v_count > 0 THEN RAISE NOTICE '    offices.last_modified_by: %', v_count; END IF;
+            IF v_count > 0 THEN RAISE NOTICE '    offices.last_modified_by → 再割当: %', v_count; END IF;
+
+            -- offices.deleted_by を再割当（全てのofficesが対象）
+            UPDATE offices
+            SET deleted_by = replacement_staff_id
+            WHERE deleted_by = ANY(target_staff_ids);
+            GET DIAGNOSTICS v_count = ROW_COUNT;
+            IF v_count > 0 THEN RAISE NOTICE '    offices.deleted_by → 再割当: %', v_count; END IF;
         ELSE
-            RAISE NOTICE '  ⚠ 再割当先なし（全staffsが削除対象の可能性）';
+            RAISE NOTICE '  ⚠ 再割当先なし - 外部キー参照を処理して関連officesも削除';
+
+            -- 再割当先がない場合、削除対象スタッフを参照しているofficesも削除が必要
+            -- まず、削除対象のoffice_idsを特定
+            DECLARE
+                offices_to_delete UUID[];
+            BEGIN
+                SELECT ARRAY_AGG(DISTINCT id) INTO offices_to_delete
+                FROM offices
+                WHERE created_by = ANY(target_staff_ids)
+                   OR last_modified_by = ANY(target_staff_ids)
+                   OR deleted_by = ANY(target_staff_ids);
+
+                IF offices_to_delete IS NOT NULL THEN
+                    RAISE NOTICE '    削除が必要なoffices: %', array_length(offices_to_delete, 1);
+
+                    -- 1. plan_deliverables (support_plan_cycles経由)
+                    DELETE FROM plan_deliverables
+                    WHERE plan_cycle_id IN (
+                        SELECT id FROM support_plan_cycles
+                        WHERE office_id = ANY(offices_to_delete)
+                    );
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      plan_deliverables: %', v_count; END IF;
+
+                    -- 2. support_plan_statuses
+                    DELETE FROM support_plan_statuses
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      support_plan_statuses: %', v_count; END IF;
+
+                    -- 3. support_plan_cycles
+                    DELETE FROM support_plan_cycles
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      support_plan_cycles: %', v_count; END IF;
+
+                    -- 4. calendar_events
+                    DELETE FROM calendar_events
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      calendar_events: %', v_count; END IF;
+
+                    -- 5. office_calendar_accounts
+                    DELETE FROM office_calendar_accounts
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      office_calendar_accounts: %', v_count; END IF;
+
+                    -- 6. notices
+                    DELETE FROM notices
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      notices: %', v_count; END IF;
+
+                    -- 7. approval_requests
+                    DELETE FROM approval_requests
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      approval_requests: %', v_count; END IF;
+
+                    -- 8. office_welfare_recipients
+                    DELETE FROM office_welfare_recipients
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      office_welfare_recipients: %', v_count; END IF;
+
+                    -- 9. office_staffs ← officesの前に削除（外部キー制約対策）
+                    DELETE FROM office_staffs
+                    WHERE office_id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      office_staffs: %', v_count; END IF;
+
+                    -- 10. offices
+                    DELETE FROM offices
+                    WHERE id = ANY(offices_to_delete);
+                    GET DIAGNOSTICS v_count = ROW_COUNT;
+                    IF v_count > 0 THEN RAISE NOTICE '      offices: %', v_count; END IF;
+                END IF;
+            END;
         END IF;
 
-        -- support_plan_statuses.completed_by を NULL に
+        -- support_plan_statuses.completed_by を NULL に（残存分）
         UPDATE support_plan_statuses
         SET completed_by = NULL
         WHERE completed_by = ANY(target_staff_ids);
         GET DIAGNOSTICS v_count = ROW_COUNT;
-        IF v_count > 0 THEN RAISE NOTICE '  ✓ support_plan_statuses.completed_by: %', v_count; END IF;
+        IF v_count > 0 THEN RAISE NOTICE '  ✓ support_plan_statuses.completed_by → NULL: %', v_count; END IF;
 
-        -- staffs を削除 (CASCADE)
+        -- approval_requests のスタッフ参照をクリア（残存分）
+        UPDATE approval_requests
+        SET reviewed_by_staff_id = NULL
+        WHERE reviewed_by_staff_id = ANY(target_staff_ids);
+        GET DIAGNOSTICS v_count = ROW_COUNT;
+        IF v_count > 0 THEN RAISE NOTICE '  ✓ approval_requests.reviewed_by_staff_id → NULL: %', v_count; END IF;
+
+        DELETE FROM approval_requests
+        WHERE requester_staff_id = ANY(target_staff_ids);
+        GET DIAGNOSTICS v_count = ROW_COUNT;
+        IF v_count > 0 THEN RAISE NOTICE '  ✓ approval_requests (requester削除): %', v_count; END IF;
+
+        -- 中間テーブル office_staffs を削除（残存分、外部キー制約対策）
+        -- Phase 2 や ELSE ブロックで削除されていない残存分のみ
+        DELETE FROM office_staffs
+        WHERE staff_id = ANY(target_staff_ids);
+        GET DIAGNOSTICS v_count = ROW_COUNT;
+        IF v_count > 0 THEN RAISE NOTICE '  ✓ office_staffs (残存分): %', v_count; END IF;
+
+        -- staffs を削除
         DELETE FROM staffs
         WHERE id = ANY(target_staff_ids);
         GET DIAGNOSTICS v_count = ROW_COUNT;
-        RAISE NOTICE '  ✓ staffs (CASCADE): %', v_count;
+        RAISE NOTICE '  ✓ staffs: %', v_count;
 
         RAISE NOTICE '';
     END IF;
