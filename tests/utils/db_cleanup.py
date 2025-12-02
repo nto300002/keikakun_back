@@ -87,9 +87,11 @@ class DatabaseCleanup:
 
         try:
             # 0. テスト事業所のIDを先に取得
+            # 解決策C: is_test_dataフラグも条件に含める（後でofficesを削除する際の条件と一致させる）
             office_ids_query = text("""
                 SELECT id FROM offices
-                WHERE name LIKE '%テスト%'
+                WHERE is_test_data = TRUE
+                   OR name LIKE '%テスト%'
                    OR name LIKE '%test%'
                    OR name LIKE '%Test%'
             """)
