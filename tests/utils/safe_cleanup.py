@@ -121,10 +121,22 @@ class SafeTestDataCleanup:
             # ========================================
             # STEP 3: 中間テーブルの削除
             # ========================================
-            for table in ["office_welfare_recipients", "office_staffs"]:
-                r = await db.execute(text(f"DELETE FROM {table} WHERE is_test_data = true"))
+
+            # office_welfare_recipients: is_test_dataフラグで削除
+            r = await db.execute(text("DELETE FROM office_welfare_recipients WHERE is_test_data = true"))
+            if r.rowcount > 0:
+                result["office_welfare_recipients"] = r.rowcount
+
+            # office_staffs: is_test_dataフラグ + テストoffice_id紐付けで削除
+            # （過去のis_test_data=FALSEレコードにも対応）
+            if test_office_ids:
+                r = await db.execute(text("""
+                    DELETE FROM office_staffs
+                    WHERE is_test_data = true
+                       OR office_id = ANY(:office_ids)
+                """), {"office_ids": test_office_ids})
                 if r.rowcount > 0:
-                    result[table] = r.rowcount
+                    result["office_staffs"] = r.rowcount
 
             # ========================================
             # STEP 4: 親テーブルの削除（created_by対策あり）
