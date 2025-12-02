@@ -7,9 +7,9 @@
 import uuid
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 
 from app.models.archived_staff import ArchivedStaff
 from app.models.staff import Staff
@@ -60,21 +60,25 @@ class CRUDArchivedStaff:
         # 事務所情報取得（スナップショット）
         office_id = None
         office_name = None
-        if staff.office_associations:
-            # プライマリ事務所を優先
-            primary_assoc = next(
-                (assoc for assoc in staff.office_associations if assoc.is_primary),
-                None
-            )
-            if primary_assoc and primary_assoc.office:
-                office_id = primary_assoc.office.id
-                office_name = primary_assoc.office.name
-            elif staff.office_associations:
-                # プライマリがなければ最初の事務所
-                first_assoc = staff.office_associations[0]
-                if first_assoc.office:
-                    office_id = first_assoc.office.id
-                    office_name = first_assoc.office.name
+        try:
+            if staff.office_associations:
+                # プライマリ事務所を優先
+                primary_assoc = next(
+                    (assoc for assoc in staff.office_associations if assoc.is_primary),
+                    None
+                )
+                if primary_assoc and primary_assoc.office:
+                    office_id = primary_assoc.office.id
+                    office_name = primary_assoc.office.name
+                elif staff.office_associations:
+                    # プライマリがなければ最初の事務所
+                    first_assoc = staff.office_associations[0]
+                    if first_assoc.office:
+                        office_id = first_assoc.office.id
+                        office_name = first_assoc.office.name
+        except Exception:
+            # リレーションシップがロードされていない場合はNone
+            pass
 
         # 退職日（deleted_atまたは現在日時）
         terminated_at = staff.deleted_at or datetime.now(timezone.utc)
@@ -83,7 +87,7 @@ class CRUDArchivedStaff:
         retention_until = ArchivedStaff.calculate_retention_until(terminated_at, years=5)
 
         # メタデータ
-        archive_metadata = {
+        metadata_dict = {
             "deleted_by_staff_id": str(deleted_by),
             "original_email_domain": staff.email.split("@")[1] if "@" in staff.email else None,
             "mfa_was_enabled": staff.is_mfa_enabled,
@@ -102,7 +106,7 @@ class CRUDArchivedStaff:
             terminated_at=terminated_at,
             archive_reason=reason,
             legal_retention_until=retention_until,
-            archive_metadata=archive_metadata,
+            metadata_=metadata_dict,
             is_test_data=staff.is_test_data if hasattr(staff, 'is_test_data') else False
         )
 
@@ -111,6 +115,26 @@ class CRUDArchivedStaff:
         await db.refresh(archived_staff)
 
         return archived_staff
+
+    async def get(
+        self,
+        db: AsyncSession,
+        *,
+        archive_id: uuid.UUID
+    ) -> Optional[ArchivedStaff]:
+        """
+        IDでアーカイブを取得
+
+        Args:
+            db: データベースセッション
+            archive_id: アーカイブID
+
+        Returns:
+            アーカイブレコード、または None
+        """
+        stmt = select(ArchivedStaff).where(ArchivedStaff.id == archive_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_by_original_staff_id(
         self,
@@ -133,6 +157,61 @@ class CRUDArchivedStaff:
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_multi(
+        self,
+        db: AsyncSession,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        office_id: Optional[uuid.UUID] = None,
+        archive_reason: Optional[str] = None,
+        exclude_test_data: bool = True
+    ) -> Tuple[List[ArchivedStaff], int]:
+        """
+        アーカイブリストを取得（フィルタリング・ページネーション対応）
+
+        Args:
+            db: データベースセッション
+            skip: スキップ件数
+            limit: 取得件数
+            office_id: 事務所IDでフィルタリング（オプション）
+            archive_reason: アーカイブ理由でフィルタリング（オプション）
+            exclude_test_data: テストデータを除外するか
+
+        Returns:
+            (アーカイブリスト, 総件数)
+        """
+        # 基本クエリ
+        stmt = select(ArchivedStaff)
+        count_stmt = select(func.count()).select_from(ArchivedStaff)
+
+        # フィルタリング条件
+        conditions = []
+        if exclude_test_data:
+            conditions.append(ArchivedStaff.is_test_data == False)
+        if office_id:
+            conditions.append(ArchivedStaff.office_id == office_id)
+        if archive_reason:
+            conditions.append(ArchivedStaff.archive_reason == archive_reason)
+
+        if conditions:
+            stmt = stmt.where(and_(*conditions))
+            count_stmt = count_stmt.where(and_(*conditions))
+
+        # 総件数取得
+        count_result = await db.execute(count_stmt)
+        total = count_result.scalar()
+
+        # ページネーション（新しい順に並び替え）
+        stmt = stmt.order_by(ArchivedStaff.archived_at.desc())
+        stmt = stmt.offset(skip).limit(limit)
+
+        # データ取得
+        result = await db.execute(stmt)
+        archives = list(result.scalars().all())
+
+        return archives, total
 
     async def get_expired_archives(
         self,
