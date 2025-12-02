@@ -7,6 +7,7 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from dateutil.relativedelta import relativedelta
 from typing import Optional
 from sqlalchemy import String, DateTime, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -93,7 +94,8 @@ class ArchivedStaff(Base):
         index=True,
         comment="法定保存期限（terminated_at + 5年）"
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    metadata_: Mapped[Optional[dict]] = mapped_column(
+        "metadata",  # DBのカラム名
         JSONB,
         nullable=True,
         comment="その他の法定保存が必要なメタデータ"
@@ -128,7 +130,7 @@ class ArchivedStaff(Base):
         Returns:
             保存期限日時
         """
-        return terminated_at + timedelta(days=365 * years)
+        return terminated_at + relativedelta(years=years)
 
     def is_retention_expired(self) -> bool:
         """
