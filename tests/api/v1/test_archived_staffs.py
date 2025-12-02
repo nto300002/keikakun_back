@@ -69,7 +69,7 @@ async def test_list_archived_staffs_success(
             terminated_at=now - timedelta(days=60),
             archive_reason="staff_withdrawal",
             legal_retention_until=now + timedelta(days=365*5),
-            archive_metadata={"deleted_by_staff_id": str(uuid.uuid4())},
+            metadata_={"deleted_by_staff_id": str(uuid.uuid4())},
             is_test_data=False
         ),
     ]
@@ -439,7 +439,7 @@ async def test_get_archived_staff_by_id_success(
     assert data["anonymized_email"] == "archived-XYZ789@deleted.local"
     assert data["role"] == "owner"
     assert data["archive_reason"] == "office_withdrawal"
-    assert "archive_metadata" in data
+    assert "metadata_" in data
 
 
 async def test_get_archived_staff_by_id_not_found(
