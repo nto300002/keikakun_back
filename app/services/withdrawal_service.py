@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
 from app.crud.crud_approval_request import approval_request as crud_approval_request
+from app.crud.crud_archived_staff import crud_archived_staff
 from app.crud.crud_audit_log import audit_log as crud_audit_log
 from app.crud.crud_office import crud_office
 from app.crud.crud_staff import staff as crud_staff
@@ -460,7 +461,7 @@ class WithdrawalService:
         """
         target_staff_id = UUID(request.request_data.get("target_staff_id"))
 
-        # 対象スタッフを取得
+        # 対象スタッフを取得（リレーションシップをロード）
         target_staff = await crud_staff.get(db, id=target_staff_id)
         if not target_staff:
             return {
@@ -476,7 +477,21 @@ class WithdrawalService:
             "role": target_staff.role.value
         }
 
-        # 監査ログ記録（削除前に記録）
+        # 1. アーカイブ作成（法定保存義務対応）
+        archive = await crud_archived_staff.create_from_staff(
+            db,
+            staff=target_staff,
+            reason="staff_withdrawal",
+            deleted_by=executor_id
+        )
+        await db.flush()
+
+        logger.info(
+            f"Archive created for staff withdrawal: staff_id={target_staff_id}, "
+            f"archive_id={archive.id}, retention_until={archive.legal_retention_until}"
+        )
+
+        # 2. 監査ログ記録（削除前に記録）
         await crud_audit_log.create_log(
             db,
             actor_id=executor_id,
@@ -488,13 +503,14 @@ class WithdrawalService:
             user_agent=user_agent,
             details={
                 "deleted_staff": staff_info,
+                "archive_id": str(archive.id),
                 "withdrawal_request_id": str(request.id),
                 "deletion_type": "soft_delete",
-                "note": "30日後に物理削除される予定"
+                "note": "30日後に物理削除される予定、法定保存データは5年間保持"
             }
         )
 
-        # スタッフを論理削除
+        # 3. スタッフを論理削除
         await crud_staff.soft_delete(
             db,
             staff_id=target_staff_id,
@@ -511,7 +527,9 @@ class WithdrawalService:
             "success": True,
             "withdrawal_type": "staff",
             "deleted_staff": staff_info,
-            "deletion_type": "soft_delete"
+            "deletion_type": "soft_delete",
+            "archive_id": str(archive.id),
+            "archive_retention_until": archive.legal_retention_until.isoformat()
         }
 
     async def _execute_office_withdrawal(
@@ -589,8 +607,30 @@ class WithdrawalService:
         )
 
         # 所属スタッフを全員論理削除（30日後に物理削除される予定）
+        archived_staff_ids = []
         for staff_id in staff_ids:
-            # 各スタッフの削除ログを記録
+            # スタッフを取得（リレーションシップをロード）
+            staff = await crud_staff.get(db, id=staff_id)
+            if not staff:
+                logger.warning(f"Staff not found during office withdrawal: staff_id={staff_id}")
+                continue
+
+            # 1. アーカイブ作成（法定保存義務対応）
+            archive = await crud_archived_staff.create_from_staff(
+                db,
+                staff=staff,
+                reason="office_withdrawal",
+                deleted_by=executor_id
+            )
+            await db.flush()
+            archived_staff_ids.append(str(archive.id))
+
+            logger.info(
+                f"Archive created for office withdrawal: staff_id={staff_id}, "
+                f"archive_id={archive.id}, retention_until={archive.legal_retention_until}"
+            )
+
+            # 2. 各スタッフの削除ログを記録
             await crud_audit_log.create_log(
                 db,
                 actor_id=executor_id,
@@ -603,13 +643,14 @@ class WithdrawalService:
                 details={
                     "reason": "office_withdrawal",
                     "office_id": str(office_id),
+                    "archive_id": str(archive.id),
                     "withdrawal_request_id": str(request.id),
                     "deletion_type": "soft_delete",
-                    "note": "30日後に物理削除される予定"
+                    "note": "30日後に物理削除される予定、法定保存データは5年間保持"
                 }
             )
 
-            # スタッフを論理削除
+            # 3. スタッフを論理削除
             await crud_staff.soft_delete(
                 db,
                 staff_id=staff_id,
@@ -636,7 +677,9 @@ class WithdrawalService:
             "withdrawal_type": "office",
             "deleted_office": office_info,
             "deleted_staff_count": len(staff_ids),
-            "staff_deletion_type": "soft_delete"
+            "staff_deletion_type": "soft_delete",
+            "archived_staff_ids": archived_staff_ids,
+            "archived_staff_count": len(archived_staff_ids)
         }
 
     # =====================================================

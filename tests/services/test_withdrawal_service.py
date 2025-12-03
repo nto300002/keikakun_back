@@ -18,6 +18,7 @@ from app.services.withdrawal_service import withdrawal_service
 from app.crud.crud_staff import staff as crud_staff
 from app.crud.crud_office import crud_office
 from app.crud.crud_approval_request import approval_request as crud_approval_request
+from app.crud.crud_archived_staff import crud_archived_staff
 
 # Configure logging
 logging.basicConfig(
@@ -337,6 +338,15 @@ class TestWithdrawalApproval:
         assert deleted_staff.deleted_at is not None
         assert deleted_staff.deleted_by == app_admin_id
 
+        # アーカイブが作成されたことを確認
+        archive = await crud_archived_staff.get_by_original_staff_id(db, staff_id=employee_id)
+        assert archive is not None
+        assert archive.original_staff_id == employee_id
+        assert archive.archive_reason == "staff_withdrawal"
+        assert archive.anonymized_full_name.startswith("スタッフ-")
+        assert archive.anonymized_email.endswith("@deleted.local")
+        assert archive.legal_retention_until is not None
+
     async def test_approve_office_withdrawal(
         self,
         db: AsyncSession,
@@ -381,6 +391,18 @@ class TestWithdrawalApproval:
         assert manager_check.is_deleted is True
         assert employee_check is not None
         assert employee_check.is_deleted is True
+
+        # 全スタッフのアーカイブが作成されたことを確認
+        owner_archive = await crud_archived_staff.get_by_original_staff_id(db, staff_id=owner_id)
+        manager_archive = await crud_archived_staff.get_by_original_staff_id(db, staff_id=manager_id)
+        employee_archive = await crud_archived_staff.get_by_original_staff_id(db, staff_id=employee_id)
+
+        assert owner_archive is not None
+        assert owner_archive.archive_reason == "office_withdrawal"
+        assert manager_archive is not None
+        assert manager_archive.archive_reason == "office_withdrawal"
+        assert employee_archive is not None
+        assert employee_archive.archive_reason == "office_withdrawal"
 
     async def test_approve_withdrawal_by_non_admin(
         self,

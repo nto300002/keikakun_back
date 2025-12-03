@@ -40,6 +40,7 @@ class CleanupService:
             "threshold_date": threshold_date,
             "deleted_staff_count": 0,
             "deleted_office_count": 0,
+            "deleted_archive_count": 0,
             "errors": []
         }
 
@@ -52,6 +53,10 @@ class CleanupService:
             office_count = await self._cleanup_offices(db, threshold_date)
             result["deleted_office_count"] = office_count
 
+            # アーカイブの削除（法定保存期限切れ）
+            archive_count = await self._cleanup_expired_archives(db)
+            result["deleted_archive_count"] = archive_count
+
             # 監査ログは記録しない（staff_idが必須のため）
             # ログはlogger経由で記録される
 
@@ -59,7 +64,8 @@ class CleanupService:
 
             logger.info(
                 f"Physical deletion completed: "
-                f"{staff_count} staff, {office_count} offices deleted"
+                f"{staff_count} staff, {office_count} offices, "
+                f"{result['deleted_archive_count']} archives deleted"
             )
 
         except Exception as e:
@@ -184,6 +190,34 @@ class CleanupService:
         delete_result = await db.execute(delete_stmt)
 
         return delete_result.rowcount
+
+    async def _cleanup_expired_archives(
+        self,
+        db: AsyncSession
+    ) -> int:
+        """
+        法定保存期限が過ぎたアーカイブを削除
+
+        Args:
+            db: データベースセッション
+
+        Returns:
+            削除されたレコード数
+        """
+        from app.crud.crud_archived_staff import crud_archived_staff as archived_staff
+
+        # 削除対象のアーカイブを取得
+        count = await archived_staff.delete_expired_archives(
+            db,
+            exclude_test_data=True
+        )
+
+        if count > 0:
+            logger.info(
+                f"Expired archives cleanup: {count} archives deleted"
+            )
+
+        return count
 
 
 # シングルトンインスタンス

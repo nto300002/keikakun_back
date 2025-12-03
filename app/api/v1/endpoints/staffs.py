@@ -229,9 +229,10 @@ async def delete_staff(
 
     削除処理:
     1. バリデーション（自己削除チェック、最後のOwnerチェック、同一事務所チェック）
-    2. スタッフの論理削除
-    3. 監査ログの記録
-    4. システム通知の送信（事務所内の全スタッフへ）
+    2. アーカイブ作成（法定保存義務対応）
+    3. スタッフの論理削除
+    4. 監査ログの記録
+    5. システム通知の送信（事務所内の全スタッフへ）
 
     権限: Owner のみアクセス可能
     すべての操作を同一トランザクション内で実行
@@ -312,14 +313,22 @@ async def delete_staff(
 
         # トランザクション開始: すべての操作をflushのみで実行
 
-        # 1. スタッフの論理削除
+        # 1. アーカイブ作成（法定保存義務対応）
+        await crud.archived_staff.create_from_staff(
+            db=db,
+            staff=target_staff,
+            reason="staff_deletion",
+            deleted_by=current_user.id
+        )
+
+        # 2. スタッフの論理削除
         deleted_staff = await crud.staff.soft_delete(
             db=db,
             staff_id=staff_id,
             deleted_by=current_user.id
         )
 
-        # 2. 監査ログの記録
+        # 3. 監査ログの記録
         # IPアドレスとUser-Agentを取得
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
@@ -340,7 +349,7 @@ async def delete_staff(
             }
         )
 
-        # 3. システム通知の送信（事務所内の全スタッフへ）
+        # 4. システム通知の送信（事務所内の全スタッフへ）
         # 削除されたスタッフを除く、事務所内の有効なスタッフIDリストを取得
         active_staffs = await crud.staff.get_by_office_id(
             db=db,

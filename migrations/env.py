@@ -10,6 +10,7 @@ import os
 from app.db.base import Base
 from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
+from app.models.archived_staff import ArchivedStaff
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
