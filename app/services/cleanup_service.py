@@ -204,7 +204,7 @@ class CleanupService:
         Returns:
             削除されたレコード数
         """
-        from app.crud.crud_archived_staff import archived_staff
+        from app.crud.crud_archived_staff import crud_archived_staff as archived_staff
 
         # 削除対象のアーカイブを取得
         count = await archived_staff.delete_expired_archives(

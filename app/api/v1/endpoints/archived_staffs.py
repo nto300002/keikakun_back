@@ -12,7 +12,7 @@ from uuid import UUID
 
 from app import schemas
 from app.api import deps
-from app.crud.crud_archived_staff import archived_staff
+from app.crud.crud_archived_staff import crud_archived_staff as archived_staff
 from app.models.staff import Staff
 from app.messages import ja
 

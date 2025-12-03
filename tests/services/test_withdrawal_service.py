@@ -18,7 +18,7 @@ from app.services.withdrawal_service import withdrawal_service
 from app.crud.crud_staff import staff as crud_staff
 from app.crud.crud_office import crud_office
 from app.crud.crud_approval_request import approval_request as crud_approval_request
-from app.crud.crud_archived_staff import archived_staff as crud_archived_staff
+from app.crud.crud_archived_staff import crud_archived_staff
 
 # Configure logging
 logging.basicConfig(

@@ -271,4 +271,4 @@ class CRUDArchivedStaff:
 
 
 # グローバルインスタンス
-archived_staff = CRUDArchivedStaff()
+crud_archived_staff = CRUDArchivedStaff()

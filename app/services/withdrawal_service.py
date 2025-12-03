@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
 from app.crud.crud_approval_request import approval_request as crud_approval_request
-from app.crud.crud_archived_staff import archived_staff as crud_archived_staff
+from app.crud.crud_archived_staff import crud_archived_staff
 from app.crud.crud_audit_log import audit_log as crud_audit_log
 from app.crud.crud_office import crud_office
 from app.crud.crud_staff import staff as crud_staff

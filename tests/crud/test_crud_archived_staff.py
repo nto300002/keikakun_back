@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 # テスト対象（まだ存在しない）
-from app.crud.crud_archived_staff import archived_staff
+from app.crud.crud_archived_staff import crud_archived_staff as archived_staff
 from app.models.archived_staff import ArchivedStaff
 from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
