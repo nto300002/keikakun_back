@@ -105,9 +105,7 @@ async def cleanup_database_session():
     DATABASE_URL = TEST_DATABASE_URL_VAR or DATABASE_URL_VAR
 
     if DATABASE_URL:
-        if "?sslmode" in DATABASE_URL:
-            DATABASE_URL = DATABASE_URL.split("?")[0]
-
+        # Neon DBではsslmode=requireが必須なので削除しない
         # データベース接続情報をログ出力（デバッグ用）
         def get_db_branch_name(url: str) -> str:
             """URLからデータベースブランチ名を抽出"""
@@ -183,8 +181,7 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
     if not DATABASE_URL:
         raise ValueError("Neither TEST_DATABASE_URL nor DATABASE_URL environment variable is set for tests")
 
-    if "?sslmode" in DATABASE_URL:
-        DATABASE_URL = DATABASE_URL.split("?")[0]
+    # Neon DBではsslmode=requireが必須なので削除しない
 
     async_engine = create_async_engine(
         DATABASE_URL,
