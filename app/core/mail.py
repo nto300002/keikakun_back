@@ -229,6 +229,126 @@ async def send_password_reset_email(
     )
 
 
+async def send_inquiry_received_email(
+    admin_email: str,
+    sender_name: str,
+    sender_email: str,
+    category: str,
+    inquiry_title: str,
+    inquiry_content: str,
+    created_at: str,
+    inquiry_id: str
+) -> None:
+    """
+    問い合わせ受信通知を管理者に送信します。
+
+    Args:
+        admin_email: 管理者のメールアドレス
+        sender_name: 送信者名
+        sender_email: 送信者のメールアドレス
+        category: 問い合わせ種別
+        inquiry_title: 問い合わせ件名
+        inquiry_content: 問い合わせ内容
+        created_at: 受信日時
+        inquiry_id: 問い合わせID
+    """
+    subject = "【ケイカくん】新しい問い合わせが届きました"
+    admin_url = f"{settings.FRONTEND_URL}/app-admin?tab=inquiries&id={inquiry_id}"
+
+    context = {
+        "title": subject,
+        "sender_name": sender_name or "未設定",
+        "sender_email": sender_email or "未設定",
+        "category": category,
+        "inquiry_title": inquiry_title,
+        "inquiry_content": inquiry_content,
+        "created_at": created_at,
+        "admin_url": admin_url,
+    }
+
+    await send_email(
+        recipient_email=admin_email,
+        subject=subject,
+        template_name="inquiry_received.html",
+        context=context,
+    )
+
+
+async def send_inquiry_reply_email(
+    recipient_email: str,
+    recipient_name: str,
+    inquiry_title: str,
+    inquiry_created_at: str,
+    reply_content: str,
+    login_url: str = None
+) -> None:
+    """
+    問い合わせへの返信をユーザーに送信します。
+
+    Args:
+        recipient_email: 受信者のメールアドレス
+        recipient_name: 受信者名
+        inquiry_title: 問い合わせ件名
+        inquiry_created_at: 問い合わせ送信日時
+        reply_content: 返信内容
+        login_url: ログインURL（任意）
+    """
+    subject = "【ケイカくん】お問い合わせへの返信"
+
+    context = {
+        "title": subject,
+        "recipient_name": recipient_name or "お客様",
+        "inquiry_title": inquiry_title,
+        "inquiry_created_at": inquiry_created_at,
+        "reply_content": reply_content,
+        "login_url": login_url or f"{settings.FRONTEND_URL}/auth/login",
+    }
+
+    await send_email(
+        recipient_email=recipient_email,
+        subject=subject,
+        template_name="inquiry_reply.html",
+        context=context,
+    )
+
+
+async def send_withdrawal_rejected_email(
+    staff_email: str,
+    staff_name: str,
+    office_name: str,
+    rejection_reason: str,
+    request_date: str
+) -> None:
+    """
+    事務所退会申請却下通知を送信します。
+
+    Args:
+        staff_email: スタッフのメールアドレス
+        staff_name: スタッフ名
+        office_name: 事務所名
+        rejection_reason: 却下理由
+        request_date: 申請日時
+    """
+    subject = "【ケイカくん】事務所退会申請が却下されました"
+    login_url = f"{settings.FRONTEND_URL}/auth/login"
+
+    context = {
+        "title": subject,
+        "staff_name": staff_name,
+        "office_name": office_name,
+        "rejection_reason": rejection_reason,
+        "request_date": request_date,
+        "login_url": login_url,
+    }
+
+    await send_email(
+        recipient_email=staff_email,
+        subject=subject,
+        template_name="withdrawal_rejected.html",
+        context=context,
+    )
+
+
 def _mask_email(email: str) -> str:
     """
     メールアドレスの一部をマスクします。
