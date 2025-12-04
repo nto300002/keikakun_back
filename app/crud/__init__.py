@@ -24,3 +24,4 @@ from .crud_terms_agreement import terms_agreement
 from . import crud_password_reset as password_reset
 from .crud_audit_log import audit_log
 from .crud_approval_request import approval_request
+from .crud_inquiry import crud_inquiry as inquiry

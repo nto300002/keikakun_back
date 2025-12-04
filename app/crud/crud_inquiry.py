@@ -338,6 +338,52 @@ class CRUDInquiry(CRUDBase[InquiryDetail, dict, dict]):
 
         return True
 
+    async def append_delivery_log(
+        self,
+        db: AsyncSession,
+        *,
+        inquiry_detail_id: UUID,
+        log_entry: dict
+    ) -> InquiryDetail:
+        """
+        delivery_logにエントリを追加
+
+        Args:
+            db: データベースセッション
+            inquiry_detail_id: InquiryDetailのID
+            log_entry: 追加するログエントリ
+
+        Returns:
+            更新された InquiryDetail
+
+        Raises:
+            ValueError: 問い合わせが見つからない場合
+        """
+        inquiry = await self.get_inquiry_by_id(db=db, inquiry_id=inquiry_detail_id)
+        if not inquiry:
+            raise ValueError("問い合わせが見つかりません")
+
+        # delivery_logを取得または初期化（新しいリストとしてコピー）
+        current_log = list(inquiry.delivery_log) if inquiry.delivery_log else []
+
+        # 新しいログエントリを追加
+        current_log.append(log_entry)
+
+        # JSONフィールドを更新（新しいリストを割り当てることで変更を検出させる）
+        inquiry.delivery_log = current_log
+        inquiry.updated_at = datetime.now(timezone.utc)
+
+        # SQLAlchemyにJSONフィールドの変更を明示的に通知
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(inquiry, "delivery_log")
+
+        db.add(inquiry)
+        await db.flush()
+        await db.refresh(inquiry)
+
+        return inquiry
+
 
 # グローバルインスタンス
 crud_inquiry = CRUDInquiry(InquiryDetail)
+inquiry_detail = crud_inquiry  # email_utils.py からの参照用エイリアス
