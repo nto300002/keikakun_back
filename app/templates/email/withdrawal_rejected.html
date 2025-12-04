@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 30px;
+        }
+        h1 {
+            color: #F59E0B;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .warning {
+            background-color: #FEF3C7;
+            border-left: 4px solid #F59E0B;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .reason-box {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .reason-box h3 {
+            margin-top: 0;
+            color: #DC2626;
+        }
+        .reason-content {
+            background-color: #FEE2E2;
+            border-left: 4px solid #DC2626;
+            padding: 15px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .info {
+            background-color: #DBEAFE;
+            border-left: 4px solid #3B82F6;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .steps {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .steps h3 {
+            margin-top: 0;
+            color: #10B981;
+        }
+        .steps ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .steps li {
+            margin: 10px 0;
+            padding: 5px 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #10B981;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .button:hover {
+            background-color: #0EA572;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>事務所退会申請が却下されました</h1>
+
+        <p>{{ staff_name }} 様</p>
+
+        <div class="warning">
+            <p><strong>⚠️ お客様の事務所退会申請が却下されました</strong></p>
+            <p>申請日時: {{ request_date }}</p>
+            <p>事務所名: {{ office_name }}</p>
+        </div>
+
+        <div class="reason-box">
+            <h3>却下理由</h3>
+            <div class="reason-content">{{ rejection_reason }}</div>
+        </div>
+
+        <div class="info">
+            <p><strong>ℹ️ 退会申請の要件について</strong></p>
+            <p>事務所を退会するには、以下の条件を満たす必要があります：</p>
+            <ul>
+                <li>所属するすべての利用者の個別支援計画が完了していること</li>
+                <li>未処理の承認リクエストがないこと</li>
+                <li>その他、事務所管理者が定める条件</li>
+            </ul>
+        </div>
+
+        <div class="steps">
+            <h3>再申請の手順</h3>
+            <ol>
+                <li>上記の却下理由をご確認ください</li>
+                <li>必要な対応を完了してください</li>
+                <li>ケイカくんにログインし、管理画面から再度退会申請を行ってください</li>
+            </ol>
+        </div>
+
+        {% if login_url %}
+        <a href="{{ login_url }}" class="button">ケイカくんにログイン</a>
+        {% endif %}
+
+        <div class="info">
+            <p><strong>💡 ご不明な点がある場合</strong></p>
+            <p>退会に関してご不明な点がございましたら、事務所管理者またはケイカくん管理者にお問い合わせください。</p>
+        </div>
+
+        <div class="footer">
+            <p><strong>このメールは自動送信されています。</strong></p>
+            <p>返信が必要な場合は、ケイカくんの管理画面からお問い合わせください。</p>
+            <p>ケイカくん - 個別支援計画管理システム</p>
+            <p>© 2025 KeikakuApp. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

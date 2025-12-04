@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 30px;
+        }
+        h1 {
+            color: #10B981;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .inquiry-reference {
+            background-color: #F3F4F6;
+            border-left: 4px solid #6B7280;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .inquiry-reference h3 {
+            margin-top: 0;
+            color: #6B7280;
+            font-size: 14px;
+        }
+        .reply-content {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .info {
+            background-color: #DBEAFE;
+            border-left: 4px solid #3B82F6;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>お問い合わせへの返信</h1>
+
+        <p>{{ recipient_name }} 様</p>
+
+        <p>お問い合わせいただきありがとうございました。</p>
+        <p>以下の内容で返信がございます。</p>
+
+        <div class="inquiry-reference">
+            <h3>元のお問い合わせ</h3>
+            <p><strong>件名:</strong> {{ inquiry_title }}</p>
+            <p><strong>送信日時:</strong> {{ inquiry_created_at }}</p>
+        </div>
+
+        <h3>返信内容</h3>
+        <div class="reply-content">{{ reply_content }}</div>
+
+        {% if login_url %}
+        <div class="info">
+            <p><strong>ℹ️ ログインして確認</strong></p>
+            <p>ケイカくんにログインして、過去の問い合わせ履歴を確認することができます。</p>
+        </div>
+        {% endif %}
+
+        <p>引き続きご不明な点がございましたら、お気軽にお問い合わせください。</p>
+
+        <div class="footer">
+            <p><strong>このメールは自動送信されています。</strong></p>
+            <p>返信が必要な場合は、<a href="https://www.keikakun.com/">トップページ</a>またはケイカくんのメッセージ画面からお問い合わせください。</p>
+            <p>ケイカくん - 個別支援計画管理システム</p>
+            <p>© 2025 KeikakuApp. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
