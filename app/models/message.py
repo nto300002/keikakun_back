@@ -19,6 +19,7 @@ from app.models.enums import MessageType, MessagePriority
 if TYPE_CHECKING:
     from app.models.staff import Staff
     from app.models.office import Office
+    from app.models.inquiry import InquiryDetail
 
 
 class Message(Base):
@@ -95,6 +96,12 @@ class Message(Base):
     recipients: Mapped[List["MessageRecipient"]] = relationship(
         "MessageRecipient",
         back_populates="message",
+        cascade="all, delete-orphan"
+    )
+    inquiry_detail: Mapped[Optional["InquiryDetail"]] = relationship(
+        "InquiryDetail",
+        back_populates="message",
+        uselist=False,  # 1:1 relationship
         cascade="all, delete-orphan"
     )
 
