@@ -103,7 +103,16 @@ class GoogleCalendarClient:
             raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
 
         # カレンダーIDをログ出力
-        logger.info(f"イベント作成対象カレンダーID: {calendar_id}")
+        logger.info("=" * 80)
+        logger.info("GoogleCalendarClient.create_event: API呼び出し直前")
+        logger.info(f"  calendar_id: {calendar_id}")
+        logger.info(f"  calendar_id（型）: {type(calendar_id)}")
+        logger.info(f"  calendar_id（長さ）: {len(calendar_id) if calendar_id else 'None'}")
+        logger.info(f"  calendar_id（repr）: {repr(calendar_id)}")
+        logger.info(f"  title: {title}")
+        logger.info(f"  start_datetime: {start_datetime}")
+        logger.info(f"  end_datetime: {end_datetime}")
+        logger.info("=" * 80)
 
         # イベントボディを作成
         event_body = {
