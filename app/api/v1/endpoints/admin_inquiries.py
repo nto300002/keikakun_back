@@ -20,6 +20,8 @@ from app.schemas.inquiry import (
     InquiryUpdateResponse,
     InquiryDeleteResponse,
     InquiryDetailResponse,
+    InquiryReply,
+    InquiryReplyResponse,
     MessageInfo,
     StaffInfo
 )
@@ -85,8 +87,9 @@ async def get_inquiries(
     # レスポンス変換
     items = []
     for inquiry in inquiries:
-        # Message情報から件名を取得
+        # Message情報から件名と内容を取得
         title = inquiry.message.title if inquiry.message else ""
+        content = inquiry.message.content if inquiry.message else ""
 
         # 担当者情報を取得
         assigned_staff_info = None
@@ -97,6 +100,7 @@ async def get_inquiries(
             id=inquiry.id,
             message_id=inquiry.message_id,
             title=title,
+            content=content,
             status=inquiry.status,
             priority=inquiry.priority,
             sender_name=inquiry.sender_name,
@@ -196,6 +200,97 @@ async def update_inquiry(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"問い合わせの更新に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{inquiry_id}/reply", response_model=InquiryReplyResponse)
+async def reply_to_inquiry(
+    *,
+    db: AsyncSession = Depends(get_db),
+    current_user: Staff = Depends(require_app_admin),
+    inquiry_id: UUID,
+    reply_in: InquiryReply
+) -> InquiryReplyResponse:
+    """
+    問い合わせに返信（app_admin専用）
+
+    - **inquiry_id**: 問い合わせID
+    - **body**: 返信内容
+    - **send_email**: メール送信するか（デフォルト: false）
+
+    Note:
+        - 返信用のMessageを作成
+        - 送信者がログイン済みの場合はMessageRecipientを作成（内部通知）
+        - 問い合わせステータスを「answered」に更新
+        - メール送信フラグがTrueの場合は実際にメールを送信
+    """
+    try:
+        # メール送信用にcommit前に問い合わせ情報を取得
+        email_data = None
+        if reply_in.send_email:
+            inquiry = await crud_inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
+            if inquiry and inquiry.sender_email:
+                # メール送信に必要な情報を事前に取得
+                original_message = inquiry.message
+                email_data = {
+                    "recipient_email": inquiry.sender_email,
+                    "recipient_name": inquiry.sender_name,
+                    "inquiry_title": original_message.title if original_message else "問い合わせ",
+                    "inquiry_created_at": inquiry.created_at.isoformat() if inquiry.created_at else "",
+                    "reply_content": reply_in.body,
+                }
+
+        reply_message = await crud_inquiry.create_reply(
+            db=db,
+            inquiry_id=inquiry_id,
+            reply_staff_id=current_user.id,
+            reply_content=reply_in.body,
+            send_email=reply_in.send_email
+        )
+
+        # コミット前に必要な値を取得（重要！）
+        reply_message_id = reply_message.id
+
+        await db.commit()
+
+        # メール送信処理（commit後、ベストエフォート）
+        if email_data:
+            try:
+                from app.core.mail import send_inquiry_reply_email
+                await send_inquiry_reply_email(
+                    recipient_email=email_data["recipient_email"],
+                    recipient_name=email_data["recipient_name"],
+                    inquiry_title=email_data["inquiry_title"],
+                    inquiry_created_at=email_data["inquiry_created_at"],
+                    reply_content=email_data["reply_content"],
+                )
+            except Exception as email_error:
+                # メール送信失敗してもエラーにしない（ログのみ）
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"問い合わせ返信メール送信に失敗: {str(email_error)}")
+
+        # メッセージ内容を決定
+        if reply_in.send_email:
+            message_text = "返信を送信しました（メール送信を含む）"
+        else:
+            message_text = "返信を送信しました（内部通知のみ）"
+
+        return InquiryReplyResponse(
+            id=reply_message_id,
+            message=message_text
+        )
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"返信の送信に失敗しました: {str(e)}"
         )
 
 

@@ -15,6 +15,7 @@ from app.crud.crud_inquiry import crud_inquiry
 from app.schemas.inquiry import InquiryCreate, InquiryCreateResponse
 from app.core.limiter import limiter
 from app.utils.sanitization import sanitize_inquiry_input
+from app.utils.temp_office import get_or_create_system_office
 
 router = APIRouter()
 
@@ -141,6 +142,7 @@ async def create_inquiry(
 
     # office_id の決定
     office_id = None
+
     if current_user:
         # ログイン済みユーザーの場合、プライマリ事務所を取得
         from app.models.office import OfficeStaff
@@ -160,21 +162,12 @@ async def create_inquiry(
             office_id = result.scalar_one_or_none()
 
     if not office_id:
-        # 未ログインまたは事務所所属がない場合、システム用のダミー事務所IDを使用
-        # または、office_idをNULLにする（Message.office_idがNULL許容の場合）
-        # ここでは、最初のapp_adminの事務所を使用
-        from app.models.office import OfficeStaff
-        stmt = select(OfficeStaff.office_id).where(
-            OfficeStaff.staff_id.in_(admin_recipient_ids)
-        ).limit(1)
-        result = await db.execute(stmt)
-        office_id = result.scalar_one_or_none()
-
-        if not office_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="システムエラー: 問い合わせ受付用の事務所が設定されていません"
-            )
+        # 未ログインまたは事務所所属がない場合、システム事務所を取得または作成
+        # システム事務所は再利用されるため、削除しない
+        office_id = await get_or_create_system_office(
+            db=db,
+            admin_staff_id=admin_recipient_ids[0]
+        )
 
     try:
         # 問い合わせ作成（サニタイズされた値を使用）
@@ -193,14 +186,44 @@ async def create_inquiry(
             is_test_data=False
         )
 
+        # コミット前に必要な値を取得（セッション切り離し後にアクセスできないため）
+        from datetime import timezone
+        inquiry_id = inquiry_detail.id
+        inquiry_created_at = inquiry_detail.created_at.astimezone(timezone.utc).isoformat()
+
+        # 問い合わせをコミット
         await db.commit()
 
-        # TODO: 管理者へ通知メール送信
-        # from app.utils.email_utils import send_and_log_email
-        # await send_and_log_email(...)
+        # 管理者へ通知メール送信（非同期・ベストエフォート）
+        try:
+            from app.core.mail import send_inquiry_received_email
+
+            # 各app_adminに通知メールを送信
+            for admin_id in admin_recipient_ids:
+                # app_adminの情報を取得
+                admin_stmt = select(Staff).where(Staff.id == admin_id)
+                admin_result = await db.execute(admin_stmt)
+                admin_staff = admin_result.scalar_one_or_none()
+
+                if admin_staff and admin_staff.email:
+                    await send_inquiry_received_email(
+                        admin_email=admin_staff.email,
+                        sender_name=sanitized.get("sender_name") or "未設定",
+                        sender_email=sanitized.get("sender_email") or "未設定",
+                        category=inquiry_in.category or "その他",
+                        inquiry_title=sanitized["title"],
+                        inquiry_content=sanitized["content"],
+                        created_at=inquiry_created_at,
+                        inquiry_id=str(inquiry_id)
+                    )
+        except Exception as email_error:
+            # メール送信失敗はログに記録するが、問い合わせ作成自体は成功とする
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"管理者への通知メール送信に失敗: {str(email_error)}")
 
         return InquiryCreateResponse(
-            id=inquiry_detail.id,
+            id=inquiry_id,
             message="問い合わせを受け付けました"
         )
     except Exception as e:

@@ -338,6 +338,112 @@ class CRUDInquiry(CRUDBase[InquiryDetail, dict, dict]):
 
         return True
 
+    async def create_reply(
+        self,
+        db: AsyncSession,
+        *,
+        inquiry_id: UUID,
+        reply_staff_id: UUID,
+        reply_content: str,
+        send_email: bool = False
+    ) -> Message:
+        """
+        問い合わせに返信
+
+        Args:
+            db: データベースセッション
+            inquiry_id: 問い合わせID
+            reply_staff_id: 返信者スタッフID
+            reply_content: 返信内容
+            send_email: メール送信するか
+
+        Returns:
+            作成された返信Message
+
+        Raises:
+            ValueError: 問い合わせが見つからない場合
+
+        Note:
+            - 返信用のMessageを作成
+            - 送信者がログイン済みの場合はMessageRecipientを作成
+            - 問い合わせステータスを「answered」に更新
+            - メール送信フラグがTrueの場合はdelivery_logに記録（実際の送信は呼び出し側で実施）
+        """
+        # 問い合わせを取得（リレーションシップを事前ロード）
+        inquiry = await self.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
+        if not inquiry:
+            raise ValueError("問い合わせが見つかりません")
+
+        # リレーションシップへのアクセスを最初にまとめて行う（Lazy Loading回避）
+        # これにより必要なデータがすべてメモリに読み込まれる
+        original_message = inquiry.message
+        if not original_message:
+            raise ValueError("問い合わせに紐づくメッセージが見つかりません")
+
+        # 必要な値を変数に保存（リレーションシップアクセスはここで完了）
+        office_id = original_message.office_id
+        original_title = original_message.title
+        sender_staff_id = original_message.sender_staff_id
+        sender_email = inquiry.sender_email
+        is_test_data = inquiry.is_test_data
+
+        # 返信用のMessageを作成
+        reply_message = Message(
+            sender_staff_id=reply_staff_id,
+            office_id=office_id,
+            message_type=MessageType.inquiry_reply,
+            priority=MessagePriority.normal,
+            title=f"Re: {original_title}",
+            content=reply_content,
+            is_test_data=is_test_data
+        )
+        db.add(reply_message)
+        await db.flush()
+
+        # 送信者がログイン済みの場合はMessageRecipientを作成
+        if sender_staff_id:
+            recipient = MessageRecipient(
+                message_id=reply_message.id,
+                recipient_staff_id=sender_staff_id,
+                is_read=False,
+                is_archived=False,
+                is_test_data=is_test_data
+            )
+            db.add(recipient)
+            await db.flush()
+
+        # 問い合わせステータスを「answered」に更新
+        inquiry.status = InquiryStatus.answered
+        inquiry.updated_at = datetime.now(timezone.utc)
+        db.add(inquiry)
+        await db.flush()
+
+        # メール送信フラグがTrueの場合はdelivery_logに記録
+        if send_email and sender_email:
+            log_entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": "reply_email_queued",
+                "recipient": sender_email,
+                "message_id": str(reply_message.id),
+                "staff_id": str(reply_staff_id)
+            }
+
+            # delivery_logを直接更新（既存のinquiryオブジェクトを使用）
+            current_log = list(inquiry.delivery_log) if inquiry.delivery_log else []
+            current_log.append(log_entry)
+            inquiry.delivery_log = current_log
+
+            # SQLAlchemyにJSONフィールドの変更を明示的に通知
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(inquiry, "delivery_log")
+
+            db.add(inquiry)
+            await db.flush()
+
+        # 返信メッセージをリフレッシュ
+        await db.refresh(reply_message)
+        return reply_message
+
     async def append_delivery_log(
         self,
         db: AsyncSession,
