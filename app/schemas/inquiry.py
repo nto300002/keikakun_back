@@ -168,6 +168,7 @@ class InquiryListItem(BaseModel):
     id: uuid.UUID
     message_id: uuid.UUID
     title: str
+    content: str  # メッセージ内容を追加
     status: InquiryStatus
     priority: InquiryPriority
     sender_name: Optional[str] = None
