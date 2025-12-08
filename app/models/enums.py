@@ -249,6 +249,7 @@ class MessageType(str, enum.Enum):
     announcement = 'announcement'   # 一斉通知（お知らせ）
     system = 'system'               # システム通知
     inquiry = 'inquiry'             # 問い合わせ
+    inquiry_reply = 'inquiry_reply' # 問い合わせ返信
 
 class MessagePriority(str, enum.Enum):
     """メッセージ優先度"""

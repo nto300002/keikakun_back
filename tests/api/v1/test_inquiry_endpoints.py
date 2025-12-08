@@ -456,6 +456,298 @@ class TestAdminInquiryUpdateEndpoint:
         assert updated.admin_notes == "対応中です"
 
 
+class TestAdminInquiryReplyEndpoint:
+    """管理者用問い合わせ返信エンドポイントのテスト"""
+
+    async def test_reply_to_inquiry_from_logged_in_sender(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        employee_user_factory,
+        db_session: AsyncSession
+    ):
+        """
+        ログイン済み送信者への返信（内部通知）
+
+        POST /api/v1/admin/inquiries/{inquiry_id}/reply
+        - 送信者がログイン済み
+        - 内部通知として配信
+        - ステータスが「answered」に更新
+        """
+        # Setup
+        app_admin = await app_admin_user_factory()
+        sender = await employee_user_factory()
+        from app import crud
+
+        office_id = sender.office_associations[0].office.id if sender.office_associations else None
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=office_id,
+            title="返信テスト",
+            content="返信テスト内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            is_test_data=True
+        )
+        await db_session.commit()
+
+        # 認証トークン
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        # リクエストデータ
+        reply_payload = {
+            "body": "お問い合わせありがとうございます。確認いたしました。",
+            "send_email": False
+        }
+
+        # Execute
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json=reply_payload,
+            cookies={"access_token": access_token}
+        )
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert "返信を送信しました" in data["message"]
+
+        # データベースで確認
+        await db_session.refresh(inquiry)
+        assert inquiry.status == InquiryStatus.answered
+
+        # 返信メッセージが作成されていることを確認
+        from app.models.message import Message
+        from sqlalchemy import select
+        query = select(Message).where(
+            Message.sender_staff_id == app_admin.id,
+            Message.content.contains("確認いたしました")
+        )
+        result = await db_session.execute(query)
+        reply_message = result.scalar_one_or_none()
+        assert reply_message is not None
+        assert reply_message.message_type.value == "inquiry_reply"
+
+    async def test_reply_to_inquiry_with_email(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        employee_user_factory,
+        db_session: AsyncSession
+    ):
+        """
+        メール送信フラグ付き返信
+
+        POST /api/v1/admin/inquiries/{inquiry_id}/reply
+        - send_email=true
+        - delivery_logに記録される
+        """
+        # Setup
+        app_admin = await app_admin_user_factory()
+        sender = await employee_user_factory()
+        from app import crud
+
+        office_id = sender.office_associations[0].office.id if sender.office_associations else None
+
+        # sender_emailを設定した問い合わせを作成
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=office_id,
+            title="メール返信テスト",
+            content="メール返信テスト内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            sender_email="sender@example.com",
+            is_test_data=True
+        )
+        await db_session.commit()
+
+        # 認証トークン
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        # リクエストデータ（メール送信フラグON）
+        reply_payload = {
+            "body": "メールでの返信内容です。",
+            "send_email": True
+        }
+
+        # Execute
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json=reply_payload,
+            cookies={"access_token": access_token}
+        )
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert "メール送信を含む" in data["message"]
+
+        # delivery_logに記録されていることを確認
+        await db_session.refresh(inquiry)
+        assert inquiry.delivery_log is not None
+        assert len(inquiry.delivery_log) > 0
+        assert inquiry.delivery_log[0]["action"] == "reply_email_queued"
+        assert inquiry.delivery_log[0]["recipient"] == "sender@example.com"
+
+    async def test_reply_to_inquiry_not_found(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory
+    ):
+        """
+        存在しない問い合わせへの返信
+
+        POST /api/v1/admin/inquiries/{inquiry_id}/reply
+        - 404 Not Found
+        """
+        # Setup
+        app_admin = await app_admin_user_factory()
+
+        # 認証トークン
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        # リクエストデータ
+        reply_payload = {
+            "body": "返信内容",
+            "send_email": False
+        }
+
+        # Execute（存在しないID）
+        fake_id = uuid4()
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{fake_id}/reply",
+            json=reply_payload,
+            cookies={"access_token": access_token}
+        )
+
+        # Assert
+        assert response.status_code == 404
+        assert "見つかりません" in response.json()["detail"]
+
+    async def test_reply_to_inquiry_empty_body_fails(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        employee_user_factory,
+        db_session: AsyncSession
+    ):
+        """
+        返信内容が空の場合はバリデーションエラー
+
+        POST /api/v1/admin/inquiries/{inquiry_id}/reply
+        - 422 Validation Error
+        """
+        # Setup
+        app_admin = await app_admin_user_factory()
+        sender = await employee_user_factory()
+        from app import crud
+
+        office_id = sender.office_associations[0].office.id if sender.office_associations else None
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=office_id,
+            title="バリデーションテスト",
+            content="バリデーションテスト内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            is_test_data=True
+        )
+        await db_session.commit()
+
+        # 認証トークン
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        # リクエストデータ（空の本文）
+        reply_payload = {
+            "body": "   ",  # 空白のみ
+            "send_email": False
+        }
+
+        # Execute
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json=reply_payload,
+            cookies={"access_token": access_token}
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert "返信内容は空にできません" in str(response.json())
+
+    async def test_reply_as_non_admin_fails(
+        self,
+        async_client: AsyncClient,
+        employee_user_factory,
+        app_admin_user_factory,
+        db_session: AsyncSession
+    ):
+        """
+        非app_adminは返信できない
+
+        POST /api/v1/admin/inquiries/{inquiry_id}/reply
+        - 403 Forbidden
+        """
+        # Setup
+        sender = await employee_user_factory()
+        from app import crud
+
+        # app_adminユーザーを作成
+        app_admin = await app_admin_user_factory()
+
+        office_id = sender.office_associations[0].office.id if sender.office_associations else None
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=office_id,
+            title="権限テスト",
+            content="権限テスト内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            is_test_data=True
+        )
+        await db_session.commit()
+
+        # 認証トークン（Employee）
+        access_token = create_access_token(
+            str(sender.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        # リクエストデータ
+        reply_payload = {
+            "body": "返信内容",
+            "send_email": False
+        }
+
+        # Execute
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json=reply_payload,
+            cookies={"access_token": access_token}
+        )
+
+        # Assert
+        assert response.status_code == 403
+        assert "権限がありません" in response.json()["detail"]
+
+
 class TestAdminInquiryDeleteEndpoint:
     """管理者用問い合わせ削除エンドポイントのテスト"""
 
