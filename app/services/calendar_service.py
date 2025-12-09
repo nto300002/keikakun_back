@@ -297,7 +297,7 @@ class CalendarService:
             test_title = "Connection Test"
             test_description = "This is a connection test event"
             test_start = datetime.now()
-            test_end = test_start.replace(hour=test_start.hour + 1)
+            test_end = test_start + timedelta(hours=1)  # 23時台でもエラーが発生しないようにtimedeltaを使用
 
             logger.info("テストイベント作成開始...")
             event_id = client.create_event(
