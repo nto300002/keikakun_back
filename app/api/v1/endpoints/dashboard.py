@@ -15,7 +15,7 @@ async def get_dashboard(
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.Staff = Depends(deps.get_current_user),
     search_term: Optional[str] = None,
-    sort_by: str = 'name_phonetic',
+    sort_by: str = 'next_renewal_deadline',
     sort_order: str = 'asc',
     is_overdue: Optional[bool] = None,
     is_upcoming: Optional[bool] = None,
