@@ -48,9 +48,10 @@ class CRUDOfficeCalendarAccount(CRUDBase[OfficeCalendarAccount, OfficeCalendarAc
         error_message: Optional[str] = None
     ) -> Optional[OfficeCalendarAccount]:
         """連携状態を更新"""
-        update_data = {"connection_status": status}
-        if error_message is not None:
-            update_data["last_error_message"] = error_message
+        update_data = {
+            "connection_status": status,
+            "last_error_message": error_message  # Noneの場合はNULLに更新される
+        }
 
         await db.execute(
             update(self.model)

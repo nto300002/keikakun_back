@@ -317,3 +317,58 @@ async def test_service_account_key_encryption_decryption(
     # 復号化されたキーが元のキーと一致することを確認
     import json
     assert json.loads(decrypted_key) == json.loads(original_key)
+
+
+async def test_update_connection_status_clears_error_message(
+    db_session: AsyncSession,
+    office_factory,
+    employee_user_factory
+) -> None:
+    """
+    接続成功時にエラーメッセージがクリアされることを確認するテスト
+
+    バグ修正の検証:
+    - エラー発生時にerror_messageを保存
+    - 再接続成功時にerror_message=Noneを渡すとlast_error_messageがNULLに更新される
+    """
+    staff = await employee_user_factory()
+    office = staff.office_associations[0].office if staff.office_associations else None
+
+    # カレンダーアカウント作成
+    account_data = OfficeCalendarAccountCreate(
+        office_id=office.id,
+        google_calendar_id="clear-error@group.calendar.google.com",
+        calendar_name="エラークリアテスト",
+        service_account_email="clear@test.iam.gserviceaccount.com",
+        service_account_key='{"type": "service_account"}',
+        connection_status=CalendarConnectionStatus.connected
+    )
+
+    created_account = await crud.office_calendar_account.create_with_encryption(
+        db=db_session,
+        obj_in=account_data
+    )
+
+    # ステップ1: エラー状態に更新
+    error_message = "Connection failed: 403 Forbidden"
+    error_account = await crud.office_calendar_account.update_connection_status(
+        db=db_session,
+        account_id=created_account.id,
+        status=CalendarConnectionStatus.error,
+        error_message=error_message
+    )
+
+    assert error_account.connection_status == CalendarConnectionStatus.error
+    assert error_account.last_error_message == error_message
+
+    # ステップ2: 再接続成功時にerror_message=Noneで更新
+    success_account = await crud.office_calendar_account.update_connection_status(
+        db=db_session,
+        account_id=created_account.id,
+        status=CalendarConnectionStatus.connected,
+        error_message=None  # エラーメッセージをクリア
+    )
+
+    # 検証: last_error_messageがNULLに更新されていることを確認
+    assert success_account.connection_status == CalendarConnectionStatus.connected
+    assert success_account.last_error_message is None  # ← これが重要！

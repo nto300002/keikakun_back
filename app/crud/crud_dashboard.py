@@ -152,7 +152,8 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             order_func = sort_column.desc() if sort_order == "desc" else sort_column.asc()
         elif sort_by == "next_renewal_deadline":
             sort_column = SupportPlanCycle.next_renewal_deadline
-            order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullsfirst()
+            # 昇順の場合も nullslast() を使用して、期限がある利用者を優先表示
+            order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullslast()
         
         if order_func is not None:
             stmt = stmt.order_by(order_func)
