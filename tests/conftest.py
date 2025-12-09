@@ -1152,6 +1152,107 @@ async def setup_other_office_staff(
     app.dependency_overrides.pop(get_current_user, None)
 
 
+# --- メール関連フィクスチャ ---
+
+@pytest_asyncio.fixture
+async def inquiry_detail_factory(db_session: AsyncSession, office_factory, app_admin_user_factory):
+    """InquiryDetailを作成するFactory"""
+    from app.models.inquiry import InquiryDetail
+    from app.models.message import Message, MessageRecipient
+    from app.models.enums import InquiryStatus, InquiryPriority, MessageType, MessagePriority
+
+    counter = {"count": 0}
+
+    async def _create_inquiry_detail(
+        sender_staff_id: Optional[uuid.UUID] = None,
+        sender_name: Optional[str] = None,
+        sender_email: Optional[str] = None,
+        title: str = "テスト問い合わせ",
+        content: str = "テスト内容です",
+        status: InquiryStatus = InquiryStatus.new,
+        priority: InquiryPriority = InquiryPriority.normal,
+        delivery_log: Optional[list] = None,
+        session: Optional[AsyncSession] = None,
+        is_test_data: bool = True,
+    ) -> InquiryDetail:
+        active_session = session or db_session
+        counter["count"] += 1
+
+        # 事務所を作成
+        office = await office_factory(session=active_session, is_test_data=is_test_data)
+
+        # app_adminユーザーを作成（受信者用）
+        admin = await app_admin_user_factory(session=active_session, is_test_data=is_test_data)
+
+        # Messageを作成
+        message = Message(
+            sender_staff_id=sender_staff_id,
+            office_id=office.id,
+            message_type=MessageType.inquiry,
+            priority=MessagePriority.normal,
+            title=title,
+            content=content,
+            is_test_data=is_test_data
+        )
+        active_session.add(message)
+        await active_session.flush()
+
+        # InquiryDetailを作成
+        inquiry_detail = InquiryDetail(
+            message_id=message.id,
+            sender_name=sender_name or f"テスト送信者{counter['count']}",
+            sender_email=sender_email or f"sender{counter['count']}@example.com",
+            ip_address="192.168.1.100",
+            user_agent="Mozilla/5.0",
+            status=status,
+            priority=priority,
+            assigned_staff_id=None,
+            admin_notes=None,
+            delivery_log=delivery_log,
+            is_test_data=is_test_data
+        )
+        active_session.add(inquiry_detail)
+        await active_session.flush()
+
+        # MessageRecipientを作成
+        recipient = MessageRecipient(
+            message_id=message.id,
+            recipient_staff_id=admin.id,
+            is_read=False,
+            is_archived=False,
+            is_test_data=is_test_data
+        )
+        active_session.add(recipient)
+        await active_session.flush()
+
+        # リレーションシップをロード
+        await active_session.refresh(inquiry_detail, ["message"])
+
+        return inquiry_detail
+
+    yield _create_inquiry_detail
+
+
+@pytest.fixture
+def mock_fastmail():
+    """FastMailの送信をモックするフィクスチャ"""
+    from unittest.mock import AsyncMock, patch
+
+    with patch('app.core.mail.FastMail') as mock_fm_class:
+        mock_instance = AsyncMock()
+        mock_fm_class.return_value = mock_instance
+        yield mock_instance
+
+
+@pytest.fixture
+def mock_asyncio_sleep():
+    """asyncio.sleepをモックしてテストを高速化"""
+    from unittest.mock import patch, AsyncMock
+
+    with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+        yield mock_sleep
+
+
 # --- mock_current_user フィクスチャ ---
 @pytest.fixture
 def mock_current_user(request):

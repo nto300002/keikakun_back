@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 30px;
+        }
+        h1 {
+            color: #10B981;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .inquiry-info {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .info-row {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            display: inline-block;
+            font-weight: bold;
+            color: #666;
+            width: 120px;
+        }
+        .info-value {
+            color: #333;
+        }
+        .content-box {
+            background-color: #f5f5f5;
+            border-left: 4px solid #10B981;
+            padding: 15px;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .button {
+            display: inline-block;
+            background-color: #10B981;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .button:hover {
+            background-color: #0EA572;
+        }
+        .category-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .category-bug {
+            background-color: #FEE2E2;
+            color: #DC2626;
+        }
+        .category-question {
+            background-color: #DBEAFE;
+            color: #2563EB;
+        }
+        .category-other {
+            background-color: #F3F4F6;
+            color: #6B7280;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>新しい問い合わせが届きました</h1>
+
+        <p>ケイカくん管理者様</p>
+
+        <p>新しい問い合わせが届きました。以下の内容をご確認ください。</p>
+
+        <div class="inquiry-info">
+            <div class="info-row">
+                <span class="info-label">問い合わせ種別:</span>
+                <span class="info-value">
+                    {% if category == '不具合' %}
+                        <span class="category-badge category-bug">不具合報告</span>
+                    {% elif category == '質問' %}
+                        <span class="category-badge category-question">質問</span>
+                    {% else %}
+                        <span class="category-badge category-other">その他</span>
+                    {% endif %}
+                </span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">送信者名:</span>
+                <span class="info-value">{{ sender_name }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">メールアドレス:</span>
+                <span class="info-value">{{ sender_email }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">件名:</span>
+                <span class="info-value">{{ inquiry_title }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">受信日時:</span>
+                <span class="info-value">{{ created_at }}</span>
+            </div>
+        </div>
+
+        <h3>問い合わせ内容</h3>
+        <div class="content-box">{{ inquiry_content }}</div>
+
+        <p>管理画面から返信することができます。</p>
+
+        <a href="{{ admin_url }}" class="button">管理画面で確認する</a>
+
+        <div class="footer">
+            <p><strong>このメールは自動送信されています。返信しないでください。</strong></p>
+            <p>問い合わせへの対応は管理画面から行ってください。</p>
+            <p>ケイカくん - 個別支援計画管理システム</p>
+            <p>© 2025 KeikakuApp. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

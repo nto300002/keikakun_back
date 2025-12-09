@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     admin_inquiries,
     admin_announcements,
     archived_staffs,
+    inquiries,
 )
 
 api_router = APIRouter()
@@ -52,3 +53,4 @@ api_router.include_router(admin_audit_logs.router, prefix="/admin/audit-logs", t
 api_router.include_router(admin_inquiries.router, prefix="/admin/inquiries", tags=["admin-inquiries"])
 api_router.include_router(admin_announcements.router, prefix="/admin/announcements", tags=["admin-announcements"])
 api_router.include_router(archived_staffs.router, prefix="/admin/archived-staffs", tags=["admin-archived-staffs"])
+api_router.include_router(inquiries.router, prefix="/inquiries", tags=["inquiries"])

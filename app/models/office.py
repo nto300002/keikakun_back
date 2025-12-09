@@ -2,7 +2,7 @@ import uuid
 import datetime
 from typing import List, Optional, TYPE_CHECKING
 
-from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Text
+from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -18,6 +18,14 @@ if TYPE_CHECKING:
 class Office(Base):
     """事業所"""
     __tablename__ = 'offices'
+
+    # テーブル引数（インデックス定義）
+    __table_args__ = (
+        # システム事務所検索用の複合インデックス（name + is_deleted）
+        # get_or_create_system_office のクエリを高速化
+        Index('ix_offices_name_is_deleted', 'name', 'is_deleted'),
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     name: Mapped[str] = mapped_column(String(255))
     is_group: Mapped[bool] = mapped_column(Boolean, default=False)

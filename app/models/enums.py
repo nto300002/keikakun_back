@@ -249,6 +249,7 @@ class MessageType(str, enum.Enum):
     announcement = 'announcement'   # 一斉通知（お知らせ）
     system = 'system'               # システム通知
     inquiry = 'inquiry'             # 問い合わせ
+    inquiry_reply = 'inquiry_reply' # 問い合わせ返信
 
 class MessagePriority(str, enum.Enum):
     """メッセージ優先度"""
@@ -271,3 +272,20 @@ class AuditLogTargetType(str, enum.Enum):
     office = 'office'                         # 事務所関連操作
     withdrawal_request = 'withdrawal_request' # 退会リクエスト関連操作
     terms_agreement = 'terms_agreement'       # 利用規約同意記録
+
+
+class InquiryStatus(str, enum.Enum):
+    """問い合わせステータス"""
+    new = 'new'                 # 新規受付（未確認）
+    open = 'open'               # 確認済み（対応中）
+    in_progress = 'in_progress' # 担当者割当済み
+    answered = 'answered'       # 回答済み
+    closed = 'closed'           # クローズ済み
+    spam = 'spam'               # スパム判定
+
+
+class InquiryPriority(str, enum.Enum):
+    """問い合わせ優先度"""
+    low = 'low'        # 低
+    normal = 'normal'  # 通常
+    high = 'high'      # 高

@@ -2,4 +2,4 @@ myenv/
 .env
 __pycache__/
 .env.test*.log
-.env.test
+.env.testtests.log
