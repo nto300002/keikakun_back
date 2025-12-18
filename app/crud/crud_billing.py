@@ -259,7 +259,7 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
         messages = {
             BillingStatus.free: "課金設定を行うと、より多くの機能が利用できます。",
             BillingStatus.past_due: "支払い方法を更新してください。",
-            BillingStatus.canceling: "キャンセルを取り消すことができます。",
+            BillingStatus.canceling: "キャンセルの取り消しができます。",
             BillingStatus.canceled: "再契約することで、サービスを再開できます。",
         }
         return messages.get(billing.billing_status, "")
