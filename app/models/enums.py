@@ -37,10 +37,12 @@ class AssessmentSheetType(str, enum.Enum):
     issue_analysis = '2.課題分析'
 
 class BillingStatus(str, enum.Enum):
-    free = 'free'          # 無料プラン
-    active = 'active'        # 課金中
-    past_due = 'past_due'    # 支払い延滞
-    canceled = 'canceled'    # キャンセル済み
+    free = 'free'                    # 無料トライアル
+    early_payment = 'early_payment'  # 早期支払い完了（無料期間中に課金設定済み）
+    active = 'active'                # 課金中
+    past_due = 'past_due'            # 支払い遅延
+    canceling = 'canceling'          # キャンセル予定（期間終了時にキャンセル）
+    canceled = 'canceled'            # キャンセル済み
 
 class FormOfResidence(str, enum.Enum):
     """居住形態"""
