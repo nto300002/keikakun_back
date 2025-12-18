@@ -36,7 +36,7 @@ async def create_welfare_recipient(
     *,
     db: AsyncSession = Depends(deps.get_db),
     registration_data: UserRegistrationRequest,
-    current_staff: Staff = Depends(deps.get_current_user)
+    current_staff: Staff = Depends(deps.require_active_billing)
 ) -> Any:
     """
     包括的なデータで新しい福祉受給者を作成する。
@@ -229,7 +229,7 @@ async def update_welfare_recipient(
     db: AsyncSession = Depends(deps.get_db),
     recipient_id: UUID,
     registration_data: UserRegistrationRequest,
-    current_staff: Staff = Depends(deps.get_current_user)
+    current_staff: Staff = Depends(deps.require_active_billing)
 ) -> Any:
     """
     福祉受給者を包括的なデータで更新する。
@@ -301,7 +301,7 @@ async def delete_welfare_recipient(
     *,
     db: AsyncSession = Depends(deps.get_db),
     recipient_id: UUID,
-    current_staff: Staff = Depends(deps.get_current_user)
+    current_staff: Staff = Depends(deps.require_active_billing)
 ) -> Any:
     """
     Delete welfare recipient and all related data.
@@ -369,7 +369,7 @@ async def repair_support_plan(
     *,
     db: AsyncSession = Depends(deps.get_db),
     recipient_id: UUID,
-    current_staff: Staff = Depends(deps.get_current_user)
+    current_staff: Staff = Depends(deps.require_active_billing)
 ) -> Any:
     """
     Repair/recreate support plan data for a welfare recipient.

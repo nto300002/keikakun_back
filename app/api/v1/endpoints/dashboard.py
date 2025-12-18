@@ -81,9 +81,14 @@ async def get_dashboard(
         )
         recipient_summaries.append(summary)
 
-    # 6. 最終的なDashboardDataを構築
-    max_user_count = service._get_max_user_count(office.billing_status)
-    
+    # 6. Billing情報を取得
+    billing = await crud.billing.get_by_office_id(db=db, office_id=office.id)
+    if not billing:
+        raise HTTPException(status_code=404, detail=ja.BILLING_INFO_NOT_FOUND)
+
+    # 7. 最終的なDashboardDataを構築
+    max_user_count = service._get_max_user_count(billing.billing_status)
+
     return schemas.dashboard.DashboardData(
         staff_name=staff.full_name,
         staff_role=staff.role,
@@ -91,6 +96,6 @@ async def get_dashboard(
         office_name=office.name,
         current_user_count=current_user_count,
         max_user_count=max_user_count,
-        billing_status=office.billing_status,
+        billing_status=billing.billing_status,
         recipients=recipient_summaries
     )
