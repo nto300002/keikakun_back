@@ -318,6 +318,76 @@ async def check_employee_restriction(
 get_current_staff = get_current_user  # エイリアス（get_current_staffという名前でも使えるようにする）
 
 
+async def require_active_billing(
+    db: AsyncSession = Depends(get_db),
+    current_staff: Staff = Depends(get_current_user)
+) -> Staff:
+    """
+    課金ステータスチェック（Phase 1: 機能制限）
+
+    billing_status が past_due または canceled の場合、
+    書き込み操作を制限し 402 Payment Required を返す。
+
+    free または active の場合は制限なし。
+
+    使用方法:
+    - 書き込み操作（CRUD create/update/delete, PDFアップロード等）のエンドポイントで使用
+    - 読み取り専用操作（GET）では使用しない
+
+    Args:
+        db: データベースセッション
+        current_staff: 現在のスタッフ
+
+    Returns:
+        Staff: 課金ステータスが有効な場合
+
+    Raises:
+        HTTPException: 課金ステータスが past_due/canceled の場合
+    """
+    from app import crud
+    from app.models.enums import BillingStatus
+
+    # app_adminは課金チェックをスキップ
+    from app.models.enums import StaffRole
+    if current_staff.role == StaffRole.app_admin:
+        return current_staff
+
+    # 所属事務所を取得
+    if not current_staff.office_associations:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.BILLING_OFFICE_NOT_FOUND
+        )
+
+    primary_association = next(
+        (assoc for assoc in current_staff.office_associations if assoc.is_primary),
+        current_staff.office_associations[0]
+    )
+    office_id = primary_association.office_id
+
+    # Billing情報を取得
+    billing = await crud.billing.get_by_office_id(db=db, office_id=office_id)
+
+    if not billing:
+        # Billing情報がない場合は自動作成（マイグレーション後の過渡期対応）
+        logger.warning(f"Billing not found for office_id={office_id}, creating new billing")
+        billing = await crud.billing.create_for_office(db=db, office_id=office_id)
+        await db.commit()
+
+    # 課金ステータスチェック
+    if billing.billing_status in [BillingStatus.past_due, BillingStatus.canceled]:
+        logger.warning(
+            f"Billing restriction: office_id={office_id}, "
+            f"status={billing.billing_status}, staff_id={current_staff.id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=ja.BILLING_PAYMENT_REQUIRED
+        )
+
+    return current_staff
+
+
 # --- CSRF保護依存関数 ---
 
 async def validate_csrf(

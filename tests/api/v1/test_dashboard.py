@@ -13,6 +13,7 @@ from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
 from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
+from app.models.billing import Billing
 from app.models.enums import StaffRole, OfficeType, GenderType, SupportPlanStep, BillingStatus
 
 # Pytestに非同期テストであることを認識させる
@@ -22,6 +23,8 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture
 async def dashboard_fixtures(db_session: AsyncSession, service_admin_user_factory, office_factory):
     """ダッシュボードテスト用の基本フィクスチャ"""
+    from datetime import timezone, timedelta
+
     staff = await service_admin_user_factory(first_name="管理者", last_name="ダッシュボードテスト", email="dashboard@example.com", role=StaffRole.owner)
     office = await office_factory(creator=staff, name="テストダッシュボード事業所", type=OfficeType.type_A_office)
     office_staff = OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True)
@@ -80,7 +83,17 @@ async def dashboard_fixtures(db_session: AsyncSession, service_admin_user_factor
                 completed=False
             )
             db_session.add(status)
-    
+
+    # Billing情報を作成 (dashboardエンドポイントで必要)
+    billing = Billing(
+        office_id=office.id,
+        billing_status=BillingStatus.free,
+        trial_start_date=date.today(),
+        trial_end_date=date.today() + timedelta(days=180),
+        current_plan_amount=6000
+    )
+    db_session.add(billing)
+
     await db_session.commit()
     return {'staff': staff, 'office': office, 'recipients': recipients}
 
@@ -90,12 +103,17 @@ class TestDashboardAPI:
     
     async def test_get_dashboard_success(self, async_client: AsyncClient, dashboard_fixtures):
         staff = dashboard_fixtures['staff']
-        app.dependency_overrides[get_current_user] = lambda: staff
+        async def override_get_current_user():
+            return staff
+        app.dependency_overrides[get_current_user] = override_get_current_user
 
         response = await async_client.get("/api/v1/dashboard/")
 
         del app.dependency_overrides[get_current_user]
 
+        if response.status_code != 200:
+            print(f"Response status: {response.status_code}")
+            print(f"Response body: {response.text}")
         assert response.status_code == 200
         data = response.json()
         assert data["staff_name"] == staff.full_name
@@ -116,9 +134,23 @@ class TestDashboardAPI:
         office = await office_factory(creator=staff, name="空のテスト事業所")
         office_staff = OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True)
         db_session.add(office_staff)
+
+        # Billing情報を作成 (dashboardエンドポイントで必要)
+        from datetime import timedelta
+        billing = Billing(
+            office_id=office.id,
+            billing_status=BillingStatus.free,
+            trial_start_date=date.today(),
+            trial_end_date=date.today() + timedelta(days=180),
+            current_plan_amount=6000
+        )
+        db_session.add(billing)
+
         await db_session.commit()
-        
-        app.dependency_overrides[get_current_user] = lambda: staff
+
+        async def override_get_current_user():
+            return staff
+        app.dependency_overrides[get_current_user] = override_get_current_user
         response = await async_client.get("/api/v1/dashboard/")
         del app.dependency_overrides[get_current_user]
         
