@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     RATE_LIMIT_FORGOT_PASSWORD: str = "5/10minute"
     RATE_LIMIT_RESEND_EMAIL: str = "3/10minute"
 
+    # --- Stripe決済設定 ---
+    STRIPE_SECRET_KEY: Optional[SecretStr] = None
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[SecretStr] = None
+    STRIPE_PRICE_ID: Optional[str] = None  # 月額6,000円プランのPrice ID
+
 
 # 設定クラスのインスタンスを作成し、他のモジュールからインポートして使用できるようにします。
 settings = Settings()

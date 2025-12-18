@@ -25,6 +25,9 @@ cryptography>=3.4.8
 jwt
 fastapi-csrf-protect>=0.3.4
 
+# 決済
+stripe>=7.0.0
+
 # テスト用
 httpx
 pytest-order
