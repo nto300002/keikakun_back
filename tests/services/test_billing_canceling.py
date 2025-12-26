@@ -226,6 +226,105 @@ class TestBillingCanceling:
         billing = await crud.billing.get(db=db, id=billing_id)
         assert billing.billing_status == BillingStatus.active
 
+    async def test_can_reactivate_from_canceling_during_trial_early_payment(
+        self,
+        db: AsyncSession,
+        billing_service: BillingService
+    ):
+        """
+        無料期間中(early_payment)にキャンセルして取り消した場合、early_paymentに戻ることを確認
+
+        フロー:
+        1. early_payment → canceling (無料期間中にキャンセル予定)
+        2. canceling → early_payment (キャンセル取り消し)
+        """
+        # early_payment状態のBillingを作成
+        staff = Staff(
+            first_name="テスト",
+            last_name="ユーザー",
+            full_name="テスト ユーザー",
+            email=f"test_{uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("password"),
+            role=StaffRole.owner,
+            is_test_data=True
+        )
+        db.add(staff)
+        await db.flush()
+
+        office = Office(
+            name="テスト事業所",
+            type=OfficeType.type_A_office,
+            created_by=staff.id,
+            last_modified_by=staff.id,
+            is_test_data=True
+        )
+        db.add(office)
+        await db.flush()
+
+        office_staff = OfficeStaff(
+            office_id=office.id,
+            staff_id=staff.id,
+            is_primary=True
+        )
+        db.add(office_staff)
+
+        now = datetime.now(timezone.utc)
+        trial_start = now
+        trial_end = now + timedelta(days=180)  # まだ無料期間中
+
+        customer_id = f"cus_test_{uuid4().hex[:8]}"
+        subscription_id = f"sub_test_{uuid4().hex[:8]}"
+
+        billing = Billing(
+            office_id=office.id,
+            billing_status=BillingStatus.early_payment,  # 課金設定済み
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=subscription_id,
+            trial_start_date=trial_start,
+            trial_end_date=trial_end,
+            current_plan_amount=6000
+        )
+        db.add(billing)
+        await db.flush()
+        await db.commit()
+
+        # Step 1: early_payment → canceling
+        subscription_data_canceling = {
+            'id': subscription_id,
+            'customer': customer_id,
+            'cancel_at_period_end': True,
+            'cancel_at': int(trial_end.timestamp()),
+            'status': 'trialing'
+        }
+
+        await billing_service.process_subscription_updated(
+            db=db,
+            event_id=f"evt_test_{uuid4().hex[:8]}",
+            subscription_data=subscription_data_canceling
+        )
+
+        billing = await crud.billing.get(db=db, id=billing.id)
+        assert billing.billing_status == BillingStatus.canceling
+
+        # Step 2: canceling → early_payment (キャンセル取り消し)
+        subscription_data_reactivate = {
+            'id': subscription_id,
+            'customer': customer_id,
+            'cancel_at_period_end': False,
+            'cancel_at': None,
+            'status': 'trialing'
+        }
+
+        await billing_service.process_subscription_updated(
+            db=db,
+            event_id=f"evt_test_{uuid4().hex[:8]}",
+            subscription_data=subscription_data_reactivate
+        )
+
+        # billing_statusがearly_paymentに戻ることを確認
+        billing = await crud.billing.get(db=db, id=billing.id)
+        assert billing.billing_status == BillingStatus.early_payment
+
 
 class TestBillingCanceled:
     """キャンセル完了(canceled)状態のテスト"""

@@ -181,15 +181,16 @@ async def test_record_payment(
     db_session: AsyncSession,
     office_factory
 ) -> None:
-    """支払い記録更新テスト"""
+    """支払い記録更新テスト（trial期間終了後）"""
     office = await office_factory()
 
-    # Billing作成（past_due状態）
+    # Billing作成（past_due状態、trial期間終了）
+    now = datetime.now(timezone.utc)
     billing_data = BillingCreate(
         office_id=office.id,
         billing_status=BillingStatus.past_due,
-        trial_start_date=datetime.utcnow(),
-        trial_end_date=datetime.utcnow() + timedelta(days=180),
+        trial_start_date=now - timedelta(days=190),
+        trial_end_date=now - timedelta(days=10),  # 10日前に終了
         current_plan_amount=6000
     )
     billing = await crud.billing.create(db=db_session, obj_in=billing_data)
@@ -199,14 +200,14 @@ async def test_record_payment(
     assert billing.last_payment_date is None
 
     # 支払い記録
-    payment_date = datetime.utcnow()
+    payment_date = now
     updated_billing = await crud.billing.record_payment(
         db=db_session,
         billing_id=billing.id,
         payment_date=payment_date
     )
 
-    # 支払い成功で active になる
+    # Trial期間終了後なので active になる
     assert updated_billing.billing_status == BillingStatus.active
     assert updated_billing.last_payment_date is not None
 
@@ -377,3 +378,125 @@ async def test_early_payment_with_subscription_update(
 
     assert final_billing.billing_status == BillingStatus.early_payment
     assert final_billing.stripe_subscription_id == "sub_early_new"
+
+
+# ==========================================
+# record_payment() の trial期間対応テスト
+# ==========================================
+
+async def test_record_payment_during_trial_period(
+    db_session: AsyncSession,
+    office_factory
+) -> None:
+    """
+    Trial期間中の支払い記録 → early_payment
+
+    初回課金時にinvoice.payment_succeededが送信された場合、
+    trial期間中ならearly_paymentになるべき
+    """
+    office = await office_factory()
+
+    # Billing作成（free、trial期間中）
+    now = datetime.now(timezone.utc)
+    billing_data = BillingCreate(
+        office_id=office.id,
+        billing_status=BillingStatus.free,
+        trial_start_date=now,
+        trial_end_date=now + timedelta(days=90),  # 残り90日
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    assert billing.billing_status == BillingStatus.free
+    assert billing.trial_end_date > now
+
+    # 支払い記録（trial期間中）
+    payment_date = now
+    updated_billing = await crud.billing.record_payment(
+        db=db_session,
+        billing_id=billing.id,
+        payment_date=payment_date
+    )
+
+    # Trial期間中なので early_payment になる
+    assert updated_billing.billing_status == BillingStatus.early_payment
+    assert updated_billing.last_payment_date is not None
+
+
+async def test_record_payment_after_trial_period(
+    db_session: AsyncSession,
+    office_factory
+) -> None:
+    """
+    Trial期間終了後の支払い記録 → active
+
+    trial_end_date が過去の場合は active になるべき
+    """
+    office = await office_factory()
+
+    # Billing作成（free、trial期間終了）
+    now = datetime.now(timezone.utc)
+    billing_data = BillingCreate(
+        office_id=office.id,
+        billing_status=BillingStatus.free,
+        trial_start_date=now - timedelta(days=190),
+        trial_end_date=now - timedelta(days=1),  # 1日前に終了
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    assert billing.billing_status == BillingStatus.free
+    assert billing.trial_end_date < now
+
+    # 支払い記録（trial期間終了後）
+    payment_date = now
+    updated_billing = await crud.billing.record_payment(
+        db=db_session,
+        billing_id=billing.id,
+        payment_date=payment_date
+    )
+
+    # Trial期間終了後なので active になる
+    assert updated_billing.billing_status == BillingStatus.active
+    assert updated_billing.last_payment_date is not None
+
+
+async def test_record_payment_from_past_due_during_trial(
+    db_session: AsyncSession,
+    office_factory
+) -> None:
+    """
+    past_due状態からの支払い記録（trial期間中） → early_payment
+
+    past_due から復旧する場合でも、trial期間中ならearly_paymentになるべき
+    """
+    office = await office_factory()
+
+    # Billing作成（past_due、trial期間中）
+    now = datetime.now(timezone.utc)
+    billing_data = BillingCreate(
+        office_id=office.id,
+        billing_status=BillingStatus.past_due,
+        trial_start_date=now,
+        trial_end_date=now + timedelta(days=60),  # 残り60日
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    assert billing.billing_status == BillingStatus.past_due
+    assert billing.trial_end_date > now
+
+    # 支払い記録（trial期間中）
+    payment_date = now
+    updated_billing = await crud.billing.record_payment(
+        db=db_session,
+        billing_id=billing.id,
+        payment_date=payment_date
+    )
+
+    # Trial期間中なので early_payment になる
+    assert updated_billing.billing_status == BillingStatus.early_payment
+    assert updated_billing.last_payment_date is not None

@@ -186,6 +186,7 @@ class TestBillingServiceTransactionIntegrity:
         3. audit_log.create_log()がauto_commit=Falseで呼ばれること
         4. 最後にdb.commit()が1回だけ呼ばれること
         5. 全ての変更が反映されること
+        6. trial期間中ならearly_paymentになること
         """
         office_id, staff_id, billing_id = setup_office_with_billing
 
@@ -214,7 +215,8 @@ class TestBillingServiceTransactionIntegrity:
         async with AsyncSessionLocal() as new_db:
             # 全ての変更が反映されていることを確認
             billing_after = await crud.billing.get(db=new_db, id=billing_id)
-            assert billing_after.billing_status == BillingStatus.active
+            # trial期間中なので early_payment になる
+            assert billing_after.billing_status == BillingStatus.early_payment
             assert billing_after.last_payment_date is not None
 
             # Webhookイベントが記録されていることを確認
@@ -446,6 +448,141 @@ class TestBillingServiceTransactionIntegrity:
             assert billing_after.billing_status == BillingStatus.canceled
 
 
+class TestBillingServiceMissingCustomerHandling:
+    """存在しないカスタマーIDの処理テスト"""
+
+    @pytest.mark.asyncio
+    async def test_process_payment_succeeded_missing_customer(
+        self,
+        db: AsyncSession,
+        billing_service: BillingService
+    ):
+        """
+        存在しないカスタマーIDでpayment_succeededが呼ばれた場合の処理を検証
+
+        検証項目:
+        1. 例外が発生しないこと（正常終了）
+        2. webhook_eventがstatus='skipped'で記録されること
+        3. 警告ログが出力されること
+        """
+        unique_id = uuid4().hex[:8]
+        event_id = f"evt_missing_payment_{unique_id}"
+        customer_id = f"cus_missing_{unique_id}"
+
+        # 存在しないカスタマーIDでprocess_payment_succeededを実行
+        # 例外が発生しないことを確認
+        await billing_service.process_payment_succeeded(
+            db=db,
+            event_id=event_id,
+            customer_id=customer_id
+        )
+
+        # webhook_eventが記録されていることを確認
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_db:
+            webhook_event = await crud.webhook_event.get_by_event_id(
+                db=new_db,
+                event_id=event_id
+            )
+            assert webhook_event is not None
+            assert webhook_event.event_type == 'invoice.payment_succeeded'
+            assert webhook_event.status == 'skipped'
+            assert webhook_event.billing_id is None
+            assert webhook_event.office_id is None
+
+    @pytest.mark.asyncio
+    async def test_process_payment_failed_missing_customer(
+        self,
+        db: AsyncSession,
+        billing_service: BillingService
+    ):
+        """存在しないカスタマーIDでpayment_failedが呼ばれた場合の処理を検証"""
+        unique_id = uuid4().hex[:8]
+        event_id = f"evt_missing_failed_{unique_id}"
+        customer_id = f"cus_missing_{unique_id}"
+
+        await billing_service.process_payment_failed(
+            db=db,
+            event_id=event_id,
+            customer_id=customer_id
+        )
+
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_db:
+            webhook_event = await crud.webhook_event.get_by_event_id(
+                db=new_db,
+                event_id=event_id
+            )
+            assert webhook_event is not None
+            assert webhook_event.event_type == 'invoice.payment_failed'
+            assert webhook_event.status == 'skipped'
+            assert webhook_event.billing_id is None
+
+    @pytest.mark.asyncio
+    async def test_process_subscription_updated_missing_customer(
+        self,
+        db: AsyncSession,
+        billing_service: BillingService
+    ):
+        """存在しないカスタマーIDでsubscription_updatedが呼ばれた場合の処理を検証"""
+        unique_id = uuid4().hex[:8]
+        event_id = f"evt_missing_updated_{unique_id}"
+        customer_id = f"cus_missing_{unique_id}"
+
+        subscription_data = {
+            'id': f'sub_missing_{unique_id}',
+            'customer': customer_id,
+            'cancel_at_period_end': True,
+            'cancel_at': None,
+            'status': 'active'
+        }
+
+        await billing_service.process_subscription_updated(
+            db=db,
+            event_id=event_id,
+            subscription_data=subscription_data
+        )
+
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_db:
+            webhook_event = await crud.webhook_event.get_by_event_id(
+                db=new_db,
+                event_id=event_id
+            )
+            assert webhook_event is not None
+            assert webhook_event.event_type == 'customer.subscription.updated'
+            assert webhook_event.status == 'skipped'
+            assert webhook_event.billing_id is None
+
+    @pytest.mark.asyncio
+    async def test_process_subscription_deleted_missing_customer(
+        self,
+        db: AsyncSession,
+        billing_service: BillingService
+    ):
+        """存在しないカスタマーIDでsubscription_deletedが呼ばれた場合の処理を検証"""
+        unique_id = uuid4().hex[:8]
+        event_id = f"evt_missing_deleted_{unique_id}"
+        customer_id = f"cus_missing_{unique_id}"
+
+        await billing_service.process_subscription_deleted(
+            db=db,
+            event_id=event_id,
+            customer_id=customer_id
+        )
+
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_db:
+            webhook_event = await crud.webhook_event.get_by_event_id(
+                db=new_db,
+                event_id=event_id
+            )
+            assert webhook_event is not None
+            assert webhook_event.event_type == 'customer.subscription.deleted'
+            assert webhook_event.status == 'skipped'
+            assert webhook_event.billing_id is None
+
+
 class TestBillingServiceStripeIntegration:
     """Stripe API連携のテスト（モックを使用）"""
 
@@ -547,3 +684,197 @@ class TestBillingServiceStripeIntegration:
         await db.rollback()
         billing_after = await crud.billing.get(db=db, id=billing_id)
         assert billing_after.stripe_customer_id is None
+
+
+class TestCancelingToCanceledTransition:
+    """
+    canceling → canceled 状態遷移のテスト
+    Webhook: customer.subscription.deleted による遷移を検証
+    """
+
+    async def test_subscription_deleted_canceling_to_canceled(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        canceling状態からcanceledへの正常な遷移をテスト
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+
+        # Billingをcanceling状態に設定
+        scheduled_cancel_at = datetime.now(timezone.utc) + timedelta(days=7)
+        await crud.billing.update(
+            db=db,
+            db_obj=await crud.billing.get(db=db, id=billing_id),
+            obj_in={
+                "billing_status": BillingStatus.canceling,
+                "stripe_customer_id": "cus_test_canceling",
+                "stripe_subscription_id": "sub_test_canceling",
+                "scheduled_cancel_at": scheduled_cancel_at
+            }
+        )
+        await db.commit()
+
+        # Webhook event: customer.subscription.deleted
+        event_id = f"evt_test_cancel_{uuid4().hex[:12]}"
+        subscription_deleted_event = {
+            "id": event_id,
+            "type": "customer.subscription.deleted",
+            "data": {
+                "object": {
+                    "id": "sub_test_canceling",
+                    "customer": "cus_test_canceling",
+                    "status": "canceled",
+                    "canceled_at": int(datetime.now(timezone.utc).timestamp()),
+                    "cancel_at_period_end": False
+                }
+            }
+        }
+
+        # Webhook処理実行
+        await billing_service.process_subscription_deleted(
+            db=db,
+            event_id=event_id,
+            customer_id="cus_test_canceling"
+        )
+
+        # 状態確認
+        billing_after = await crud.billing.get(db=db, id=billing_id)
+        assert billing_after.billing_status == BillingStatus.canceled
+        assert billing_after.scheduled_cancel_at is None
+
+        # Webhook eventが記録されていることを確認
+        webhook_event = await crud.webhook_event.get_by_event_id(db=db, event_id=event_id)
+        assert webhook_event is not None
+        assert webhook_event.status == "success"
+        assert webhook_event.event_type == "customer.subscription.deleted"
+
+    async def test_subscription_deleted_from_active_status(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        active状態からの subscription.deleted処理を確認
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+
+        # Billingをactive状態に設定（Stripe情報あり）
+        await crud.billing.update(
+            db=db,
+            db_obj=await crud.billing.get(db=db, id=billing_id),
+            obj_in={
+                "billing_status": BillingStatus.active,
+                "stripe_customer_id": "cus_test_active",
+                "stripe_subscription_id": "sub_test_active"
+            }
+        )
+        await db.commit()
+
+        # 削除前の確認
+        billing_before = await crud.billing.get(db=db, id=billing_id)
+        assert billing_before.billing_status == BillingStatus.active
+
+        # Webhook処理実行
+        event_id = f"evt_test_active_{uuid4().hex[:12]}"
+        await billing_service.process_subscription_deleted(
+            db=db,
+            event_id=event_id,
+            customer_id="cus_test_active"
+        )
+
+        # billing_statusがcanceledに遷移していることを確認
+        billing_after = await crud.billing.get(db=db, id=billing_id)
+        assert billing_after.billing_status == BillingStatus.canceled
+
+    async def test_subscription_deleted_during_trial_with_scheduled_cancel(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        トライアル中にキャンセル予定を設定した場合の削除処理
+        canceling → canceled への遷移を確認
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+
+        # Billingをcanceling状態に設定（トライアル中）
+        trial_end = datetime.now(timezone.utc) + timedelta(days=30)
+        scheduled_cancel_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+        await crud.billing.update(
+            db=db,
+            db_obj=await crud.billing.get(db=db, id=billing_id),
+            obj_in={
+                "billing_status": BillingStatus.canceling,
+                "trial_end_date": trial_end,
+                "stripe_customer_id": "cus_test_trial_cancel",
+                "stripe_subscription_id": "sub_test_trial_cancel",
+                "scheduled_cancel_at": scheduled_cancel_at
+            }
+        )
+        await db.commit()
+
+        # scheduled_cancel_at到達（実際にはStripeが自動的に削除）
+        event_id = f"evt_test_trial_cancel_{uuid4().hex[:12]}"
+        await billing_service.process_subscription_deleted(
+            db=db,
+            event_id=event_id,
+            customer_id="cus_test_trial_cancel"
+        )
+
+        # 状態確認
+        billing_after = await crud.billing.get(db=db, id=billing_id)
+        assert billing_after.billing_status == BillingStatus.canceled
+        assert billing_after.scheduled_cancel_at is None
+
+    async def test_subscription_deleted_audit_log(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        subscription.deleted時に監査ログが正しく記録されることを確認
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+
+        # Billingをcanceling状態に設定
+        await crud.billing.update(
+            db=db,
+            db_obj=await crud.billing.get(db=db, id=billing_id),
+            obj_in={
+                "billing_status": BillingStatus.canceling,
+                "stripe_customer_id": "cus_test_audit",
+                "stripe_subscription_id": "sub_test_audit"
+            }
+        )
+        await db.commit()
+
+        # Webhook処理実行
+        event_id = f"evt_test_audit_{uuid4().hex[:12]}"
+        await billing_service.process_subscription_deleted(
+            db=db,
+            event_id=event_id,
+            customer_id="cus_test_audit"
+        )
+
+        # 監査ログ確認
+        audit_logs, total = await crud.audit_log.get_logs(
+            db=db,
+            office_id=office_id,
+            skip=0,
+            limit=10,
+            include_test_data=True
+        )
+
+        # subscription.deleted関連のログが記録されていることを確認
+        assert len(audit_logs) > 0
+        billing_logs = [log for log in audit_logs if log.target_type == "billing"]
+        assert len(billing_logs) > 0
+        latest_log = billing_logs[0]
+        assert "subscription" in latest_log.action.lower() or "canceled" in latest_log.action.lower()

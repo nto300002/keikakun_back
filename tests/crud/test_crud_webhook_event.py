@@ -15,7 +15,7 @@ class TestWebhookEventCRUD:
 
     async def test_create_event_record(self, db_session):
         """イベント記録作成のテスト"""
-        event_id = "evt_test_123456"
+        event_id = f"evt_test_{uuid4().hex[:12]}"
         event_type = "invoice.payment_succeeded"
 
         webhook_event = await crud.webhook_event.create_event_record(
@@ -36,7 +36,7 @@ class TestWebhookEventCRUD:
 
     async def test_get_by_event_id(self, db_session):
         """Event IDによる取得のテスト"""
-        event_id = "evt_test_get_by_id"
+        event_id = f"evt_test_{uuid4().hex[:12]}"
 
         # イベント作成
         created_event = await crud.webhook_event.create_event_record(
@@ -59,7 +59,7 @@ class TestWebhookEventCRUD:
 
     async def test_is_event_processed(self, db_session):
         """冪等性チェックのテスト"""
-        event_id = "evt_test_idempotency"
+        event_id = f"evt_test_{uuid4().hex[:12]}"
 
         # 未処理の状態
         is_processed = await crud.webhook_event.is_event_processed(
@@ -86,7 +86,7 @@ class TestWebhookEventCRUD:
 
     async def test_create_event_with_payload(self, db_session):
         """ペイロード付きイベント作成のテスト"""
-        event_id = "evt_test_with_payload"
+        event_id = f"evt_test_{uuid4().hex[:12]}"
 
         webhook_event = await crud.webhook_event.create_event_record(
             db=db_session,
@@ -102,7 +102,7 @@ class TestWebhookEventCRUD:
 
     async def test_create_failed_event(self, db_session):
         """失敗イベント記録のテスト"""
-        event_id = "evt_test_failed"
+        event_id = f"evt_test_{uuid4().hex[:12]}"
         error_message = "Payment method declined"
 
         webhook_event = await crud.webhook_event.create_event_record(
@@ -145,13 +145,13 @@ class TestWebhookEventCRUD:
         # 異なるタイプのイベントを作成
         await crud.webhook_event.create_event_record(
             db=db_session,
-            event_id="evt_payment_1",
+            event_id=f"evt_payment_{uuid4().hex[:8]}",
             event_type="invoice.payment_succeeded",
             status="success"
         )
         await crud.webhook_event.create_event_record(
             db=db_session,
-            event_id="evt_subscription_1",
+            event_id=f"evt_subscription_{uuid4().hex[:8]}",
             event_type="customer.subscription.created",
             status="success"
         )
@@ -169,15 +169,18 @@ class TestWebhookEventCRUD:
     async def test_get_failed_events(self, db_session):
         """失敗イベント取得のテスト"""
         # 成功と失敗のイベントを作成
+        success_event_id = f"evt_success_{uuid4().hex[:8]}"
+        failed_event_id = f"evt_failed_{uuid4().hex[:8]}"
+
         await crud.webhook_event.create_event_record(
             db=db_session,
-            event_id="evt_success_1",
+            event_id=success_event_id,
             event_type="invoice.payment_succeeded",
             status="success"
         )
         await crud.webhook_event.create_event_record(
             db=db_session,
-            event_id="evt_failed_1",
+            event_id=failed_event_id,
             event_type="invoice.payment_failed",
             status="failed",
             error_message="Test error"
@@ -191,7 +194,7 @@ class TestWebhookEventCRUD:
         )
 
         assert all(e.status == "failed" for e in failed_events)
-        assert any(e.event_id == "evt_failed_1" for e in failed_events)
+        assert any(e.event_id == failed_event_id for e in failed_events)
 
     async def test_get_failed_events_since(self, db_session):
         """期間指定での失敗イベント取得のテスト"""
@@ -199,7 +202,7 @@ class TestWebhookEventCRUD:
 
         await crud.webhook_event.create_event_record(
             db=db_session,
-            event_id="evt_recent_failed",
+            event_id=f"evt_recent_failed_{uuid4().hex[:8]}",
             event_type="invoice.payment_failed",
             status="failed",
             error_message="Recent error"
@@ -230,7 +233,7 @@ class TestWebhookEventCRUD:
 
     async def test_duplicate_event_id_prevention(self, db_session):
         """重複Event IDの防止テスト"""
-        event_id = "evt_duplicate_test"
+        event_id = f"evt_duplicate_{uuid4().hex[:8]}"
 
         # 1回目の作成
         await crud.webhook_event.create_event_record(

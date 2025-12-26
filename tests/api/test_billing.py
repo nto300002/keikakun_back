@@ -414,11 +414,11 @@ async def test_webhook_idempotency_duplicate_event_skipped(
     assert response1.status_code == 200
     assert response1.json()["status"] == "success"
 
-    # Billing statusがactiveに更新されたことを確認
+    # Billing statusがearly_paymentに更新されたことを確認（トライアル中の課金）
     await db_session.refresh(billing)
     first_status = billing.billing_status
     first_payment_date = billing.last_payment_date
-    assert first_status == BillingStatus.active
+    assert first_status == BillingStatus.early_payment
     assert first_payment_date is not None
 
     # webhook_eventsテーブルにイベントが記録されたことを確認
