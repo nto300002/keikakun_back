@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
+import stripe
 
+from app import crud
 from app.crud.crud_approval_request import approval_request as crud_approval_request
 from app.crud.crud_archived_staff import crud_archived_staff
 from app.crud.crud_audit_log import audit_log as crud_audit_log
@@ -23,8 +25,10 @@ from app.crud.crud_staff import staff as crud_staff
 from app.models.approval_request import ApprovalRequest
 from app.models.office import Office, OfficeStaff
 from app.models.staff import Staff
-from app.models.enums import StaffRole, RequestStatus, ApprovalResourceType
+from app.models.enums import StaffRole, RequestStatus, ApprovalResourceType, BillingStatus
 from app.messages import ja
+from app.core.config import settings
+from app.schemas.billing import BillingUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -606,6 +610,22 @@ class WithdrawalService:
             }
         )
 
+        # ====================================
+        # 課金キャンセル処理
+        # ====================================
+        billing_cancellation_result = await self._cancel_office_billing(
+            db=db,
+            office_id=office_id,
+            executor_id=executor_id,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        logger.info(
+            f"Billing cancellation result for office withdrawal: "
+            f"office_id={office_id}, result={billing_cancellation_result}"
+        )
+
         # 所属スタッフを全員論理削除（30日後に物理削除される予定）
         archived_staff_ids = []
         for staff_id in staff_ids:
@@ -669,7 +689,8 @@ class WithdrawalService:
         logger.info(
             f"Office withdrawn (soft deleted): office_id={office_id}, "
             f"name={office_info['name']}, soft_deleted_staff_count={len(staff_ids)}, "
-            f"staff will be hard deleted after 30 days"
+            f"staff will be hard deleted after 30 days, "
+            f"billing_cancellation={billing_cancellation_result.get('action')}"
         )
 
         return {
@@ -679,7 +700,8 @@ class WithdrawalService:
             "deleted_staff_count": len(staff_ids),
             "staff_deletion_type": "soft_delete",
             "archived_staff_ids": archived_staff_ids,
-            "archived_staff_count": len(archived_staff_ids)
+            "archived_staff_count": len(archived_staff_ids),
+            "billing_cancellation": billing_cancellation_result
         }
 
     # =====================================================
@@ -723,6 +745,198 @@ class WithdrawalService:
             退会リクエスト（見つからない場合はNone）
         """
         return await crud_approval_request.get_by_id_with_relations(db, request_id)
+
+    # =====================================================
+    # 課金キャンセル処理
+    # =====================================================
+
+    async def _cancel_office_billing(
+        self,
+        db: AsyncSession,
+        *,
+        office_id: UUID,
+        executor_id: UUID,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        事務所退会時に課金をキャンセル
+
+        処理内容:
+        1. Billing情報を取得
+        2. Stripeサブスクリプションをキャンセル（存在する場合）
+        3. Billing情報を更新（customer_id=null, subscription_id=null, status=canceled）
+        4. 監査ログを記録
+
+        Args:
+            db: データベースセッション
+            office_id: 事務所ID
+            executor_id: 実行者のスタッフID
+            ip_address: 操作元IPアドレス
+            user_agent: 操作元User-Agent
+
+        Returns:
+            処理結果
+        """
+        try:
+            # 1. Billing情報を取得
+            billing = await crud.billing.get_by_office_id(db=db, office_id=office_id)
+
+            if not billing:
+                logger.info(f"No billing record found for office {office_id} - skipping billing cancellation")
+                return {
+                    "success": True,
+                    "action": "skipped",
+                    "reason": "No billing record found"
+                }
+
+            # Billing情報を保存（監査ログ用）
+            billing_info = {
+                "billing_id": str(billing.id),
+                "billing_status": billing.billing_status.value,
+                "stripe_customer_id": billing.stripe_customer_id,
+                "stripe_subscription_id": billing.stripe_subscription_id
+            }
+
+            # 2. Stripeサブスクリプションをキャンセル（存在する場合）
+            stripe_cancellation_result = None
+            if billing.stripe_subscription_id:
+                stripe_cancellation_result = await self._cancel_stripe_subscription(
+                    subscription_id=billing.stripe_subscription_id
+                )
+
+                logger.info(
+                    f"Stripe subscription cancellation: "
+                    f"subscription_id={billing.stripe_subscription_id}, "
+                    f"result={stripe_cancellation_result}"
+                )
+
+            # 3. Billing情報を更新（customer_id=null, subscription_id=null, status=canceled）
+            update_data = BillingUpdate(
+                stripe_customer_id=None,
+                stripe_subscription_id=None,
+                billing_status=BillingStatus.canceled,
+                scheduled_cancel_at=None
+            )
+
+            await crud.billing.update(
+                db=db,
+                db_obj=billing,
+                obj_in=update_data,
+                auto_commit=False
+            )
+
+            await db.flush()
+
+            logger.info(
+                f"Billing record updated for office withdrawal: "
+                f"billing_id={billing.id}, status=canceled, "
+                f"customer_id=null, subscription_id=null"
+            )
+
+            # 4. 監査ログを記録
+            await crud_audit_log.create_log(
+                db=db,
+                actor_id=executor_id,
+                action="billing.canceled_on_withdrawal",
+                target_type="billing",
+                target_id=billing.id,
+                office_id=office_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                details={
+                    "reason": "office_withdrawal",
+                    "previous_billing_info": billing_info,
+                    "stripe_cancellation": stripe_cancellation_result
+                },
+                auto_commit=False
+            )
+
+            return {
+                "success": True,
+                "action": "canceled",
+                "billing_id": str(billing.id),
+                "previous_status": billing_info["billing_status"],
+                "stripe_cancellation": stripe_cancellation_result
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to cancel billing for office {office_id}: {e}",
+                exc_info=True
+            )
+            return {
+                "success": False,
+                "action": "failed",
+                "error": str(e)
+            }
+
+    async def _cancel_stripe_subscription(
+        self,
+        subscription_id: str
+    ) -> Dict[str, Any]:
+        """
+        Stripeサブスクリプションをキャンセル
+
+        Args:
+            subscription_id: Stripe Subscription ID
+
+        Returns:
+            キャンセル結果
+        """
+        try:
+            if not settings.STRIPE_SECRET_KEY:
+                logger.warning("STRIPE_SECRET_KEY not configured - skipping Stripe cancellation")
+                return {
+                    "success": False,
+                    "action": "skipped",
+                    "reason": "Stripe API key not configured"
+                }
+
+            # Stripe API key設定
+            stripe.api_key = settings.STRIPE_SECRET_KEY.get_secret_value()
+
+            # サブスクリプションをキャンセル
+            # prorate=False: 日割り計算なし（即座にキャンセル）
+            # invoice_now=False: 即座に請求書を発行しない
+            canceled_subscription = stripe.Subscription.delete(subscription_id)
+
+            logger.info(
+                f"Stripe subscription canceled: "
+                f"subscription_id={subscription_id}, "
+                f"status={canceled_subscription.status}"
+            )
+
+            return {
+                "success": True,
+                "action": "canceled",
+                "subscription_id": subscription_id,
+                "canceled_at": canceled_subscription.canceled_at,
+                "status": canceled_subscription.status
+            }
+
+        except stripe.error.StripeError as e:
+            logger.error(
+                f"Stripe API error during subscription cancellation: "
+                f"subscription_id={subscription_id}, error={e}",
+                exc_info=True
+            )
+            return {
+                "success": False,
+                "action": "failed",
+                "error": f"Stripe API error: {str(e)}"
+            }
+        except Exception as e:
+            logger.error(
+                f"Unexpected error during Stripe subscription cancellation: "
+                f"subscription_id={subscription_id}, error={e}",
+                exc_info=True
+            )
+            return {
+                "success": False,
+                "action": "failed",
+                "error": str(e)
+            }
 
 
 # サービスインスタンスをエクスポート

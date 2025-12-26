@@ -177,7 +177,20 @@ class BillingService:
             )
 
             if not billing:
-                raise ValueError(f"Billing not found for customer {customer_id}")
+                logger.warning(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+
+                await crud.webhook_event.create_event_record(
+                    db=db,
+                    event_id=event_id,
+                    event_type='invoice.payment_succeeded',
+                    source='stripe',
+                    billing_id=None,
+                    office_id=None,
+                    payload={"customer_id": customer_id, "note": "Customer not found in database"},
+                    status='skipped',
+                    auto_commit=True
+                )
+                return
 
             # 1. 支払い記録を更新（auto_commit=False）
             await crud.billing.record_payment(
@@ -252,7 +265,20 @@ class BillingService:
             )
 
             if not billing:
-                raise ValueError(f"Billing not found for customer {customer_id}")
+                logger.warning(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+
+                await crud.webhook_event.create_event_record(
+                    db=db,
+                    event_id=event_id,
+                    event_type='invoice.payment_failed',
+                    source='stripe',
+                    billing_id=None,
+                    office_id=None,
+                    payload={"customer_id": customer_id, "note": "Customer not found in database"},
+                    status='skipped',
+                    auto_commit=True
+                )
+                return
 
             # 1. ステータス更新（auto_commit=False）
             await crud.billing.update_status(
@@ -430,6 +456,10 @@ class BillingService:
             customer_id = subscription_data.get('customer')
             cancel_at_period_end = subscription_data.get('cancel_at_period_end', False)
             cancel_at = subscription_data.get('cancel_at')
+            subscription_status = subscription_data.get('status')
+
+            # デバッグログ: イベントの詳細を記録
+            logger.info(f"[Webhook:{event_id}] Subscription updated - customer_id={customer_id}, cancel_at_period_end={cancel_at_period_end}, cancel_at={cancel_at}, status={subscription_status}")
 
             billing = await crud.billing.get_by_stripe_customer_id(
                 db=db,
@@ -437,11 +467,50 @@ class BillingService:
             )
 
             if not billing:
-                logger.warning(f"[Webhook:{event_id}] Billing not found for customer {customer_id}")
+                logger.warning(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+
+                await crud.webhook_event.create_event_record(
+                    db=db,
+                    event_id=event_id,
+                    event_type='customer.subscription.updated',
+                    source='stripe',
+                    billing_id=None,
+                    office_id=None,
+                    payload={
+                        "customer_id": customer_id,
+                        "cancel_at_period_end": cancel_at_period_end,
+                        "cancel_at": cancel_at,
+                        "note": "Customer not found in database"
+                    },
+                    status='skipped',
+                    auto_commit=True
+                )
                 return
 
-            # cancel_at_period_end=trueの場合、キャンセル予定状態に
-            if cancel_at_period_end:
+            # 現在のbilling_statusをログに記録
+            logger.info(f"[Webhook:{event_id}] Current billing_status={billing.billing_status}")
+
+            # スケジュールされたキャンセル日時を保存
+            if cancel_at:
+                cancel_at_datetime = datetime.fromtimestamp(cancel_at, tz=timezone.utc)
+                await crud.billing.update(
+                    db=db,
+                    db_obj=billing,
+                    obj_in={"scheduled_cancel_at": cancel_at_datetime},
+                    auto_commit=False
+                )
+                logger.info(f"[Webhook:{event_id}] Scheduled cancellation set for {cancel_at_datetime}")
+            elif billing.scheduled_cancel_at is not None:
+                await crud.billing.update(
+                    db=db,
+                    db_obj=billing,
+                    obj_in={"scheduled_cancel_at": None},
+                    auto_commit=False
+                )
+                logger.info(f"[Webhook:{event_id}] Scheduled cancellation cleared")
+
+            # cancel_at_period_end=true または cancel_at が設定されている場合、キャンセル予定状態に
+            if cancel_at_period_end or cancel_at:
                 await crud.billing.update_status(
                     db=db,
                     billing_id=billing.id,
@@ -449,18 +518,37 @@ class BillingService:
                     auto_commit=False
                 )
 
-                logger.info(f"[Webhook:{event_id}] Subscription set to cancel at period end for billing_id={billing.id}")
+                logger.info(f"[Webhook:{event_id}] Subscription set to canceling - cancel_at_period_end={cancel_at_period_end}, cancel_at={cancel_at}")
 
-            # cancel_at_period_end=falseでcanceling状態の場合、キャンセル取り消し
-            elif not cancel_at_period_end and billing.billing_status == BillingStatus.canceling:
+            # キャンセルが完全にクリアされた場合（cancel_at_period_end=false かつ cancel_at=null）、元のステータスに復元
+            elif not cancel_at_period_end and not cancel_at and billing.billing_status == BillingStatus.canceling:
+                # 元のステータスを判定: trial期間内 or 課金期間中
+                now = datetime.now(timezone.utc)
+                is_in_trial = now < billing.trial_end_date
+                has_subscription = billing.stripe_subscription_id is not None
+
+                # 復元先のステータスを決定
+                if is_in_trial and has_subscription:
+                    # 無料期間中かつ課金設定済み → early_payment
+                    restored_status = BillingStatus.early_payment
+                elif is_in_trial and not has_subscription:
+                    # 無料期間中かつ課金未設定 → free
+                    restored_status = BillingStatus.free
+                else:
+                    # 課金期間中 → active
+                    restored_status = BillingStatus.active
+
                 await crud.billing.update_status(
                     db=db,
                     billing_id=billing.id,
-                    status=BillingStatus.active,
+                    status=restored_status,
                     auto_commit=False
                 )
 
-                logger.info(f"[Webhook:{event_id}] Subscription cancellation reverted for billing_id={billing.id}")
+                logger.info(f"[Webhook:{event_id}] Subscription cancellation reverted for billing_id={billing.id}, restored to {restored_status}")
+            else:
+                # どの条件にも当てはまらない場合（通常の更新）
+                logger.info(f"[Webhook:{event_id}] Subscription updated but no status change needed - cancel_at_period_end={cancel_at_period_end}, current_status={billing.billing_status}")
 
             # Webhookイベント記録
             await crud.webhook_event.create_event_record(
@@ -530,13 +618,29 @@ class BillingService:
             )
 
             if not billing:
-                raise ValueError(f"Billing not found for customer {customer_id}")
+                logger.warning(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
 
-            # 1. ステータス更新（auto_commit=False）
-            await crud.billing.update_status(
+                await crud.webhook_event.create_event_record(
+                    db=db,
+                    event_id=event_id,
+                    event_type='customer.subscription.deleted',
+                    source='stripe',
+                    billing_id=None,
+                    office_id=None,
+                    payload={"customer_id": customer_id, "note": "Customer not found in database"},
+                    status='skipped',
+                    auto_commit=True
+                )
+                return
+
+            # 1. ステータス更新とスケジュールキャンセルのクリア（auto_commit=False）
+            await crud.billing.update(
                 db=db,
-                billing_id=billing.id,
-                status=BillingStatus.canceled,
+                db_obj=billing,
+                obj_in={
+                    "billing_status": BillingStatus.canceled,
+                    "scheduled_cancel_at": None
+                },
                 auto_commit=False
             )
 
