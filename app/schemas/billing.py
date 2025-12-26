@@ -1,11 +1,11 @@
 """
 Billingスキーマ: 事業所の課金情報
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from app.models.enums import BillingStatus
 
@@ -20,6 +20,7 @@ class BillingBase(BaseModel):
     next_billing_date: Optional[datetime] = None
     current_plan_amount: int = 6000
     last_payment_date: Optional[datetime] = None
+    scheduled_cancel_at: Optional[datetime] = None
 
 
 # 作成時のスキーマ
@@ -41,6 +42,7 @@ class BillingUpdate(BaseModel):
     next_billing_date: Optional[datetime] = None
     current_plan_amount: Optional[int] = None
     last_payment_date: Optional[datetime] = None
+    scheduled_cancel_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,5 +73,19 @@ class BillingStatusResponse(BaseModel):
     trial_end_date: datetime
     next_billing_date: Optional[datetime] = None
     current_plan_amount: int
+    subscription_start_date: Optional[datetime] = None
+    scheduled_cancel_at: Optional[datetime] = None
+
+    @computed_field
+    @property
+    def trial_days_remaining(self) -> Optional[int]:
+        """無料期間の残り日数を計算"""
+        if not self.trial_end_date:
+            return None
+        now = datetime.now(timezone.utc)
+        if now >= self.trial_end_date:
+            return 0
+        delta = self.trial_end_date - now
+        return delta.days
 
     model_config = ConfigDict(from_attributes=True)
