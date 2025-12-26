@@ -74,17 +74,23 @@ async def get_billing_status(
     # Billing情報を取得
     billing = await crud.billing.get_by_office_id(db=db, office_id=office_id)
 
+    # Billing情報が存在しない場合、自動的に作成（既存Officeの救済措置）
     if not billing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=ja.BILLING_INFO_NOT_FOUND
+        logger.warning(f"Billing not found for office {office_id}, auto-creating with 180-day trial")
+        billing = await crud.billing.create_for_office(
+            db=db,
+            office_id=office_id,
+            trial_days=180
         )
+        logger.info(f"Auto-created billing record: id={billing.id}, office_id={office_id}")
 
     return BillingStatusResponse(
         billing_status=billing.billing_status,
         trial_end_date=billing.trial_end_date,
         next_billing_date=billing.next_billing_date,
-        current_plan_amount=billing.current_plan_amount
+        current_plan_amount=billing.current_plan_amount,
+        subscription_start_date=billing.subscription_start_date,
+        scheduled_cancel_at=billing.scheduled_cancel_at
     )
 
 

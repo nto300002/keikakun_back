@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
+import logging
 
 from app import schemas, crud, models
 from app.api import deps
@@ -8,6 +9,7 @@ from app.services.dashboard_service import DashboardService
 from app.messages import ja
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/", response_model=schemas.dashboard.DashboardData)
@@ -83,8 +85,16 @@ async def get_dashboard(
 
     # 6. Billing情報を取得
     billing = await crud.billing.get_by_office_id(db=db, office_id=office.id)
+
+    # Billing情報が存在しない場合、自動的に作成（既存Officeの救済措置）
     if not billing:
-        raise HTTPException(status_code=404, detail=ja.BILLING_INFO_NOT_FOUND)
+        logger.warning(f"Billing not found for office {office.id}, auto-creating with 180-day trial")
+        billing = await crud.billing.create_for_office(
+            db=db,
+            office_id=office.id,
+            trial_days=180
+        )
+        logger.info(f"Auto-created billing record: id={billing.id}, office_id={office.id}")
 
     # 7. 最終的なDashboardDataを構築
     max_user_count = service._get_max_user_count(billing.billing_status)
