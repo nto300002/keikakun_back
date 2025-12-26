@@ -142,14 +142,25 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
         payment_date: Optional[datetime] = None,
         auto_commit: bool = True
     ) -> Optional[Billing]:
-        """支払い記録を更新"""
+        """
+        支払い記録を更新
+
+        trial期間中ならearly_payment、そうでなければactiveに設定
+        """
         billing = await self.get(db=db, id=billing_id)
         if not billing:
             return None
 
+        # トライアル期間中かどうかを判定
+        now = datetime.now(timezone.utc)
+        is_trial_active = billing.trial_end_date and billing.trial_end_date > now
+
+        # トライアル中なら early_payment、そうでなければ active
+        new_status = BillingStatus.early_payment if is_trial_active else BillingStatus.active
+
         update_data = BillingUpdate(
             last_payment_date=payment_date or datetime.now(timezone.utc),
-            billing_status=BillingStatus.active
+            billing_status=new_status
         )
         return await self.update(db=db, db_obj=billing, obj_in=update_data, auto_commit=auto_commit)
 

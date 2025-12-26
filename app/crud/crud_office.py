@@ -21,7 +21,10 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
     ) -> Office:
         """
         Officeを作成し、作成者をOfficeStaffとして関連付けます。
+        同時にBillingレコードも作成します（無料トライアル180日）。
         """
+        from app import crud
+
         # テスト環境の場合はis_test_data=Trueを設定
         is_test_data = os.getenv("TESTING") == "1"
 
@@ -42,6 +45,15 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
             is_test_data=is_test_data,
         )
         db.add(office_staff)
+        await db.flush()
+
+        # Billingレコードを自動作成（無料トライアル180日）
+        billing = await crud.billing.create_for_office(
+            db=db,
+            office_id=db_office.id,
+            trial_days=180
+        )
+        await db.flush()
 
         await db.commit()
         await db.refresh(db_office)
