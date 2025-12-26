@@ -23,8 +23,10 @@ async def check_trial_expiration(
     トライアル期間終了チェック（定期実行タスク）
 
     処理内容:
-    - trial_end_date < now かつ billing_status = 'free' のレコードを抽出
-    - billing_status を 'past_due' に更新
+    - trial_end_date < now かつ billing_status が 'free' または 'early_payment' のレコードを抽出
+    - billing_status を以下のように更新:
+      - free → past_due（無料期間終了、未課金）
+      - early_payment → active（無料期間終了、課金済み）
     - 処理件数を返す
 
     実行頻度: 毎日0:00 UTC（推奨）
@@ -49,10 +51,10 @@ async def check_trial_expiration(
 
     # トライアル期限切れのBillingを取得
     # 条件:
-    # - billing_status = 'free' （無料トライアル中）
+    # - billing_status in ('free', 'early_payment')
     # - trial_end_date < now （期限切れ）
     query = select(Billing).where(
-        Billing.billing_status == BillingStatus.free,
+        Billing.billing_status.in_([BillingStatus.free, BillingStatus.early_payment]),
         Billing.trial_end_date < now
     )
 
@@ -68,16 +70,26 @@ async def check_trial_expiration(
     # ステータス更新
     updated_count = 0
     for billing in expired_billings:
+        # 遷移先を判定
+        if billing.billing_status == BillingStatus.free:
+            new_status = BillingStatus.past_due
+        elif billing.billing_status == BillingStatus.early_payment:
+            new_status = BillingStatus.active
+        else:
+            continue
+
         await crud.billing.update_status(
             db=db,
             billing_id=billing.id,
-            status=BillingStatus.past_due
+            status=new_status,
+            auto_commit=False
         )
 
         logger.info(
             f"Trial expired: office_id={billing.office_id}, "
             f"billing_id={billing.id}, "
-            f"trial_end_date={billing.trial_end_date}"
+            f"trial_end_date={billing.trial_end_date}, "
+            f"{billing.billing_status.value} → {new_status.value}"
         )
 
         updated_count += 1
@@ -85,7 +97,82 @@ async def check_trial_expiration(
     # コミット
     if updated_count > 0:
         await db.commit()
-        logger.info(f"Updated {updated_count} expired trials to past_due")
+        logger.info(f"Updated {updated_count} expired trials")
+
+    return updated_count
+
+
+async def check_scheduled_cancellation(
+    db: AsyncSession,
+    dry_run: bool = False
+) -> int:
+    """
+    スケジュールされたキャンセルの期限チェック（定期実行タスク）
+
+    処理内容:
+    - scheduled_cancel_at < now かつ billing_status = 'canceling' のレコードを抽出
+    - billing_status を 'canceled' に更新
+    - 処理件数を返す
+
+    実行頻度: 毎日0:05 UTC（推奨）
+
+    Args:
+        db: データベースセッション
+        dry_run: Trueの場合は更新せず、対象件数のみ返す（テスト用）
+
+    Returns:
+        int: 更新したBillingの件数
+
+    Examples:
+        >>> # 本番実行
+        >>> canceled_count = await check_scheduled_cancellation(db=db)
+        >>> logger.info(f"Updated {canceled_count} scheduled cancellations")
+
+        >>> # ドライラン（テスト実行）
+        >>> canceled_count = await check_scheduled_cancellation(db=db, dry_run=True)
+        >>> print(f"Would update {canceled_count} scheduled cancellations")
+    """
+    now = datetime.now(timezone.utc)
+
+    # スケジュールキャンセルが過去日付のBillingを取得
+    query = select(Billing).where(
+        Billing.billing_status == BillingStatus.canceling,
+        Billing.scheduled_cancel_at.isnot(None),
+        Billing.scheduled_cancel_at < now
+    )
+
+    result = await db.execute(query)
+    expired_cancellations = result.scalars().all()
+
+    if dry_run:
+        logger.info(
+            f"[DRY RUN] Would update {len(expired_cancellations)} expired scheduled cancellations"
+        )
+        return len(expired_cancellations)
+
+    # ステータス更新
+    updated_count = 0
+    for billing in expired_cancellations:
+        await crud.billing.update_status(
+            db=db,
+            billing_id=billing.id,
+            status=BillingStatus.canceled,
+            auto_commit=False
+        )
+
+        logger.warning(
+            f"Scheduled cancellation expired (Webhook may have been missed): "
+            f"office_id={billing.office_id}, "
+            f"billing_id={billing.id}, "
+            f"scheduled_cancel_at={billing.scheduled_cancel_at}"
+        )
+
+        updated_count += 1
+
+    # コミット
+    if updated_count > 0:
+        await db.commit()
+        logger.info(f"Updated {updated_count} expired scheduled cancellations to canceled")
 
     return updated_count
 
