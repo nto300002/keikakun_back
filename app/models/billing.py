@@ -52,6 +52,9 @@ class Billing(Base):
     # 最終支払い日
     last_payment_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
+    # スケジュールされたキャンセル日時
+    scheduled_cancel_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     # タイムスタンプ
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
