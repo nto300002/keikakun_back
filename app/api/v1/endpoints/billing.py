@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 import stripe
 import logging
 
@@ -149,6 +150,20 @@ async def create_checkout_session(
     if billing.stripe_customer_id:
         # 既存のCustomerでCheckout Sessionを作成
         try:
+            # Trial期間が未来の場合のみtrial_endを設定
+            now = datetime.now(timezone.utc)
+            subscription_data_params = {
+                'metadata': {
+                    'office_id': str(office_id),
+                    'office_name': office.name,
+                    'created_by_user_id': str(current_user.id),
+                }
+            }
+
+            # Trial期間が未来の場合のみtrial_endを設定（past_due状態では設定しない）
+            if billing.trial_end_date and billing.trial_end_date > now:
+                subscription_data_params['trial_end'] = int(billing.trial_end_date.timestamp())
+
             checkout_session = stripe.checkout.Session.create(
                 mode='subscription',
                 customer=billing.stripe_customer_id,
@@ -156,14 +171,7 @@ async def create_checkout_session(
                     'price': settings.STRIPE_PRICE_ID,
                     'quantity': 1
                 }],
-                subscription_data={
-                    'trial_end': int(billing.trial_end_date.timestamp()),
-                    'metadata': {
-                        'office_id': str(office_id),
-                        'office_name': office.name,
-                        'created_by_user_id': str(current_user.id),
-                    }
-                },
+                subscription_data=subscription_data_params,
                 automatic_tax={'enabled': True},
                 customer_update={'address': 'auto'},
                 billing_address_collection='required',
@@ -363,6 +371,17 @@ async def stripe_webhook(
 
         return {"status": "success"}
 
+    except IntegrityError as e:
+        # 冪等性: 既に処理済みのイベント（UniqueViolation）
+        if "duplicate key" in str(e) and "webhook_events_event_id_key" in str(e):
+            logger.info(f"[Webhook:{event_id}] Event already processed (detected via IntegrityError) - returning success")
+            return {"status": "success", "message": "Event already processed"}
+        # その他のIntegrityError
+        logger.error(f"[Webhook:{event_id}] Integrity error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ja.BILLING_WEBHOOK_PROCESSING_FAILED
+        )
     except Exception as e:
         # エラーはサービス層で既にロールバック済み
         logger.error(f"[Webhook:{event_id}] Webhook処理エラー: {e}")

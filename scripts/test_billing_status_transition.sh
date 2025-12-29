@@ -67,10 +67,10 @@ echo -e "   Current Status: ${YELLOW}$CURRENT_STATUS${NC}"
 echo -e "   Trial End: ${YELLOW}$TRIAL_END_DATE${NC}"
 echo -e "   Scheduled Cancel: ${YELLOW}$SCHEDULED_CANCEL_AT${NC}"
 
-# 状態確認
-if [[ ! "$CURRENT_STATUS" =~ ^(early_payment|free|canceling)$ ]]; then
+# 状態確認（free_to_early_paymentは特別なステータス）
+if [[ ! "$CURRENT_STATUS" =~ ^(early_payment|free|free_to_early_payment|canceling)$ ]]; then
     echo -e "${RED}❌ サポートされていないbilling_status: $CURRENT_STATUS${NC}"
-    echo -e "   サポート対象: early_payment, free, canceling"
+    echo -e "   サポート対象: early_payment, free, free_to_early_payment, canceling"
     exit 1
 fi
 
@@ -86,6 +86,11 @@ case $CURRENT_STATUS in
         echo -e "   ${YELLOW}free → past_due${NC}"
         echo -e "   説明: Trial期間終了時に未課金 → 延滞"
         EXPECTED_STATUS="past_due"
+        ;;
+    free_to_early_payment)
+        echo -e "   ${YELLOW}free → early_payment${NC}"
+        echo -e "   説明: Trial期間中にサブスク登録 → 早期支払い"
+        EXPECTED_STATUS="early_payment"
         ;;
     canceling)
         echo -e "   ${YELLOW}canceling → canceled${NC}"
@@ -142,8 +147,8 @@ print(customer.id)
 
 echo -e "${GREEN}✅ Customer作成完了: $CUSTOMER_ID${NC}"
 
-# 4.5. early_paymentとcancelingの場合は支払い方法を追加
-if [ "$CURRENT_STATUS" == "early_payment" ] || [ "$CURRENT_STATUS" == "canceling" ]; then
+# 4.5. early_payment、free_to_early_payment、cancelingの場合は支払い方法を追加
+if [ "$CURRENT_STATUS" == "early_payment" ] || [ "$CURRENT_STATUS" == "free_to_early_payment" ] || [ "$CURRENT_STATUS" == "canceling" ]; then
     echo -e "\n${GREEN}[4.5/8] 支払い方法設定中（テスト用カード）...${NC}"
     PAYMENT_METHOD_ID=$(docker exec keikakun_app-backend-1 python3 -c "
 import stripe
@@ -199,6 +204,27 @@ subscription = stripe.Subscription.create(
 print(subscription.id)
 ")
     echo -e "${GREEN}✅ Subscription作成完了: $SUBSCRIPTION_ID (Trial期間: 1分後)${NC}"
+
+elif [ "$CURRENT_STATUS" == "free_to_early_payment" ]; then
+    # Subscription作成（Trial期間を未来に設定: 7日後）
+    SUBSCRIPTION_ID=$(docker exec keikakun_app-backend-1 python3 -c "
+import stripe
+from app.core.config import settings
+from datetime import datetime, timedelta, timezone
+
+stripe.api_key = settings.STRIPE_SECRET_KEY.get_secret_value()
+
+trial_end = int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())
+
+subscription = stripe.Subscription.create(
+    customer='$CUSTOMER_ID',
+    items=[{'price': '$STRIPE_PRICE_ID'}],
+    trial_end=trial_end
+)
+
+print(subscription.id)
+")
+    echo -e "${GREEN}✅ Subscription作成完了: $SUBSCRIPTION_ID (Trial期間: 7日後)${NC}"
 
 elif [ "$CURRENT_STATUS" == "canceling" ]; then
     # Subscription作成（Trial 7日）
@@ -265,10 +291,16 @@ async def update_billing():
         if '$CURRENT_STATUS' == 'early_payment':
             billing.stripe_subscription_id = '$SUBSCRIPTION_ID'
             billing.billing_status = BillingStatus.early_payment
-            billing.trial_end_date = datetime.now(timezone.utc) + timedelta(minutes=1)
-            billing.last_payment_date = datetime.now(timezone.utc)
+            billing.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+            billing.last_payment_date = datetime.now(timezone.utc) - timedelta(days=7)
 
         elif '$CURRENT_STATUS' == 'free':
+            billing.stripe_subscription_id = None
+            billing.billing_status = BillingStatus.free
+            billing.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+            billing.last_payment_date = None
+
+        elif '$CURRENT_STATUS' == 'free_to_early_payment':
             billing.stripe_subscription_id = None
             billing.billing_status = BillingStatus.free
             billing.trial_end_date = datetime.now(timezone.utc) + timedelta(days=7)
@@ -277,8 +309,8 @@ async def update_billing():
         elif '$CURRENT_STATUS' == 'canceling':
             billing.stripe_subscription_id = '$SUBSCRIPTION_ID'
             billing.billing_status = BillingStatus.canceling
-            billing.scheduled_cancel_at = datetime.now(timezone.utc) + timedelta(days=7)
-            billing.trial_end_date = datetime.now(timezone.utc) + timedelta(days=7)
+            billing.scheduled_cancel_at = datetime.now(timezone.utc) - timedelta(days=1)
+            billing.trial_end_date = datetime.now(timezone.utc) - timedelta(days=7)
 
         await db.commit()
         await db.refresh(billing)
@@ -303,6 +335,8 @@ if [ "$CURRENT_STATUS" == "early_payment" ]; then
       --clock-id "$TEST_CLOCK_ID" \
       --days 1 > /dev/null 2>&1
     echo -e "${GREEN}✅ 時間を進めました（Trial期間終了）${NC}"
+elif [ "$CURRENT_STATUS" == "free_to_early_payment" ]; then
+    echo -e "\n${GREEN}[7/8] Test Clockの時間を進める必要なし（Subscription作成直後にWebhook処理）${NC}"
 else
     echo -e "\n${GREEN}[7/8] Test Clockの時間を進めています（7日）...${NC}"
     docker exec keikakun_app-backend-1 python3 scripts/stripe_test_clock_manager.py advance \
@@ -311,9 +345,9 @@ else
     echo -e "${GREEN}✅ 時間を進めました${NC}"
 fi
 
-# 8. Test Clockイベントを手動処理（Test Clock環境ではWebhookが自動送信されないため）
-if [ -n "$SUBSCRIPTION_ID" ]; then
-    echo -e "\n${GREEN}[8/9] Test Clockイベントを手動処理中...${NC}"
+# 8. Test Clockイベントを手動処理（Webhookサービス層を通す）
+if [ "$CURRENT_STATUS" == "early_payment" ]; then
+    echo -e "\n${GREEN}[8/9] Webhookイベント処理中（サービス層経由）...${NC}"
     echo -e "   Stripe側の処理完了を待機中（5秒）..."
     sleep 5
     docker exec -i keikakun_app-backend-1 python3 << EOF
@@ -323,61 +357,220 @@ from uuid import UUID
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app import crud
-from app.models.enums import BillingStatus
+from app.services.billing_service import BillingService
 
 stripe.api_key = settings.STRIPE_SECRET_KEY.get_secret_value()
+billing_service = BillingService()
 
-async def process_test_clock_events():
-    # Subscriptionの現在のステータスを取得
+async def process_webhook_via_service():
+    # Stripeから最新のイベントを取得（Trial期間終了時の支払い成功イベント）
+    print('   Stripeイベント取得中...')
+
+    # まず、Subscriptionから Customer IDを取得
     subscription = stripe.Subscription.retrieve('$SUBSCRIPTION_ID')
-    print(f'   Subscription Status: {subscription.status}')
+    customer_id = subscription.customer
+    print(f'   Customer ID: {customer_id}')
 
-    # Billingレコードを更新
+    # Customer IDで invoice.payment_succeeded イベントを検索
+    events = stripe.Event.list(limit=50, type='invoice.payment_succeeded')
+
+    target_event = None
+    for event in events.data:
+        if hasattr(event.data, 'object') and hasattr(event.data.object, 'customer'):
+            if event.data.object.customer == customer_id:
+                # Subscriptionに関連するInvoiceの最新のイベントを取得
+                target_event = event
+                print(f'   ✅ イベント発見: {event.type} (ID: {event.id})')
+                break
+
+    if not target_event:
+        print('   ⚠️  該当イベントが見つかりません')
+        return
+
+    # 冪等性チェック回避: 既存のイベントレコードを削除
     async with AsyncSessionLocal() as db:
-        billing = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        from sqlalchemy import text
+        result = await db.execute(
+            text('DELETE FROM webhook_events WHERE event_id = :event_id'),
+            {'event_id': target_event.id}
+        )
+        await db.commit()
+        if result.rowcount > 0:
+            print(f'   削除: 既存のwebhook_event ({result.rowcount}件)')
 
-        if billing:
-            old_status = billing.billing_status.value
-
-            # ステータスに応じて更新
-            if subscription.status == 'active' and '$CURRENT_STATUS' == 'early_payment':
-                billing.billing_status = BillingStatus.active
-                print(f'   ✅ Billing更新: {old_status} → active')
-            elif subscription.status == 'past_due' and '$CURRENT_STATUS' == 'free':
-                billing.billing_status = BillingStatus.past_due
-                print(f'   ✅ Billing更新: {old_status} → past_due')
-            elif subscription.status == 'canceled' and '$CURRENT_STATUS' == 'canceling':
-                billing.billing_status = BillingStatus.canceled
-                print(f'   ✅ Billing更新: {old_status} → canceled')
-            else:
-                print(f'   ℹ️  ステータス変更なし: {old_status} (Subscription: {subscription.status})')
-                return
-
-            await db.flush()
-            await db.commit()
-            await db.refresh(billing)
-            print(f'   Commit後のステータス確認: {billing.billing_status.value}')
-
-            # 念のため再度確認
-            billing_check = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
-            print(f'   再取得後のステータス: {billing_check.billing_status.value}')
-        else:
-            print('   ❌ Billing not found')
-
-asyncio.run(process_test_clock_events())
-
-# 別セッションで最終確認
-async def final_check():
+    # Webhookサービス層を通して処理
     async with AsyncSessionLocal() as db:
-        billing = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
-        print(f'   別セッションでの確認: {billing.billing_status.value}')
+        # 処理前のステータス確認
+        billing_before = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理前: billing_status = {billing_before.billing_status.value}')
 
-asyncio.run(final_check())
+        # Webhookサービス層で処理（本番と同じロジック）
+        try:
+            customer_id = target_event.data.object.customer
+            await billing_service.process_payment_succeeded(
+                db=db,
+                event_id=target_event.id,
+                customer_id=customer_id
+            )
+            print(f'   ✅ Webhookサービス層での処理完了 (invoice.payment_succeeded)')
+        except Exception as e:
+            print(f'   ❌ エラー: {e}')
+            import traceback
+            traceback.print_exc()
+            raise
+
+    # 処理後のステータス確認（別セッション）
+    async with AsyncSessionLocal() as db:
+        billing_after = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理後: billing_status = {billing_after.billing_status.value}')
+        print(f'   ✅ 遷移結果: {billing_before.billing_status.value} → {billing_after.billing_status.value}')
+
+asyncio.run(process_webhook_via_service())
 EOF
 
-    echo -e "${GREEN}✅ Test Clockイベント処理完了${NC}"
-else
-    echo -e "\n${GREEN}[8/9] free状態: Subscriptionなし、バッチ処理での更新を待ちます${NC}"
+    echo -e "${GREEN}✅ Webhookイベント処理完了${NC}"
+elif [ "$CURRENT_STATUS" == "free_to_early_payment" ]; then
+    echo -e "\n${GREEN}[8/9] Webhookイベント処理中（サービス層経由）...${NC}"
+    echo -e "   Stripe側の処理完了を待機中（3秒）..."
+    sleep 3
+    docker exec -i keikakun_app-backend-1 python3 << EOF
+import stripe
+import asyncio
+from uuid import UUID
+from app.core.config import settings
+from app.db.session import AsyncSessionLocal
+from app import crud
+from app.services.billing_service import BillingService
+
+stripe.api_key = settings.STRIPE_SECRET_KEY.get_secret_value()
+billing_service = BillingService()
+
+async def process_webhook_via_service():
+    # Stripeから customer.subscription.created イベントを取得
+    print('   Stripeイベント取得中...')
+
+    # Subscriptionから Customer IDを取得
+    subscription = stripe.Subscription.retrieve('$SUBSCRIPTION_ID')
+    customer_id = subscription.customer
+    print(f'   Customer ID: {customer_id}')
+
+    # Customer IDで customer.subscription.created イベントを検索
+    events = stripe.Event.list(limit=50, type='customer.subscription.created')
+
+    target_event = None
+    for event in events.data:
+        if hasattr(event.data, 'object') and hasattr(event.data.object, 'customer'):
+            if event.data.object.customer == customer_id:
+                target_event = event
+                print(f'   ✅ イベント発見: {event.type} (ID: {event.id})')
+                break
+
+    if not target_event:
+        print('   ⚠️  該当イベントが見つかりません')
+        return
+
+    # 冪等性チェック回避: 既存のイベントレコードを削除
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import text
+        result = await db.execute(
+            text('DELETE FROM webhook_events WHERE event_id = :event_id'),
+            {'event_id': target_event.id}
+        )
+        await db.commit()
+        if result.rowcount > 0:
+            print(f'   削除: 既存のwebhook_event ({result.rowcount}件)')
+
+    # Webhookサービス層を通して処理
+    async with AsyncSessionLocal() as db:
+        # 処理前のステータス確認
+        billing_before = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理前: billing_status = {billing_before.billing_status.value}')
+
+        # Webhookサービス層で処理（本番と同じロジック）
+        try:
+            customer_id = target_event.data.object.customer
+            subscription_id = target_event.data.object.id
+            await billing_service.process_subscription_created(
+                db=db,
+                event_id=target_event.id,
+                customer_id=customer_id,
+                subscription_id=subscription_id
+            )
+            print(f'   ✅ Webhookサービス層での処理完了 (customer.subscription.created)')
+        except Exception as e:
+            print(f'   ❌ エラー: {e}')
+            import traceback
+            traceback.print_exc()
+            raise
+
+    # 処理後のステータス確認（別セッション）
+    async with AsyncSessionLocal() as db:
+        billing_after = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理後: billing_status = {billing_after.billing_status.value}')
+        print(f'   ✅ 遷移結果: {billing_before.billing_status.value} → {billing_after.billing_status.value}')
+
+asyncio.run(process_webhook_via_service())
+EOF
+
+    echo -e "${GREEN}✅ Webhookイベント処理完了${NC}"
+elif [ "$CURRENT_STATUS" == "free" ]; then
+    echo -e "\n${GREEN}[8/9] バッチ処理実行中（free → past_due）...${NC}"
+    docker exec -i keikakun_app-backend-1 python3 << EOF
+import asyncio
+from uuid import UUID
+from app.db.session import AsyncSessionLocal
+from app import crud
+from app.tasks.billing_check import check_trial_expiration
+
+async def run_batch_check():
+    async with AsyncSessionLocal() as db:
+        # 処理前のステータス確認
+        billing_before = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理前: billing_status = {billing_before.billing_status.value}')
+        print(f'   trial_end_date = {billing_before.trial_end_date}')
+
+        # バッチ処理実行（free → past_due）
+        updated_count = await check_trial_expiration(db=db, dry_run=False)
+        print(f'   ✅ バッチ処理完了: {updated_count}件更新')
+
+    # 処理後のステータス確認（別セッション）
+    async with AsyncSessionLocal() as db:
+        billing_after = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理後: billing_status = {billing_after.billing_status.value}')
+        print(f'   ✅ 遷移結果: {billing_before.billing_status.value} → {billing_after.billing_status.value}')
+
+asyncio.run(run_batch_check())
+EOF
+    echo -e "${GREEN}✅ バッチ処理完了${NC}"
+elif [ "$CURRENT_STATUS" == "canceling" ]; then
+    echo -e "\n${GREEN}[8/9] バッチ処理実行中（canceling → canceled）...${NC}"
+    docker exec -i keikakun_app-backend-1 python3 << EOF
+import asyncio
+from uuid import UUID
+from app.db.session import AsyncSessionLocal
+from app import crud
+from app.tasks.billing_check import check_scheduled_cancellation
+
+async def run_batch_check():
+    async with AsyncSessionLocal() as db:
+        # 処理前のステータス確認
+        billing_before = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理前: billing_status = {billing_before.billing_status.value}')
+        print(f'   scheduled_cancel_at = {billing_before.scheduled_cancel_at}')
+
+        # バッチ処理実行（canceling → canceled）
+        updated_count = await check_scheduled_cancellation(db=db, dry_run=False)
+        print(f'   ✅ バッチ処理完了: {updated_count}件更新')
+
+    # 処理後のステータス確認（別セッション）
+    async with AsyncSessionLocal() as db:
+        billing_after = await crud.billing.get(db=db, id=UUID('$BILLING_ID'))
+        print(f'   処理後: billing_status = {billing_after.billing_status.value}')
+        print(f'   ✅ 遷移結果: {billing_before.billing_status.value} → {billing_after.billing_status.value}')
+
+asyncio.run(run_batch_check())
+EOF
+    echo -e "${GREEN}✅ バッチ処理完了${NC}"
 fi
 
 # 9. 結果表示
