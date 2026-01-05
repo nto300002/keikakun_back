@@ -3,7 +3,7 @@
 """
 import pytest
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.tasks.billing_check import check_trial_expiration, check_scheduled_cancellation
 from app import crud
@@ -359,7 +359,7 @@ class TestTrialExpirationCheck:
         # early_payment状態に設定（トライアル期間中）
         billing.trial_end_date = datetime.now(timezone.utc) + timedelta(days=30)
         billing.billing_status = BillingStatus.early_payment
-        billing.stripe_subscription_id = "sub_test_active"
+        billing.stripe_subscription_id = f"sub_test_{uuid4().hex[:12]}"
         await db_session.commit()
 
         # バッチ処理実行

@@ -763,13 +763,14 @@ class TestCancelingToCanceledTransition:
         office_id, staff_id, billing_id = setup_office_with_billing
 
         # Billingをactive状態に設定（Stripe情報あり）
+        unique_id = uuid4().hex[:12]
         await crud.billing.update(
             db=db,
             db_obj=await crud.billing.get(db=db, id=billing_id),
             obj_in={
                 "billing_status": BillingStatus.active,
-                "stripe_customer_id": "cus_test_active",
-                "stripe_subscription_id": "sub_test_active"
+                "stripe_customer_id": f"cus_test_{unique_id}",
+                "stripe_subscription_id": f"sub_test_{unique_id}"
             }
         )
         await db.commit()
@@ -779,11 +780,11 @@ class TestCancelingToCanceledTransition:
         assert billing_before.billing_status == BillingStatus.active
 
         # Webhook処理実行
-        event_id = f"evt_test_active_{uuid4().hex[:12]}"
+        event_id = f"evt_test_{uuid4().hex[:12]}"
         await billing_service.process_subscription_deleted(
             db=db,
             event_id=event_id,
-            customer_id="cus_test_active"
+            customer_id=f"cus_test_{unique_id}"
         )
 
         # billing_statusがcanceledに遷移していることを確認
