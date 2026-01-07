@@ -211,7 +211,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         query = (
             select(AuditLog)
             .where(where_clause)
-            .order_by(AuditLog.timestamp.desc())
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .offset(skip)
             .limit(limit)
         )
@@ -266,7 +266,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         query = (
             select(AuditLog)
             .where(where_clause)
-            .order_by(AuditLog.timestamp.desc())
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .limit(limit + 1)  # 次ページの有無を確認するため+1
         )
         result = await db.execute(query)
@@ -375,7 +375,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         query = (
             select(AuditLog)
             .where(where_clause)
-            .order_by(AuditLog.timestamp.desc())
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .offset(skip)
             .limit(limit)
         )

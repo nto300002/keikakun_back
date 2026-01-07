@@ -19,8 +19,9 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.mark.skipif(
-    not settings.STRIPE_SECRET_KEY or not settings.STRIPE_PRICE_ID,
-    reason="Stripe環境変数が設定されていません"
+    not settings.STRIPE_SECRET_KEY or not settings.STRIPE_PRICE_ID or
+    (settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.get_secret_value().startswith("sk_test_")),
+    reason="Stripe環境変数が設定されていないか、テストモードではありません"
 )
 async def test_create_checkout_session_with_real_stripe_api(
     async_client: AsyncClient,
@@ -31,6 +32,7 @@ async def test_create_checkout_session_with_real_stripe_api(
     実際のStripe APIを使用してCheckout Session作成をテスト
 
     このテストは実際にStripeにリクエストを送信します。
+    注意: ライブモードのAPIキーではスキップされます。
     """
     # オーナーユーザーを作成
     staff = await employee_user_factory(role=StaffRole.owner)
