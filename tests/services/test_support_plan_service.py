@@ -207,11 +207,11 @@ async def test_upload_assessment_sets_cycle_dates(
     assert initial_cycle.next_renewal_deadline == expected_deadline
 
 @pytest.mark.asyncio
-async def test_upload_final_plan_creates_new_cycle(
+async def test_upload_final_plan_does_not_create_new_cycle(
     db: AsyncSession,
     setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
 ):
-    """【正常系】最終計画書をアップロードすると、次サイクルが自動生成されること"""
+    """【正常系】最終計画書をアップロードしても、次サイクルは自動生成されないこと（新仕様）"""
     recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
 
     # 前提となるステップを完了させる
@@ -262,21 +262,117 @@ async def test_upload_final_plan_creates_new_cycle(
         from sqlalchemy import select
         original_cycle_stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == original_cycle_id).options(selectinload(SupportPlanCycle.statuses))
         original_cycle = (await db.execute(original_cycle_stmt)).scalar_one()
-        assert original_cycle.is_latest_cycle is False
 
-        # 【新規テスト要件】旧サイクルのfinal_plan_signedステータスが完了し、is_latest_status=Trueであることを確認
+        # 【新仕様】final_plan_signed アップロード後も、サイクル1は最新のままであること
+        assert original_cycle.is_latest_cycle is True, "final_plan_signed アップロード後も、サイクル1は最新のままであること"
+
+        # final_plan_signedステータスが完了し、is_latest_status=Trueであることを確認
         final_plan_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.final_plan_signed), None)
         assert final_plan_status is not None, "final_plan_signedステータスが存在すること"
         assert final_plan_status.completed is True, "final_plan_signedステータスが完了していること"
-        assert final_plan_status.is_latest_status is True, "サイクル完了時、final_plan_signedはis_latest_status=Trueであること"
+        assert final_plan_status.is_latest_status is False, "final_plan_signed完了後、次のステップ（monitoring）がlatest_statusになること"
 
+        # 次のステップ（monitoring）がlatest_statusになることを確認
+        monitoring_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
+        assert monitoring_status is not None, "monitoringステータスが存在すること"
+        assert monitoring_status.is_latest_status is True, "final_plan_signed完了後、monitoringがlatest_statusになること"
+
+        # 【新仕様】サイクル2はまだ作成されていないことを確認
+        new_cycle_stmt = select(SupportPlanCycle).where(
+            SupportPlanCycle.welfare_recipient_id == recipient_id,
+            SupportPlanCycle.cycle_number == 2
+        )
+        new_cycle = (await db.execute(new_cycle_stmt)).scalar_one_or_none()
+        assert new_cycle is None, "final_plan_signed アップロード後は、まだサイクル2は作成されていないこと"
+
+
+@pytest.mark.asyncio
+async def test_upload_monitoring_report_creates_new_cycle(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
+):
+    """【TDD: Red Phase】モニタリング報告書をアップロードすると、次サイクルが自動生成されること
+
+    新仕様: final_plan_signed_pdfではなく、monitoring_report_pdfアップロード時に
+    次のサイクルが作成される。
+    """
+    recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # 前提となる全ステップを完了させる（モニタリングまで）
+    steps_to_complete = [
+        (DeliverableType.assessment_sheet, "assessment.pdf"),
+        (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
+        (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
+        (DeliverableType.final_plan_signed_pdf, "final_plan.pdf"),
+    ]
+
+    for deliverable_type, filename in steps_to_complete:
+        await db.refresh(await db.get(SupportPlanCycle, original_cycle_id), attribute_names=["statuses"])
+
+        deliverable_in = PlanDeliverableCreate(
+            plan_cycle_id=original_cycle_id,
+            deliverable_type=deliverable_type,
+            file_path=f"/path/to/{filename}",
+            original_filename=filename,
+        )
+        await support_plan_service.handle_deliverable_upload(
+            db=db,
+            deliverable_in=deliverable_in,
+            uploaded_by_staff_id=staff_id
+        )
+
+    # final_plan_signed_pdfアップロード後、まだサイクル2は作成されていないことを確認
+    from sqlalchemy import select
+    cycle_2_stmt_before = select(SupportPlanCycle).where(
+        SupportPlanCycle.welfare_recipient_id == recipient_id,
+        SupportPlanCycle.cycle_number == 2
+    )
+    cycle_2_before = (await db.execute(cycle_2_stmt_before)).scalar_one_or_none()
+    assert cycle_2_before is None, "final_plan_signed_pdf アップロード後は、まだサイクル2は作成されていないこと"
+
+    # モニタリング報告書をアップロード（ここで次サイクルが作成される）
+    mock_today = date(2023, 10, 27)
+    mock_now_utc = datetime(2023, 10, 27, 12, 0, 0, tzinfo=timezone.utc)
+
+    with patch('app.services.support_plan_service.datetime.date') as mock_date, \
+         patch('app.services.support_plan_service.datetime.datetime') as mock_datetime:
+
+        mock_date.today.return_value = mock_today
+        mock_datetime.now.return_value = mock_now_utc
+
+        deliverable_in = PlanDeliverableCreate(
+            plan_cycle_id=original_cycle_id,
+            deliverable_type=DeliverableType.monitoring_report_pdf,
+            file_path="/path/to/monitoring_report.pdf",
+            original_filename="monitoring_report.pdf",
+        )
+        await support_plan_service.handle_deliverable_upload(
+            db=db,
+            deliverable_in=deliverable_in,
+            uploaded_by_staff_id=staff_id
+        )
+
+        # 旧サイクルの確認
+        original_cycle_stmt = select(SupportPlanCycle).where(
+            SupportPlanCycle.id == original_cycle_id
+        ).options(selectinload(SupportPlanCycle.statuses))
+        original_cycle = (await db.execute(original_cycle_stmt)).scalar_one()
+        assert original_cycle.is_latest_cycle is False, "旧サイクルはis_latest_cycle=Falseになること"
+
+        # 旧サイクルのmonitoringステータスが完了していることを確認
+        monitoring_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
+        assert monitoring_status is not None, "monitoringステータスが存在すること"
+        assert monitoring_status.completed is True, "monitoringステータスが完了していること"
+        assert monitoring_status.is_latest_status is True, "サイクル完了時、monitoringはis_latest_status=Trueであること"
+
+        # 新サイクルの確認
         new_cycle_stmt = select(SupportPlanCycle).where(
             SupportPlanCycle.welfare_recipient_id == recipient_id,
             SupportPlanCycle.is_latest_cycle == True
         ).options(selectinload(SupportPlanCycle.statuses))
         new_cycle = (await db.execute(new_cycle_stmt)).scalar_one_or_none()
 
-        assert new_cycle is not None
+        assert new_cycle is not None, "モニタリング報告書アップロード後、新サイクルが作成されること"
         assert new_cycle.plan_cycle_start_date == mock_today
         assert new_cycle.next_renewal_deadline == mock_today + timedelta(days=180)
         assert new_cycle.cycle_number == original_cycle.cycle_number + 1
@@ -291,16 +387,16 @@ async def test_upload_final_plan_creates_new_cycle(
             SupportPlanStep.monitoring
         }
 
-        # assessmentがlatest_statusになっていることを確認（サイクル統一後）
+        # assessmentがlatest_statusになっていることを確認
         assessment_status = next((s for s in new_cycle.statuses if s.step_type == SupportPlanStep.assessment), None)
         assert assessment_status is not None
         assert assessment_status.is_latest_status is True
 
         # モニタリングステータスも存在し、期限日が正しく設定されていることを確認
-        monitoring_status = next((s for s in new_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
-        assert monitoring_status is not None
+        new_monitoring_status = next((s for s in new_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
+        assert new_monitoring_status is not None
         expected_due_date = (mock_now_utc.date() + timedelta(days=7))
-        assert monitoring_status.due_date == expected_due_date
+        assert new_monitoring_status.due_date == expected_due_date
 
 
 @pytest.mark.asyncio
@@ -311,12 +407,13 @@ async def test_upload_monitoring_report_in_cycle_2(
     """【正常系】サイクル2以降でモニタリングレポートをアップロードできること（サイクル統一後）"""
     recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
 
-    # サイクル1を完了させて、サイクル2を作成
+    # サイクル1を完了させて、サイクル2を作成（新仕様：monitoringまで完了）
     steps_to_complete = [
         (DeliverableType.assessment_sheet, "assessment.pdf"),
         (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
         (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
         (DeliverableType.final_plan_signed_pdf, "final_plan.pdf"),
+        (DeliverableType.monitoring_report_pdf, "monitoring.pdf"),  # 新仕様：これがサイクル2を作成
     ]
 
     for deliverable_type, filename in steps_to_complete:
@@ -344,13 +441,13 @@ async def test_upload_monitoring_report_in_cycle_2(
     assert cycle_2.cycle_number == 2
 
     # サイクル2でも全ステップを順番にアップロード（サイクル統一後はassessmentから開始）
-    # 注：final_plan_signedアップロード時に新サイクルが作成されるため、
-    #     monitoringステップは現行の設計では使用されない
+    # 新仕様：monitoring_report_pdfアップロード時に新サイクルが作成される
     cycle_2_steps = [
         (DeliverableType.assessment_sheet, "assessment2.pdf"),
         (DeliverableType.draft_plan_pdf, "draft_plan2.pdf"),
         (DeliverableType.staff_meeting_minutes, "staff_meeting2.pdf"),
         (DeliverableType.final_plan_signed_pdf, "final_plan2.pdf"),
+        (DeliverableType.monitoring_report_pdf, "monitoring2.pdf"),  # 新仕様：これがサイクル3を作成
     ]
 
     for deliverable_type, filename in cycle_2_steps:
@@ -368,13 +465,13 @@ async def test_upload_monitoring_report_in_cycle_2(
             uploaded_by_staff_id=staff_id
         )
 
-    # 最後のfinal_plan_signedアップロードにより、サイクル3が作成されたことを確認
+    # 最後のmonitoring_report_pdfアップロードにより、サイクル3が作成されたことを確認
     cycle_3_stmt = select(SupportPlanCycle).where(
         SupportPlanCycle.welfare_recipient_id == recipient_id,
         SupportPlanCycle.cycle_number == 3
     )
     cycle_3 = (await db.execute(cycle_3_stmt)).scalar_one_or_none()
-    assert cycle_3 is not None, "final_plan_signed アップロード後、新サイクルが作成されること"
+    assert cycle_3 is not None, "monitoring_report_pdf アップロード後、新サイクルが作成されること"
 
 
 @pytest.mark.asyncio
@@ -402,11 +499,11 @@ async def test_upload_violates_step_order_raises_error(
 
 
 @pytest.mark.asyncio
-async def test_reupload_final_plan_does_not_create_duplicate_cycle(
+async def test_reupload_monitoring_does_not_create_duplicate_cycle(
     db: AsyncSession,
     setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
 ):
-    """【正常系】final_plan_signed_pdfを削除して再アップロードしても、重複するサイクルが作成されないこと"""
+    """【正常系】monitoring_report_pdfを削除して再アップロードしても、重複するサイクルが作成されないこと（新仕様）"""
     recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
 
     # 前提となるステップを完了させる
@@ -414,6 +511,7 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
         (DeliverableType.assessment_sheet, "assessment.pdf"),
         (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
         (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
+        (DeliverableType.final_plan_signed_pdf, "final_plan.pdf"),
     ]
 
     for deliverable_type, filename in steps_to_complete:
@@ -430,12 +528,12 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
             uploaded_by_staff_id=staff_id
         )
 
-    # 最初のfinal_plan_signedアップロード
+    # 最初のmonitoring_report_pdfアップロード（新仕様：これがサイクル2を作成）
     deliverable_in = PlanDeliverableCreate(
         plan_cycle_id=original_cycle_id,
-        deliverable_type=DeliverableType.final_plan_signed_pdf,
-        file_path="/path/to/final_plan.pdf",
-        original_filename="final_plan.pdf",
+        deliverable_type=DeliverableType.monitoring_report_pdf,
+        file_path="/path/to/monitoring.pdf",
+        original_filename="monitoring.pdf",
     )
     await support_plan_service.handle_deliverable_upload(
         db=db,
@@ -452,32 +550,32 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
     cycle_2 = (await db.execute(cycle_2_stmt)).scalar_one()
     assert cycle_2 is not None
 
-    # final_plan_signed_pdfを削除（PlanDeliverableレコードを削除）
+    # monitoring_report_pdfを削除（PlanDeliverableレコードを削除）
     from app.models.support_plan_cycle import PlanDeliverable
     delete_stmt = select(PlanDeliverable).where(
         PlanDeliverable.plan_cycle_id == original_cycle_id,
-        PlanDeliverable.deliverable_type == DeliverableType.final_plan_signed_pdf
+        PlanDeliverable.deliverable_type == DeliverableType.monitoring_report_pdf
     )
     deliverable_to_delete = (await db.execute(delete_stmt)).scalar_one()
     await db.delete(deliverable_to_delete)
 
-    # 元のサイクルのfinal_plan_signedのis_latest_statusをTrueに戻す
+    # 元のサイクルのmonitoringのis_latest_statusをTrueに戻す
     original_cycle = await db.get(SupportPlanCycle, original_cycle_id, options=[selectinload(SupportPlanCycle.statuses)])
-    staff_meeting_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.staff_meeting), None)
-    staff_meeting_status.is_latest_status = False
-
     final_plan_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.final_plan_signed), None)
-    final_plan_status.completed = False
-    final_plan_status.completed_at = None
-    final_plan_status.is_latest_status = True
+    final_plan_status.is_latest_status = False
+
+    monitoring_status = next((s for s in original_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
+    monitoring_status.completed = False
+    monitoring_status.completed_at = None
+    monitoring_status.is_latest_status = True
     await db.commit()
 
-    # 再度final_plan_signedをアップロード
+    # 再度monitoring_report_pdfをアップロード
     deliverable_in_reupload = PlanDeliverableCreate(
         plan_cycle_id=original_cycle_id,
-        deliverable_type=DeliverableType.final_plan_signed_pdf,
-        file_path="/path/to/final_plan_reupload.pdf",
-        original_filename="final_plan_reupload.pdf",
+        deliverable_type=DeliverableType.monitoring_report_pdf,
+        file_path="/path/to/monitoring_reupload.pdf",
+        original_filename="monitoring_reupload.pdf",
     )
     await support_plan_service.handle_deliverable_upload(
         db=db,
@@ -504,11 +602,11 @@ async def test_reupload_final_plan_does_not_create_duplicate_cycle(
 # ==================== Phase 3: カレンダー連携統合テスト ====================
 
 @pytest.mark.asyncio
-async def test_final_plan_upload_creates_calendar_event(
+async def test_monitoring_upload_creates_calendar_event(
     db: AsyncSession,
     setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
 ):
-    """【統合テスト】最終計画書アップロード時に更新期限イベントが自動作成されること"""
+    """【統合テスト】モニタリング報告書アップロード時に更新期限イベントが自動作成されること（新仕様）"""
     from app import crud
     from app.services.calendar_service import calendar_service
     from app.schemas.calendar_account import CalendarSetupRequest
@@ -550,11 +648,12 @@ async def test_final_plan_upload_creates_calendar_event(
         status=CalendarConnectionStatus.connected
     )
 
-    # 前提となるステップを完了させる
+    # 前提となるステップを完了させる（新仕様：monitoringまで完了）
     steps_to_complete = [
         (DeliverableType.assessment_sheet, "assessment.pdf"),
         (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
         (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
+        (DeliverableType.final_plan_signed_pdf, "final_plan.pdf"),
     ]
 
     for deliverable_type, filename in steps_to_complete:
@@ -571,12 +670,12 @@ async def test_final_plan_upload_creates_calendar_event(
             uploaded_by_staff_id=staff_id
         )
 
-    # 最終計画書をアップロード
+    # モニタリング報告書をアップロード（新仕様：これがサイクル2を作成）
     deliverable_in = PlanDeliverableCreate(
         plan_cycle_id=original_cycle_id,
-        deliverable_type=DeliverableType.final_plan_signed_pdf,
-        file_path="/path/to/final_plan.pdf",
-        original_filename="final_plan.pdf",
+        deliverable_type=DeliverableType.monitoring_report_pdf,
+        file_path="/path/to/monitoring.pdf",
+        original_filename="monitoring.pdf",
     )
     await support_plan_service.handle_deliverable_upload(
         db=db,
@@ -626,20 +725,21 @@ async def test_final_plan_upload_creates_calendar_event(
 
 
 @pytest.mark.asyncio
-async def test_final_plan_upload_without_calendar_account_succeeds(
+async def test_monitoring_upload_without_calendar_account_succeeds(
     db: AsyncSession,
     setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
 ):
-    """【統合テスト】カレンダー未設定でも最終計画書アップロードは成功すること"""
+    """【統合テスト】カレンダー未設定でもモニタリング報告書アップロードは成功すること（新仕様）"""
     recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
 
     # カレンダーアカウントを設定しない
 
-    # 前提となるステップを完了させる
+    # 前提となるステップを完了させる（新仕様：monitoringまで完了）
     steps_to_complete = [
         (DeliverableType.assessment_sheet, "assessment.pdf"),
         (DeliverableType.draft_plan_pdf, "draft_plan.pdf"),
         (DeliverableType.staff_meeting_minutes, "staff_meeting.pdf"),
+        (DeliverableType.final_plan_signed_pdf, "final_plan.pdf"),
     ]
 
     for deliverable_type, filename in steps_to_complete:
@@ -656,12 +756,12 @@ async def test_final_plan_upload_without_calendar_account_succeeds(
             uploaded_by_staff_id=staff_id
         )
 
-    # 最終計画書をアップロード（エラーが発生しないことを確認）
+    # モニタリング報告書をアップロード（新仕様：これがサイクル2を作成、エラーが発生しないことを確認）
     deliverable_in = PlanDeliverableCreate(
         plan_cycle_id=original_cycle_id,
-        deliverable_type=DeliverableType.final_plan_signed_pdf,
-        file_path="/path/to/final_plan.pdf",
-        original_filename="final_plan.pdf",
+        deliverable_type=DeliverableType.monitoring_report_pdf,
+        file_path="/path/to/monitoring.pdf",
+        original_filename="monitoring.pdf",
     )
 
     # エラーが発生しないことを確認

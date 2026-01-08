@@ -120,7 +120,7 @@ async def test_renewal_deadline_event_has_correct_datetime(
     admin = await service_admin_user_factory(session=db_session)
     office_id = calendar_account_fixture.office_id
 
-    # まず古いサイクルを作成（最終計画書が完了した状態）
+    # まず古いサイクルを作成（モニタリングが完了した状態）
     old_cycle = SupportPlanCycle(
         welfare_recipient_id=welfare_recipient_fixture.id,
         office_id=office_id,
@@ -132,27 +132,27 @@ async def test_renewal_deadline_event_has_correct_datetime(
     db_session.add(old_cycle)
     await db_session.flush()
 
-    # 最終計画書ステータスを作成
-    final_status = SupportPlanStatus(
+    # モニタリングステータスを作成
+    monitoring_status = SupportPlanStatus(
         plan_cycle_id=old_cycle.id,
         welfare_recipient_id=welfare_recipient_fixture.id,
         office_id=office_id,
-        step_type=SupportPlanStep.final_plan_signed,
+        step_type=SupportPlanStep.monitoring,
         is_latest_status=True,
         completed=True,
         completed_at=datetime.now()
     )
-    db_session.add(final_status)
+    db_session.add(monitoring_status)
     await db_session.flush()
     await db_session.refresh(old_cycle)
 
     service = SupportPlanService()
 
     # Act - 新しいサイクルを作成
-    await service._create_new_cycle_from_final_plan(
+    await service._create_new_cycle_from_monitoring(
         db=db_session,
         old_cycle=old_cycle,
-        final_plan_completed_at=final_status.completed_at
+        monitoring_completed_at=monitoring_status.completed_at
     )
 
     await db_session.flush()
