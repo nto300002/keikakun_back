@@ -158,7 +158,7 @@ async def upload_plan_deliverable(
     deliverable_type: str = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(deps.get_db),
-    current_user: models.Staff = Depends(deps.get_current_user),
+    current_user: models.Staff = Depends(deps.require_active_billing),
 ):
     """
     個別支援計画の成果物（PDF）のアップロード
@@ -286,7 +286,7 @@ async def update_plan_deliverable(
     deliverable_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(deps.get_db),
-    current_user: models.Staff = Depends(deps.get_current_user),
+    current_user: models.Staff = Depends(deps.require_active_billing),
 ):
     """
     個別支援計画の成果物（PDF）を再アップロード（更新）
@@ -359,7 +359,7 @@ async def update_plan_deliverable(
 async def delete_plan_deliverable(
     deliverable_id: int,
     db: AsyncSession = Depends(deps.get_db),
-    current_user: models.Staff = Depends(deps.get_current_user),
+    current_user: models.Staff = Depends(deps.require_active_billing),
 ):
     """
     個別支援計画の成果物（PDF）を削除し、対応するステータスを未完了に戻す
@@ -402,7 +402,7 @@ async def update_cycle_monitoring_deadline(
     cycle_id: int,
     update_data: schemas.support_plan.SupportPlanCycleUpdate,
     db: AsyncSession = Depends(deps.get_db),
-    current_user: models.Staff = Depends(deps.get_current_user),
+    current_user: models.Staff = Depends(deps.require_active_billing),
 ):
     """
     サイクルのモニタリング期限を更新する

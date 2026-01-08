@@ -26,10 +26,15 @@ async_engine = create_async_engine(
     pool_size=20,           # 同時接続数を増やす
     max_overflow=30,        # プールサイズを超えた場合の追加接続数
     pool_pre_ping=True,     # 接続の有効性を事前確認
-    pool_recycle=3600,      # 1時間後に接続を再利用
+    pool_recycle=300,       # 5分後に接続を再利用（Neon auto-suspendに対応）
     echo=False,             # 本番環境ではSQLログを無効化
 )
-AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_engine)
+AsyncSessionLocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=async_engine,
+    expire_on_commit=False  # commit後も属性を維持（MissingGreenletエラー回避）
+)
 # Alias for backward compatibility
 async_session_maker = AsyncSessionLocal
 
@@ -38,7 +43,7 @@ sync_engine = create_engine(
     pool_size=20,
     max_overflow=30,
     pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_recycle=300,  # 5分後に接続を再利用（Neon auto-suspendに対応）
     echo=False,
 )
 SyncSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)

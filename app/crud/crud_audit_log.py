@@ -78,7 +78,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         self,
         db: AsyncSession,
         *,
-        actor_id: uuid.UUID,
+        actor_id: Optional[uuid.UUID] = None,
         action: str,
         target_type: str,
         target_id: Optional[uuid.UUID] = None,
@@ -87,34 +87,36 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
         details: Optional[dict] = None,
-        is_test_data: bool = False
+        is_test_data: bool = False,
+        auto_commit: bool = True
     ) -> AuditLog:
         """
         監査ログを作成
 
         Args:
             db: データベースセッション
-            actor_id: 操作実行者のスタッフID
+            actor_id: 操作実行者のスタッフID（システムによる自動処理の場合はNone）
             action: アクション種別（"staff.deleted", "withdrawal.approved" など）
             target_type: 対象リソースタイプ（"staff", "office", "withdrawal_request" など）
             target_id: 対象リソースのID
             office_id: 事務所ID（横断検索用）
-            actor_role: 実行時のロール
+            actor_role: 実行時のロール（システム処理の場合は"system"）
             ip_address: 操作元のIPアドレス
             user_agent: 操作元のUser-Agent
             details: 操作の詳細情報（JSON形式）
             is_test_data: テストデータフラグ
+            auto_commit: 自動コミット（デフォルト: True）
 
         Returns:
             作成された監査ログ
 
         Note:
-            - commitはエンドポイント層で行う
-            - トランザクション管理は呼び出し側で行う
+            - auto_commit=Falseの場合、トランザクション管理は呼び出し側で行う
+            - actor_id=Noneの場合、システムによる自動処理として記録される
         """
         audit_log = AuditLog(
             staff_id=actor_id,
-            actor_role=actor_role,
+            actor_role=actor_role or ("system" if actor_id is None else None),
             action=action,
             target_type=target_type,
             target_id=target_id,
@@ -126,7 +128,12 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         )
 
         db.add(audit_log)
-        await db.flush()
+
+        if auto_commit:
+            await db.commit()
+            await db.refresh(audit_log)
+        else:
+            await db.flush()
 
         return audit_log
 
@@ -204,7 +211,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         query = (
             select(AuditLog)
             .where(where_clause)
-            .order_by(AuditLog.timestamp.desc())
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .offset(skip)
             .limit(limit)
         )
@@ -259,7 +266,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         query = (
             select(AuditLog)
             .where(where_clause)
-            .order_by(AuditLog.timestamp.desc())
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .limit(limit + 1)  # 次ページの有無を確認するため+1
         )
         result = await db.execute(query)
@@ -368,7 +375,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         query = (
             select(AuditLog)
             .where(where_clause)
-            .order_by(AuditLog.timestamp.desc())
+            .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
             .offset(skip)
             .limit(limit)
         )

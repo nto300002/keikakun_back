@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 
-from app.models.enums import OfficeType, BillingStatus
+from app.models.enums import OfficeType
 
 # --- Request Schemas ---
 
@@ -41,7 +41,6 @@ class OfficeResponse(BaseModel):
     name: str
     # DBモデルの'type'属性を読み込み、JSON出力時には'office_type'というキー名に変換する
     type: OfficeType = Field(serialization_alias="office_type")
-    billing_status: BillingStatus
     address: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None

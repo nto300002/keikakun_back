@@ -10,6 +10,8 @@ from .enums import (
     RequestStatus, NoticeType, ActionType, ResourceType
 )
 from .office import Office, OfficeStaff, OfficeAuditLog
+from .billing import Billing
+from .webhook_event import WebhookEvent
 from .staff import Staff, PasswordResetToken, PasswordResetAuditLog
 from .staff_profile import AuditLog, EmailChangeRequest, PasswordHistory
 from .mfa import MFABackupCode, MFAAuditLog

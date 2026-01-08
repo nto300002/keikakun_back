@@ -391,3 +391,27 @@ WITHDRAWAL_ALREADY_PROCESSED = "このリクエストは既に{status}です"
 WITHDRAWAL_REQUEST_CREATED = "退会リクエストを作成しました"
 WITHDRAWAL_REQUEST_APPROVED = "退会リクエストを承認しました"
 WITHDRAWAL_REQUEST_REJECTED = "退会リクエストを却下しました"
+
+# ==========================================
+# 課金関連 (billing.py)
+# ==========================================
+
+# 課金ステータス取得
+BILLING_OFFICE_NOT_FOUND = "所属する事務所が見つかりません"
+BILLING_INFO_NOT_FOUND = "課金情報が見つかりません"
+
+# Stripe Checkout/Portal
+BILLING_STRIPE_NOT_CONFIGURED = "Stripe連携が設定されていません"
+BILLING_STRIPE_CUSTOMER_NOT_FOUND = "Stripe Customer IDが見つかりません。先に支払い方法を登録してください。"
+BILLING_CHECKOUT_SESSION_FAILED = "Checkout Sessionの作成に失敗しました"
+BILLING_PORTAL_SESSION_FAILED = "Customer Portal Sessionの作成に失敗しました"
+
+# Webhook
+BILLING_WEBHOOK_SECRET_NOT_SET = "Stripe Webhook Secretが設定されていません"
+BILLING_WEBHOOK_INVALID_PAYLOAD = "Invalid payload"
+BILLING_WEBHOOK_INVALID_SIGNATURE = "Invalid signature"
+BILLING_WEBHOOK_PROCESSING_FAILED = "Webhook処理に失敗しました"
+BILLING_WEBHOOK_EVENT_DUPLICATE = "このイベントは既に処理済みです"
+
+# 課金制限（deps.py）
+BILLING_PAYMENT_REQUIRED = "無料お試し期間が終了しました。引き続き機能をご利用いただくには課金が必要です。"

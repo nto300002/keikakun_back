@@ -6,7 +6,7 @@ from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlch
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import OfficeType, BillingStatus
+from app.models.enums import OfficeType
 
 if TYPE_CHECKING:
     from .staff import Staff
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .calendar_account import OfficeCalendarAccount
     from .calendar_events import CalendarEvent, CalendarEventSeries
     from .support_plan_cycle import SupportPlanCycle, SupportPlanStatus
+    from .billing import Billing
 
 class Office(Base):
     """事業所"""
@@ -38,11 +39,6 @@ class Office(Base):
 
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id', ondelete="CASCADE"))
     last_modified_by: Mapped[uuid.UUID] = mapped_column(ForeignKey('staffs.id', ondelete="CASCADE"))
-    billing_status: Mapped[BillingStatus] = mapped_column(
-        SQLAlchemyEnum(BillingStatus), default=BillingStatus.free, nullable=False
-    )
-    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
-    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
     deactivated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -76,6 +72,14 @@ class Office(Base):
     # Office -> OfficeCalendarAccount (one-to-one)
     calendar_account: Mapped[Optional["OfficeCalendarAccount"]] = relationship(
         "OfficeCalendarAccount",
+        back_populates="office",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
+    # Office -> Billing (one-to-one)
+    billing: Mapped[Optional["Billing"]] = relationship(
+        "Billing",
         back_populates="office",
         uselist=False,
         cascade="all, delete-orphan"

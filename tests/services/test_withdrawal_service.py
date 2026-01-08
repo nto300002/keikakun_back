@@ -840,3 +840,193 @@ class TestWithdrawalExecution:
 
         # ログイン試行は、スタッフが論理削除されているため拒否される
         # （is_deleted=Trueまたは所属事務所のis_deleted=Trueのチェックで失敗する）
+
+
+class TestOfficeWithdrawalBillingCancellation:
+    """事務所退会時の課金キャンセル処理のテスト"""
+
+    @pytest.mark.asyncio
+    async def test_office_withdrawal_cancels_billing_without_subscription(
+        self,
+        db: AsyncSession,
+        setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
+        setup_app_admin: UUID
+    ):
+        """
+        サブスクリプションなしの課金情報を持つ事務所を退会した場合、
+        billing_statusがcanceledになり、customer_id/subscription_idがnullになることを確認
+        """
+        from app import crud
+        from app.models.enums import BillingStatus
+        from datetime import datetime, timezone, timedelta
+
+        office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+        app_admin_id = setup_app_admin
+
+        # Billing情報を作成（サブスクリプションなし）
+        billing = await crud.billing.create_for_office(
+            db=db,
+            office_id=office_id,
+            trial_days=180
+        )
+        await db.commit()
+        billing_id = billing.id
+
+        # 課金情報の初期状態を確認
+        billing_before = await crud.billing.get(db, id=billing_id)
+        assert billing_before.billing_status == BillingStatus.free
+        assert billing_before.stripe_customer_id is None
+        assert billing_before.stripe_subscription_id is None
+
+        # 事務所退会リクエスト作成・承認
+        request = await withdrawal_service.create_office_withdrawal_request(
+            db=db,
+            requester_staff_id=owner_id,
+            office_id=office_id,
+            reason="事業終了のため"
+        )
+
+        approved_request = await withdrawal_service.approve_withdrawal(
+            db=db,
+            request_id=request.id,
+            reviewer_staff_id=app_admin_id,
+            reviewer_notes="承認"
+        )
+
+        # 課金情報の変更を確認
+        billing_after = await crud.billing.get(db, id=billing_id)
+        assert billing_after is not None
+        assert billing_after.billing_status == BillingStatus.canceled
+        assert billing_after.stripe_customer_id is None
+        assert billing_after.stripe_subscription_id is None
+
+    @pytest.mark.asyncio
+    async def test_office_withdrawal_cancels_billing_with_stripe_ids(
+        self,
+        db: AsyncSession,
+        setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
+        setup_app_admin: UUID
+    ):
+        """
+        Stripe customer_id/subscription_idを持つ事務所を退会した場合、
+        billing がキャンセルされ、IDsがnullになることを確認
+        """
+        from app import crud
+        from app.models.enums import BillingStatus
+        from unittest.mock import patch, Mock
+
+        office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+        app_admin_id = setup_app_admin
+
+        # Billing情報を作成
+        billing = await crud.billing.create_for_office(
+            db=db,
+            office_id=office_id,
+            trial_days=180
+        )
+        await db.commit()
+        billing_id = billing.id
+
+        # Stripe IDs を設定
+        unique_id = uuid4().hex[:8]
+        customer_id = f"cus_test_{unique_id}"
+        subscription_id = f"sub_test_{unique_id}"
+
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+
+        await crud.billing.update_stripe_subscription(
+            db=db,
+            billing_id=billing_id,
+            stripe_subscription_id=subscription_id
+        )
+
+        await crud.billing.update_status(
+            db=db,
+            billing_id=billing_id,
+            status=BillingStatus.active
+        )
+
+        # 課金情報の初期状態を確認
+        billing_before = await crud.billing.get(db, id=billing_id)
+        assert billing_before.billing_status == BillingStatus.active
+        assert billing_before.stripe_customer_id == customer_id
+        assert billing_before.stripe_subscription_id == subscription_id
+
+        # Stripe APIをモック
+        mock_subscription = Mock()
+        mock_subscription.id = subscription_id
+        mock_subscription.status = "canceled"
+        mock_subscription.canceled_at = 1234567890
+
+        with patch('stripe.Subscription.delete', return_value=mock_subscription) as mock_delete:
+            # 事務所退会リクエスト作成・承認
+            request = await withdrawal_service.create_office_withdrawal_request(
+                db=db,
+                requester_staff_id=owner_id,
+                office_id=office_id,
+                reason="事業終了のため"
+            )
+
+            approved_request = await withdrawal_service.approve_withdrawal(
+                db=db,
+                request_id=request.id,
+                reviewer_staff_id=app_admin_id,
+                reviewer_notes="承認"
+            )
+
+            # Stripe APIが呼ばれたことを確認
+            assert mock_delete.called
+            mock_delete.assert_called_once_with(subscription_id)
+
+        # 課金情報の変更を確認
+        billing_after = await crud.billing.get(db, id=billing_id)
+        assert billing_after is not None
+        assert billing_after.billing_status == BillingStatus.canceled
+        assert billing_after.stripe_customer_id is None
+        assert billing_after.stripe_subscription_id is None
+        assert billing_after.scheduled_cancel_at is None
+
+    @pytest.mark.asyncio
+    async def test_office_withdrawal_without_billing_record(
+        self,
+        db: AsyncSession,
+        setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
+        setup_app_admin: UUID
+    ):
+        """
+        Billing情報がない事務所を退会した場合、
+        エラーなく処理が完了することを確認
+        """
+        office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+        app_admin_id = setup_app_admin
+
+        # Billing情報を作成しない（デフォルトでは作成されていない）
+
+        # 事務所退会リクエスト作成・承認
+        request = await withdrawal_service.create_office_withdrawal_request(
+            db=db,
+            requester_staff_id=owner_id,
+            office_id=office_id,
+            reason="事業終了のため"
+        )
+
+        # エラーなく承認できることを確認
+        approved_request = await withdrawal_service.approve_withdrawal(
+            db=db,
+            request_id=request.id,
+            reviewer_staff_id=app_admin_id,
+            reviewer_notes="承認"
+        )
+
+        assert approved_request is not None
+        assert approved_request.status == RequestStatus.approved
+
+        # 実行結果にbilling_cancellationが含まれ、skippedになっていることを確認
+        execution_result = approved_request.execution_result
+        assert execution_result is not None
+        assert "billing_cancellation" in execution_result
+        assert execution_result["billing_cancellation"]["action"] == "skipped"
