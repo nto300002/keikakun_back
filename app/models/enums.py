@@ -23,6 +23,14 @@ class SupportPlanStep(str, enum.Enum):
     final_plan_signed = 'final_plan_signed'
     monitoring = 'monitoring'
 
+CYCLE_STEPS = [
+    SupportPlanStep.assessment,
+    SupportPlanStep.draft_plan,
+    SupportPlanStep.staff_meeting,
+    SupportPlanStep.final_plan_signed,
+    SupportPlanStep.monitoring,
+]
+
 class DeliverableType(str, enum.Enum):
     assessment_sheet = 'assessment_sheet'
     draft_plan_pdf = 'draft_plan_pdf'

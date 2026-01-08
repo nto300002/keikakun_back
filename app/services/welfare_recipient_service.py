@@ -17,7 +17,7 @@ import uuid
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
-from app.models.enums import SupportPlanStep
+from app.models.enums import SupportPlanStep, CYCLE_STEPS
 from app.schemas.welfare_recipient import UserRegistrationRequest
 from app.core.exceptions import BadRequestException, InternalServerException
 from datetime import timedelta
@@ -157,23 +157,8 @@ class WelfareRecipientService:
         await db.flush()  # cycle.id を取得するため
         logger.info(f"[DEBUG] Cycle created with id={cycle.id}")
 
-        if new_cycle_number == 1:
-            initial_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-        else:
-            initial_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-
-        logger.info(f"[DEBUG] Creating {len(initial_steps)} status records...")
-        for i, step in enumerate(initial_steps):
+        logger.info(f"[DEBUG] Creating {len(CYCLE_STEPS)} status records...")
+        for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
                 welfare_recipient_id=welfare_recipient_id,
@@ -258,22 +243,7 @@ class WelfareRecipientService:
         db.add(cycle)
         db.flush()  # cycle.id を取得するため
 
-        if new_cycle_number == 1:
-            initial_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-        else:
-            initial_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-
-        for i, step in enumerate(initial_steps):
+        for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
                 step_type=step,
@@ -331,23 +301,8 @@ class WelfareRecipientService:
                 )
                 statuses = list(db.execute(status_stmt).scalars().all())
 
-                if latest_cycle.cycle_number == 1:
-                    expected_steps = [
-                        SupportPlanStep.assessment,
-                        SupportPlanStep.draft_plan,
-                        SupportPlanStep.staff_meeting,
-                        SupportPlanStep.final_plan_signed
-                    ]
-                else:
-                    expected_steps = [
-                        SupportPlanStep.monitoring,
-                        SupportPlanStep.draft_plan,
-                        SupportPlanStep.staff_meeting,
-                        SupportPlanStep.final_plan_signed
-                    ]
-
                 existing_steps = [status.step for status in statuses]
-                missing_steps = [step for step in expected_steps if step not in existing_steps]
+                missing_steps = [step for step in CYCLE_STEPS if step not in existing_steps]
 
                 if missing_steps:
                     result["is_valid"] = False
@@ -429,24 +384,8 @@ class WelfareRecipientService:
         existing_statuses = list(db.execute(status_stmt).scalars().all())
         existing_steps = [status.step for status in existing_statuses]
 
-        # 必要なステップを特定
-        if latest_cycle.cycle_number == 1:
-            required_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-        else:
-            required_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-
         # 不足しているステップを追加
-        for step in required_steps:
+        for step in CYCLE_STEPS:
             if step not in existing_steps:
                 status = SupportPlanStatus(
                     support_plan_cycle_id=latest_cycle.id,

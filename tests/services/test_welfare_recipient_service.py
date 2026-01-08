@@ -138,10 +138,11 @@ class TestCreateInitialSupportPlan:
         assert cycle.cycle_number == 1
         step_types = {status.step_type for status in cycle.statuses}
         assert step_types == {
-            SupportPlanStep.assessment, 
-            SupportPlanStep.draft_plan, 
-            SupportPlanStep.staff_meeting, 
-            SupportPlanStep.final_plan_signed
+            SupportPlanStep.assessment,
+            SupportPlanStep.draft_plan,
+            SupportPlanStep.staff_meeting,
+            SupportPlanStep.final_plan_signed,
+            SupportPlanStep.monitoring
         }
 
     async def test_initial_plan_for_subsequent_cycle(self, db: AsyncSession, setup_staff_and_office):
@@ -175,10 +176,11 @@ class TestCreateInitialSupportPlan:
         assert cycle.cycle_number == 2
         step_types = {status.step_type for status in cycle.statuses}
         assert step_types == {
-            SupportPlanStep.monitoring, 
-            SupportPlanStep.draft_plan, 
-            SupportPlanStep.staff_meeting, 
-            SupportPlanStep.final_plan_signed
+            SupportPlanStep.assessment,
+            SupportPlanStep.draft_plan,
+            SupportPlanStep.staff_meeting,
+            SupportPlanStep.final_plan_signed,
+            SupportPlanStep.monitoring
         }
 
 

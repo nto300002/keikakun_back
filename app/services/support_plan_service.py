@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app import crud
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
-from app.models.enums import DeliverableType, SupportPlanStep
+from app.models.enums import DeliverableType, SupportPlanStep, CYCLE_STEPS
 from app.schemas.support_plan import PlanDeliverableCreate
 from app.services.calendar_service import calendar_service
 
@@ -27,15 +27,6 @@ DELIVERABLE_TO_STEP_MAP = {
     DeliverableType.final_plan_signed_pdf: SupportPlanStep.final_plan_signed,
     DeliverableType.monitoring_report_pdf: SupportPlanStep.monitoring,
 }
-
-# ステップの順序
-STEP_ORDER = [
-    SupportPlanStep.assessment,
-    SupportPlanStep.draft_plan,
-    SupportPlanStep.staff_meeting,
-    SupportPlanStep.final_plan_signed,
-    SupportPlanStep.monitoring, # モニタリングはサイクルの最後かつ次のサイクルの最初
-]
 
 class SupportPlanService:
     @staticmethod
@@ -107,18 +98,12 @@ class SupportPlanService:
 
         logger.info(f"Created new cycle {new_cycle.id} for recipient {new_cycle.welfare_recipient_id}")
 
-        # 3. 新しいサイクル用のステータスを作成 (モニタリングから開始)
-        new_steps = [
-            SupportPlanStep.monitoring,
-            SupportPlanStep.draft_plan,
-            SupportPlanStep.staff_meeting,
-            SupportPlanStep.final_plan_signed,
-        ]
+        # 3. 新しいサイクル用のステータスを作成 (アセスメントから開始)
         monitoring_status = None
-        for i, step_type in enumerate(new_steps):
+        for i, step_type in enumerate(CYCLE_STEPS):
             due_date = None
 
-            if step_type == SupportPlanStep.monitoring and i == 0:
+            if step_type == SupportPlanStep.monitoring:
                 # モニタリング期限のデフォルトは7日
                 monitoring_deadline = 7
                 new_cycle.monitoring_deadline = monitoring_deadline
@@ -129,7 +114,7 @@ class SupportPlanService:
                 welfare_recipient_id=old_cycle.welfare_recipient_id,
                 office_id=old_cycle.office_id,
                 step_type=step_type,
-                is_latest_status=(i == 0),  # 最初のステップ(monitoring)を最新にする
+                is_latest_status=(i == 0),  # 最初のステップ(assessment)を最新にする
                 due_date=due_date
             )
             db.add(new_status)
@@ -352,26 +337,10 @@ class SupportPlanService:
             logger.info(f"[FINAL_PLAN] New cycle creation completed")
         else:
             # 次のステップを最新にする
-            # サイクル内のステップ順序を決定
-            if cycle.cycle_number == 1:
-                cycle_steps = [
-                    SupportPlanStep.assessment,
-                    SupportPlanStep.draft_plan,
-                    SupportPlanStep.staff_meeting,
-                    SupportPlanStep.final_plan_signed,
-                ]
-            else:
-                cycle_steps = [
-                    SupportPlanStep.monitoring,
-                    SupportPlanStep.draft_plan,
-                    SupportPlanStep.staff_meeting,
-                    SupportPlanStep.final_plan_signed,
-                ]
-
             try:
-                current_index = cycle_steps.index(target_step_type)
-                if current_index < len(cycle_steps) - 1:
-                    next_step_type = cycle_steps[current_index + 1]
+                current_index = CYCLE_STEPS.index(target_step_type)
+                if current_index < len(CYCLE_STEPS) - 1:
+                    next_step_type = CYCLE_STEPS[current_index + 1]
                     next_status = next((s for s in cycle.statuses if s.step_type == next_step_type), None)
                     if next_status:
                         next_status.is_latest_status = True
@@ -499,27 +468,11 @@ class SupportPlanService:
             logger.info(f"[DELIVERABLE_DELETE] Reverted status - step_type: {target_step_type}")
 
         # 次のステップを最新ではなくする
-        # サイクル内のステップ順序を決定
-        if cycle.cycle_number == 1:
-            cycle_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed,
-            ]
-        else:
-            cycle_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed,
-            ]
-
         try:
-            current_index = cycle_steps.index(target_step_type)
+            current_index = CYCLE_STEPS.index(target_step_type)
             # 次以降のステップをis_latest_status=Falseにする
-            for i in range(current_index + 1, len(cycle_steps)):
-                next_step_type = cycle_steps[i]
+            for i in range(current_index + 1, len(CYCLE_STEPS)):
+                next_step_type = CYCLE_STEPS[i]
                 next_status = next((s for s in cycle.statuses if s.step_type == next_step_type), None)
                 if next_status:
                     next_status.is_latest_status = False

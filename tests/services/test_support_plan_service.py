@@ -115,6 +115,7 @@ async def setup_recipient_with_initial_cycle(db: AsyncSession, setup_staff_and_o
         SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.draft_plan, is_latest_status=False),
         SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.staff_meeting, is_latest_status=False),
         SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.final_plan_signed, is_latest_status=False),
+        SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office_id, step_type=SupportPlanStep.monitoring, is_latest_status=False),
     ]
     db.add_all(statuses)
 
@@ -280,11 +281,24 @@ async def test_upload_final_plan_creates_new_cycle(
         assert new_cycle.next_renewal_deadline == mock_today + timedelta(days=180)
         assert new_cycle.cycle_number == original_cycle.cycle_number + 1
 
+        # 全5ステップが作成されていることを確認
+        step_types = {status.step_type for status in new_cycle.statuses}
+        assert step_types == {
+            SupportPlanStep.assessment,
+            SupportPlanStep.draft_plan,
+            SupportPlanStep.staff_meeting,
+            SupportPlanStep.final_plan_signed,
+            SupportPlanStep.monitoring
+        }
+
+        # assessmentがlatest_statusになっていることを確認（サイクル統一後）
+        assessment_status = next((s for s in new_cycle.statuses if s.step_type == SupportPlanStep.assessment), None)
+        assert assessment_status is not None
+        assert assessment_status.is_latest_status is True
+
+        # モニタリングステータスも存在し、期限日が正しく設定されていることを確認
         monitoring_status = next((s for s in new_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
         assert monitoring_status is not None
-        assert monitoring_status.is_latest_status is True
-
-        # モニタリングの期限日が正しく設定されていることを確認
         expected_due_date = (mock_now_utc.date() + timedelta(days=7))
         assert monitoring_status.due_date == expected_due_date
 
@@ -294,7 +308,7 @@ async def test_upload_monitoring_report_in_cycle_2(
     db: AsyncSession,
     setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID]
 ):
-    """【正常系】サイクル2以降でモニタリングレポートをアップロードできること"""
+    """【正常系】サイクル2以降でモニタリングレポートをアップロードできること（サイクル統一後）"""
     recipient_id, original_cycle_id, staff_id = setup_recipient_with_initial_cycle
 
     # サイクル1を完了させて、サイクル2を作成
@@ -329,20 +343,38 @@ async def test_upload_monitoring_report_in_cycle_2(
 
     assert cycle_2.cycle_number == 2
 
-    # サイクル2でモニタリングレポートをアップロード
-    deliverable_in = PlanDeliverableCreate(
-        plan_cycle_id=cycle_2.id,
-        deliverable_type=DeliverableType.monitoring_report_pdf,
-        file_path="/path/to/monitoring_report.pdf",
-        original_filename="monitoring_report.pdf",
-    )
+    # サイクル2でも全ステップを順番にアップロード（サイクル統一後はassessmentから開始）
+    # 注：final_plan_signedアップロード時に新サイクルが作成されるため、
+    #     monitoringステップは現行の設計では使用されない
+    cycle_2_steps = [
+        (DeliverableType.assessment_sheet, "assessment2.pdf"),
+        (DeliverableType.draft_plan_pdf, "draft_plan2.pdf"),
+        (DeliverableType.staff_meeting_minutes, "staff_meeting2.pdf"),
+        (DeliverableType.final_plan_signed_pdf, "final_plan2.pdf"),
+    ]
 
-    # エラーが発生しないことを確認
-    await support_plan_service.handle_deliverable_upload(
-        db=db,
-        deliverable_in=deliverable_in,
-        uploaded_by_staff_id=staff_id
+    for deliverable_type, filename in cycle_2_steps:
+        await db.refresh(cycle_2, attribute_names=["statuses"])
+        deliverable_in = PlanDeliverableCreate(
+            plan_cycle_id=cycle_2.id,
+            deliverable_type=deliverable_type,
+            file_path=f"/path/to/{filename}",
+            original_filename=filename,
+        )
+        # エラーが発生しないことを確認
+        await support_plan_service.handle_deliverable_upload(
+            db=db,
+            deliverable_in=deliverable_in,
+            uploaded_by_staff_id=staff_id
+        )
+
+    # 最後のfinal_plan_signedアップロードにより、サイクル3が作成されたことを確認
+    cycle_3_stmt = select(SupportPlanCycle).where(
+        SupportPlanCycle.welfare_recipient_id == recipient_id,
+        SupportPlanCycle.cycle_number == 3
     )
+    cycle_3 = (await db.execute(cycle_3_stmt)).scalar_one_or_none()
+    assert cycle_3 is not None, "final_plan_signed アップロード後、新サイクルが作成されること"
 
 
 @pytest.mark.asyncio
@@ -558,6 +590,16 @@ async def test_final_plan_upload_creates_calendar_event(
         SupportPlanCycle.is_latest_cycle == True
     ).options(selectinload(SupportPlanCycle.statuses))
     new_cycle = (await db.execute(new_cycle_stmt)).scalar_one()
+
+    # 全5ステップが作成されていることを確認
+    step_types = {status.step_type for status in new_cycle.statuses}
+    assert step_types == {
+        SupportPlanStep.assessment,
+        SupportPlanStep.draft_plan,
+        SupportPlanStep.staff_meeting,
+        SupportPlanStep.final_plan_signed,
+        SupportPlanStep.monitoring
+    }
 
     # 更新期限イベントが作成されたことを確認
     events = await crud.calendar_event.get_by_cycle_id(db=db, cycle_id=new_cycle.id)
