@@ -438,6 +438,10 @@ async def test_upload_monitoring_report_in_cycle_2(
     ).options(selectinload(SupportPlanCycle.statuses))
     cycle_2 = (await db.execute(cycle_2_stmt)).scalar_one()
 
+    # サイクル2がデータベースに確実に存在することを確認
+    await db.flush()
+    await db.refresh(cycle_2)
+
     assert cycle_2.cycle_number == 2
 
     # サイクル2でも全ステップを順番にアップロード（サイクル統一後はassessmentから開始）
@@ -721,7 +725,7 @@ async def test_monitoring_upload_creates_calendar_event(
     monitoring_event = monitoring_deadline_events[0]
     assert monitoring_event.welfare_recipient_id == recipient_id
     assert monitoring_event.office_id == office_id
-    assert "モニタリング期限" in monitoring_event.event_title
+    assert "次の個別支援計画の開始期限" in monitoring_event.event_title
 
 
 @pytest.mark.asyncio
@@ -755,6 +759,9 @@ async def test_monitoring_upload_without_calendar_account_succeeds(
             deliverable_in=deliverable_in,
             uploaded_by_staff_id=staff_id
         )
+
+    # deliverableアップロード後、セッションをflushして変更を確定
+    await db.flush()
 
     # モニタリング報告書をアップロード（新仕様：これがサイクル2を作成、エラーが発生しないことを確認）
     deliverable_in = PlanDeliverableCreate(

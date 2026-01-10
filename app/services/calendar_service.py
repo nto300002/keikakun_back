@@ -562,7 +562,7 @@ class CalendarService:
         # 利用者名を事前に取得
         recipient_last_name = recipient.last_name
         recipient_first_name = recipient.first_name
-        event_title = f"{recipient_last_name} {recipient_first_name} モニタリング期限"
+        event_title = f"{recipient_last_name} {recipient_first_name} 次の個別支援計画の開始期限"
 
         # 1つのイベントで登録日当日9:00～7日後18:00の期間（1週間）を表現
         # JST（日本時間）で明示的に指定
@@ -583,7 +583,7 @@ class CalendarService:
             event_type=CalendarEventType.monitoring_deadline,
             google_calendar_id=account_calendar_id,
             event_title=event_title,
-            event_description=f"モニタリングの期限です（{cycle_number}回目）。",
+            event_description=f"次の個別支援計画の開始期限です（{cycle_number}回目）。",
             event_start_datetime=event_start,
             event_end_datetime=event_end,
             created_by_system=True,
@@ -692,7 +692,7 @@ class CalendarService:
         cycle_number = cycle.cycle_number
 
         # イベントタイトルを作成
-        event_title = f"{recipient.last_name} {recipient.first_name} モニタリング期限"
+        event_title = f"{recipient.last_name} {recipient.first_name} 次の個別支援計画の開始期限"
 
         # JST（日本時間）で明示的に指定
         jst = ZoneInfo("Asia/Tokyo")
@@ -711,7 +711,7 @@ class CalendarService:
             event_type=CalendarEventType.monitoring_deadline,
             google_calendar_id=account.google_calendar_id,
             event_title=event_title,
-            event_description=f"モニタリングの期限です（{cycle_number}回目）。\n期限: {due_date}",
+            event_description=f"次の個別支援計画の開始期限です（{cycle_number}回目）。\n期限: {due_date}",
             event_start_datetime=event_start,
             event_end_datetime=event_end,
             sync_status=CalendarSyncStatus.pending

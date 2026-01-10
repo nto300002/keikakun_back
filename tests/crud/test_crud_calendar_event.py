@@ -128,7 +128,7 @@ async def test_create_calendar_event_for_monitoring_deadline(
         "support_plan_status_id": status.id,
         "event_type": CalendarEventType.monitoring_deadline,
         "google_calendar_id": "test-calendar@example.com",
-        "event_title": f"{recipient.last_name} {recipient.first_name} モニタリング期限",
+        "event_title": f"{recipient.last_name} {recipient.first_name} 次の個別支援計画の開始期限",
         "event_start_datetime": datetime.combine(status.due_date, datetime.min.time()),
         "event_end_datetime": datetime.combine(status.due_date, datetime.min.time()) + timedelta(hours=1),
         "sync_status": CalendarSyncStatus.pending
