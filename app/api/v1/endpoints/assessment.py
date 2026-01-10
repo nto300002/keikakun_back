@@ -34,12 +34,7 @@ from app.schemas.assessment import (
     IssueAnalysisResponse,
 )
 from app.services import assessment_service
-from app.crud.crud_family_member import crud_family_member
-from app.crud.crud_service_history import crud_service_history
-from app.crud.crud_medical_info import crud_medical_info
-from app.crud.crud_hospital_visit import crud_hospital_visit
-from app.crud.crud_employment import crud_employment
-from app.crud.crud_issue_analysis import crud_issue_analysis
+from app import crud
 from app.messages import ja
 
 router = APIRouter()
@@ -90,7 +85,7 @@ async def get_family_members(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 家族構成を取得
-    family_members = await crud_family_member.get_family_members(
+    family_members = await crud.family_member.get_family_members(
         db=db,
         recipient_id=recipient_id
     )
@@ -115,7 +110,7 @@ async def create_family_member(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 家族メンバーを作成
-    family_member = await crud_family_member.create(
+    family_member = await crud.family_member.create(
         db=db,
         recipient_id=recipient_id,
         obj_in=family_member_in
@@ -134,7 +129,7 @@ async def update_family_member(
     家族メンバー情報を更新
     """
     # 家族メンバーを更新
-    family_member = await crud_family_member.update(
+    family_member = await crud.family_member.update(
         db=db,
         family_member_id=family_member_id,
         obj_in=family_member_in
@@ -158,7 +153,7 @@ async def delete_family_member(
     """
     家族メンバーを削除
     """
-    success = await crud_family_member.delete(
+    success = await crud.family_member.delete(
         db=db,
         family_member_id=family_member_id
     )
@@ -187,7 +182,7 @@ async def get_service_history(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # サービス利用歴を取得
-    service_history = await crud_service_history.get_service_history(
+    service_history = await crud.service_history.get_service_history(
         db=db,
         recipient_id=recipient_id
     )
@@ -212,7 +207,7 @@ async def create_service_history(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # サービス利用歴を作成
-    service_history = await crud_service_history.create(
+    service_history = await crud.service_history.create(
         db=db,
         recipient_id=recipient_id,
         obj_in=service_history_in
@@ -231,7 +226,7 @@ async def update_service_history(
     福祉サービス利用歴を更新
     """
     # サービス利用歴を更新
-    service_history = await crud_service_history.update(
+    service_history = await crud.service_history.update(
         db=db,
         history_id=history_id,
         obj_in=service_history_in
@@ -255,7 +250,7 @@ async def delete_service_history(
     """
     福祉サービス利用歴を削除
     """
-    success = await crud_service_history.delete(
+    success = await crud.service_history.delete(
         db=db,
         history_id=history_id
     )
@@ -284,7 +279,7 @@ async def get_medical_info(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 医療情報を取得
-    medical_info = await crud_medical_info.get_medical_info(
+    medical_info = await crud.medical_info.get_medical_info(
         db=db,
         recipient_id=recipient_id
     )
@@ -305,7 +300,7 @@ async def upsert_medical_info(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # upsertメソッドを使用して作成または更新
-    medical_info = await crud_medical_info.upsert(
+    medical_info = await crud.medical_info.upsert(
         db=db,
         recipient_id=recipient_id,
         obj_in=medical_info_in
@@ -328,7 +323,7 @@ async def get_hospital_visits(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 通院歴を取得
-    hospital_visits = await crud_hospital_visit.get_hospital_visits(
+    hospital_visits = await crud.hospital_visit.get_hospital_visits(
         db=db,
         recipient_id=recipient_id
     )
@@ -353,7 +348,7 @@ async def create_hospital_visit(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 通院歴を作成
-    hospital_visit = await crud_hospital_visit.create(
+    hospital_visit = await crud.hospital_visit.create(
         db=db,
         recipient_id=recipient_id,
         obj_in=hospital_visit_in
@@ -372,7 +367,7 @@ async def update_hospital_visit(
     通院歴を更新
     """
     # 通院歴を更新
-    hospital_visit = await crud_hospital_visit.update(
+    hospital_visit = await crud.hospital_visit.update(
         db=db,
         visit_id=visit_id,
         obj_in=hospital_visit_in
@@ -396,7 +391,7 @@ async def delete_hospital_visit(
     """
     通院歴を削除
     """
-    success = await crud_hospital_visit.delete(
+    success = await crud.hospital_visit.delete(
         db=db,
         visit_id=visit_id
     )
@@ -425,7 +420,7 @@ async def get_employment(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 就労関係を取得
-    employment = await crud_employment.get_employment(
+    employment = await crud.employment.get_employment(
         db=db,
         recipient_id=recipient_id
     )
@@ -442,15 +437,12 @@ async def upsert_employment(
     """
     就労関係情報を作成または更新
     """
-    # アクセス権限を検証
-    await assessment_service.verify_recipient_access(db, recipient_id, current_user)
-
-    # upsert（作成または更新）
-    employment = await crud_employment.upsert(
+    # サービス層を呼び出し（監査ログ含む）
+    employment = await assessment_service.upsert_employment_with_validation(
         db=db,
         recipient_id=recipient_id,
-        staff_id=current_user.id,
-        obj_in=employment_in
+        data=employment_in,
+        current_user=current_user
     )
     return employment
 
@@ -470,7 +462,7 @@ async def get_issue_analysis(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # 課題分析を取得
-    issue_analysis = await crud_issue_analysis.get_issue_analysis(
+    issue_analysis = await crud.issue_analysis.get_issue_analysis(
         db=db,
         recipient_id=recipient_id
     )
@@ -491,7 +483,7 @@ async def upsert_issue_analysis(
     await assessment_service.verify_recipient_access(db, recipient_id, current_user)
 
     # upsert（作成または更新）
-    issue_analysis = await crud_issue_analysis.upsert(
+    issue_analysis = await crud.issue_analysis.upsert(
         db=db,
         recipient_id=recipient_id,
         staff_id=current_user.id,

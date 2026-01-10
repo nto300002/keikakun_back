@@ -13,7 +13,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import status
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
 
 from app.core.config import settings
@@ -40,13 +40,22 @@ from app.models.enums import (
     WorkConditions,
     WorkOutsideFacility,
 )
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, create_access_token
 
 
 pytestmark = pytest.mark.asyncio
 
 
 # テストデータ
+EMPLOYMENT_BASE_DATA = {
+    "work_conditions": "other",
+    "regular_or_part_time_job": False,
+    "employment_support": False,
+    "work_experience_in_the_past_year": False,
+    "suspension_of_work": False,
+    "general_employment_request": False,
+    "work_outside_the_facility": "not_hope",
+}
 FAMILY_MEMBER_CREATE_DATA = {
     "name": "花子",
     "relationship": "母",
@@ -1621,3 +1630,491 @@ class TestIssueAnalysisEndpoints:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_upsert_employment_desired_tasks_on_asobe_validation(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """Task 2: asoBeで希望する作業のバリデーションテスト（TDD - Red Phase）
+
+        1000文字を超える入力はエラーになることを検証
+        """
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 1001文字の入力（バリデーションエラーになるべき）
+        long_text = "あ" * 1001
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "work_conditions": "continuous_support_b",
+                "regular_or_part_time_job": False,
+                "employment_support": False,
+                "work_experience_in_the_past_year": False,
+                "suspension_of_work": False,
+                "general_employment_request": False,
+                "work_outside_the_facility": "hope",
+                "desired_tasks_on_asobe": long_text,
+            },
+        )
+
+        # Assert: バリデーションエラー
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("1000 characters" in str(err).lower() for err in error_detail)
+
+    async def test_upsert_employment_desired_tasks_on_asobe_success(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """Task 2: asoBeで希望する作業の正常系テスト（TDD - Red Phase）
+
+        1000文字以内の入力は正常に保存されることを検証
+        """
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 正常な入力
+        valid_text = "清掃作業、軽作業、梱包作業、データ入力作業を希望します。体力には自信があります。"
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "work_conditions": "continuous_support_b",
+                "regular_or_part_time_job": False,
+                "employment_support": False,
+                "work_experience_in_the_past_year": False,
+                "suspension_of_work": False,
+                "general_employment_request": False,
+                "work_outside_the_facility": "hope",
+                "desired_tasks_on_asobe": valid_text,
+            },
+        )
+
+        # Assert: 成功
+        assert response.status_code == 200
+        data = response.json()
+        assert data["desired_tasks_on_asobe"] == valid_text
+
+    async def test_upsert_employment_desired_tasks_on_asobe_null(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """Task 2: asoBeで希望する作業のNULL許容テスト（TDD - Red Phase）
+
+        フィールドがNULLでも正常に保存されることを検証
+        """
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: desired_tasks_on_asobeをNULLで送信
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "work_conditions": "other",
+                "regular_or_part_time_job": False,
+                "employment_support": False,
+                "work_experience_in_the_past_year": False,
+                "suspension_of_work": False,
+                "general_employment_request": False,
+                "work_outside_the_facility": "not_hope",
+                "desired_tasks_on_asobe": None,
+            },
+        )
+
+        # Assert: 成功
+        assert response.status_code == 200
+        data = response.json()
+        assert data["desired_tasks_on_asobe"] is None
+
+    async def test_upsert_employment_no_experience_parent_child_validation(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """Task 1: 親子チェックボックスバリデーションテスト（TDD - Red Phase）
+
+        親（no_employment_experience）がFalseの時、全ての子は自動的にFalseになることを検証
+        """
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 親をFalse、子をTrue（無効になるべき）
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "work_conditions": "other",
+                "regular_or_part_time_job": False,
+                "employment_support": False,
+                "work_experience_in_the_past_year": False,
+                "suspension_of_work": False,
+                "general_employment_request": False,
+                "work_outside_the_facility": "not_hope",
+                # 親子チェックボックス
+                "no_employment_experience": False,  # 親をFalse
+                "attended_job_selection_office": True,  # 子をTrue（無効化されるべき）
+                "received_employment_assessment": True,  # 子をTrue（無効化されるべき）
+                "employment_other_experience": True,  # 子をTrue（無効化されるべき）
+                "employment_other_text": "これは無視されるべき",
+            },
+        )
+
+        # Assert: バリデータにより全ての子が自動的にFalseになる
+        assert response.status_code == 200
+        data = response.json()
+        assert data["no_employment_experience"] is False
+        # 親がFalseなので、子は全てFalseになるべき
+        assert data["attended_job_selection_office"] is False
+        assert data["received_employment_assessment"] is False
+        assert data["employment_other_experience"] is False
+        assert data["employment_other_text"] is None
+
+    async def test_upsert_employment_no_experience_success(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """Task 1: 就労経験なしフィールドの正常系テスト（TDD - Red Phase）
+
+        親がTrueの時、子の値がそのまま保存されることを検証
+        """
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 親をTrue、子も適切に設定
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "work_conditions": "other",
+                "regular_or_part_time_job": False,
+                "employment_support": False,
+                "work_experience_in_the_past_year": False,
+                "suspension_of_work": False,
+                "general_employment_request": False,
+                "work_outside_the_facility": "not_hope",
+                # 親子チェックボックス（親がTrue）
+                "no_employment_experience": True,
+                "attended_job_selection_office": True,
+                "received_employment_assessment": False,
+                "employment_other_experience": True,
+                "employment_other_text": "職業訓練を受けた",
+            },
+        )
+
+        # Assert: 親がTrueなので、子の値がそのまま保存される
+        assert response.status_code == 200
+        data = response.json()
+        assert data["no_employment_experience"] is True
+        assert data["attended_job_selection_office"] is True
+        assert data["received_employment_assessment"] is False
+        assert data["employment_other_experience"] is True
+        assert data["employment_other_text"] == "職業訓練を受けた"
+
+    @pytest.mark.asyncio
+    async def test_upsert_employment_no_experience_requires_at_least_one_child(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """Task 1: 就労経験なしが選択された場合、最低1つの子チェックボックスが必須
+
+        親がTrueだが、全ての子がFalseの場合、バリデーションエラーを返す
+        """
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 親をTrue、子を全てFalse
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "work_conditions": "other",
+                "regular_or_part_time_job": False,
+                "employment_support": False,
+                "work_experience_in_the_past_year": False,
+                "suspension_of_work": False,
+                "general_employment_request": False,
+                "work_outside_the_facility": "not_hope",
+                # 親子チェックボックス（親がTrue、子が全てFalse）
+                "no_employment_experience": True,
+                "attended_job_selection_office": False,
+                "received_employment_assessment": False,
+                "employment_other_experience": False,
+            },
+        )
+
+        # Assert: バリデーションエラーが返される
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+
+
+class TestEmploymentAuditLog:
+    """就労関係の監査ログテスト（Phase 0 - TDD）"""
+
+    @pytest.mark.asyncio
+    async def test_employment_create_logs_audit(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """就労関係作成時に監査ログが記録されることを確認"""
+        from sqlalchemy import select
+        from app.models.staff_profile import AuditLog
+
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 就労関係を作成
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                **EMPLOYMENT_CREATE_DATA,
+                "no_employment_experience": True,
+                "attended_job_selection_office": True,
+                "received_employment_assessment": False,
+                "employment_other_experience": False,
+            },
+        )
+
+        # Assert: APIレスポンスが成功
+        assert response.status_code == 200
+
+        # Assert: 監査ログが記録されている
+        stmt = select(AuditLog).where(
+            AuditLog.action == "employment.created",
+            AuditLog.target_type == "employment_related",
+            AuditLog.staff_id == staff.id
+        )
+        result = await db_session.execute(stmt)
+        audit_log = result.scalar_one_or_none()
+
+        assert audit_log is not None, "監査ログが記録されていません"
+        assert audit_log.office_id == office_id
+        assert audit_log.actor_role == staff.role.value
+        assert audit_log.details is not None
+        assert "recipient_id" in audit_log.details
+
+    @pytest.mark.asyncio
+    async def test_employment_update_logs_audit(
+        self,
+        async_client,
+        db_session,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """就労関係更新時に監査ログが記録されることを確認"""
+        from sqlalchemy import select
+        from app.models.staff_profile import AuditLog
+
+        # Arrange: 既存の就労関係を作成
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # 最初の作成
+        await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json=EMPLOYMENT_CREATE_DATA,
+        )
+
+        # Act: 就労関係を更新
+        response = await async_client.put(
+            f"{settings.API_V1_STR}/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                **EMPLOYMENT_CREATE_DATA,
+                "desired_tasks_on_asobe": "清掃作業を希望します",
+            },
+        )
+
+        # Assert: APIレスポンスが成功
+        assert response.status_code == 200
+
+        # Assert: 更新の監査ログが記録されている
+        stmt = select(AuditLog).where(
+            AuditLog.action == "employment.updated",
+            AuditLog.target_type == "employment_related",
+            AuditLog.staff_id == staff.id
+        )
+        result = await db_session.execute(stmt)
+        audit_log = result.scalar_one_or_none()
+
+        assert audit_log is not None, "更新時の監査ログが記録されていません"
+        assert audit_log.office_id == office_id
+        assert audit_log.details is not None
+        assert "changes" in audit_log.details or "recipient_id" in audit_log.details
+
+
+class TestEmploymentValidationEnhanced:
+    """就労関係の強化されたバリデーションテスト"""
+
+    async def test_employment_other_experience_requires_text(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """employment_other_experience = Trueの場合、employment_other_textが必須"""
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: employment_other_experience = True だが employment_other_text が None
+        response = await async_client.put(
+            f"/api/v1/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                **EMPLOYMENT_BASE_DATA,
+                "no_employment_experience": True,
+                "employment_other_experience": True,
+                "employment_other_text": None,  # これがエラーの原因
+            },
+        )
+
+        # Assert: バリデーションエラーを期待
+        assert response.status_code == 422
+        assert "employment_other_text" in response.text.lower() or "その他" in response.text
+
+    async def test_empty_string_converted_to_none(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """空文字列がNoneに変換されることを確認"""
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 空文字列を送信
+        response = await async_client.put(
+            f"/api/v1/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                **EMPLOYMENT_BASE_DATA,
+                "desired_tasks_on_asobe": "",  # 空文字列
+            },
+        )
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["desired_tasks_on_asobe"] is None  # Noneに変換される
+
+    async def test_whitespace_trimmed(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """前後の空白が削除されることを確認"""
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 前後に空白がある文字列
+        response = await async_client.put(
+            f"/api/v1/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                **EMPLOYMENT_BASE_DATA,
+                "no_employment_experience": True,
+                "employment_other_experience": True,
+                "employment_other_text": "  テスト  ",  # 前後に空白
+            },
+        )
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        # 空白が削除され、かつHTMLエスケープされている
+        assert "テスト" in data["employment_other_text"]
+        assert data["employment_other_text"].strip() == data["employment_other_text"]
+
+    async def test_consecutive_newlines_limited(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        employee_user_factory,
+        welfare_recipient_factory,
+    ):
+        """連続する改行が制限されることを確認"""
+        # Arrange
+        staff = await employee_user_factory()
+        office_id = staff.office_associations[0].office_id
+        recipient = await welfare_recipient_factory(office_id=office_id)
+        token = create_access_token(str(staff.id), timedelta(minutes=30))
+
+        # Act: 5つの連続改行を含むテキスト
+        response = await async_client.put(
+            f"/api/v1/recipients/{recipient.id}/employment",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                **EMPLOYMENT_BASE_DATA,
+                "no_employment_experience": True,
+                "employment_other_experience": True,
+                "employment_other_text": "テスト1\n\n\n\n\nテスト2",  # 5つの改行
+            },
+        )
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        # 連続改行が2つまでに制限される
+        assert "\n\n\n" not in data["employment_other_text"]  # 3つ以上の連続改行はない
+        assert "テスト1" in data["employment_other_text"]
+        assert "テスト2" in data["employment_other_text"]
