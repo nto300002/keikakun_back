@@ -237,7 +237,7 @@ async def test_upload_assessment_pdf(
 
 
 @pytest.mark.asyncio
-async def test_upload_final_plan_creates_new_cycle(
+async def test_upload_monitoring_creates_new_cycle(
     async_client: AsyncClient,
     db_session: AsyncSession,
     test_admin_user: Staff,
@@ -247,7 +247,8 @@ async def test_upload_final_plan_creates_new_cycle(
 ):
     """
     POST /api/v1/plan-deliverables
-    最終計画書(署名済み)のアップロードで新しいサイクルが自動生成されることを確認
+    モニタリングレポートのアップロードで新しいサイクルが自動生成されることを確認
+    (Task 5: サイクル作成トリガーをfinal_planからmonitoringに変更)
     """
     # S3アップロード関数をモック
     async def mock_upload_file(file, object_name: str):
@@ -278,7 +279,7 @@ async def test_upload_final_plan_creates_new_cycle(
     db_session.add(association)
     await db_session.flush()
 
-    # サイクル1を作成（すべてのステップが完了直前）
+    # サイクル1を作成
     cycle1 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
         office_id=office.id,
@@ -289,7 +290,7 @@ async def test_upload_final_plan_creates_new_cycle(
     db_session.add(cycle1)
     await db_session.flush()
 
-    # サイクル1のステータスを作成（final_plan_signedが最新ステップ）
+    # サイクル1のステータスを作成（monitoringが最新ステップ）
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle1.id,
@@ -323,6 +324,15 @@ async def test_upload_final_plan_creates_new_cycle(
             welfare_recipient_id=recipient.id,
             office_id=office.id,
             step_type=SupportPlanStep.final_plan_signed,
+            is_latest_status=False,
+            completed=True,
+            completed_at=datetime(2024, 3, 1),
+        ),
+        SupportPlanStatus(
+            plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.monitoring,
             is_latest_status=True,
             completed=False,
         ),
@@ -341,14 +351,14 @@ async def test_upload_final_plan_creates_new_cycle(
 
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
-    # 3. 最終計画書PDFをアップロード
-    pdf_content = b"%PDF-1.4 final plan signed mock content"
+    # 3. モニタリングレポートPDFをアップロード
+    pdf_content = b"%PDF-1.4 monitoring report mock content"
     files = {
-        "file": ("final_plan_signed.pdf", io.BytesIO(pdf_content), "application/pdf")
+        "file": ("monitoring_report.pdf", io.BytesIO(pdf_content), "application/pdf")
     }
     data = {
         "plan_cycle_id": cycle1.id,
-        "deliverable_type": DeliverableType.final_plan_signed_pdf.value,
+        "deliverable_type": DeliverableType.monitoring_report_pdf.value,
     }
 
     response = await async_client.post("/api/v1/support-plans/plan-deliverables", files=files, data=data)
@@ -372,11 +382,11 @@ async def test_upload_final_plan_creates_new_cycle(
     assert cycle2.is_latest_cycle is True
     assert cycle2.cycle_number == 2
 
-    # 新サイクルの最初のステップがmonitoringであることを確認
-    monitoring_status = next((s for s in cycle2.statuses if s.step_type == SupportPlanStep.monitoring), None)
-    assert monitoring_status is not None
-    assert monitoring_status.is_latest_status is True
-    assert monitoring_status.completed is False
+    # 新サイクルの最初のステップがassessmentであることを確認（Task 4: サイクル統一）
+    assessment_status = next((s for s in cycle2.statuses if s.step_type == SupportPlanStep.assessment), None)
+    assert assessment_status is not None
+    assert assessment_status.is_latest_status is True
+    assert assessment_status.completed is False
 
     # クリーンアップ
     app.dependency_overrides.clear()
@@ -630,7 +640,7 @@ async def test_upload_unauthorized_office(
 
 
 @pytest.mark.asyncio
-async def test_upload_monitoring_then_draft_plan_in_cycle2(
+async def test_upload_assessment_then_draft_plan_in_cycle2(
     async_client: AsyncClient,
     db_session: AsyncSession,
     test_admin_user: Staff,
@@ -640,7 +650,8 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
 ):
     """
     POST /api/v1/plan-deliverables
-    サイクル2でmonitoringを完了した後、draft_planをアップロードできることを確認
+    サイクル2でassessmentを完了した後、draft_planをアップロードできることを確認
+    (Task 4: サイクル統一により、サイクル2もassessmentから開始)
     """
     # S3アップロード関数をモック
     async def mock_upload_file(file, object_name: str):
@@ -671,7 +682,7 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
     db_session.add(association)
     await db_session.flush()
 
-    # サイクル2を作成（monitoringが最新ステップ）
+    # サイクル2を作成（assessmentが最新ステップ）
     cycle2 = SupportPlanCycle(
         welfare_recipient_id=recipient.id,
         office_id=office.id,
@@ -682,13 +693,13 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
     db_session.add(cycle2)
     await db_session.flush()
 
-    # サイクル2のステータスを作成（monitoringが最新ステップ）
+    # サイクル2のステータスを作成（Task 4: サイクル統一により全5ステップ作成）
     statuses = [
         SupportPlanStatus(
             plan_cycle_id=cycle2.id,
             welfare_recipient_id=recipient.id,
             office_id=office.id,
-            step_type=SupportPlanStep.monitoring,
+            step_type=SupportPlanStep.assessment,
             is_latest_status=True,
             completed=False,
         ),
@@ -716,6 +727,14 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
             is_latest_status=False,
             completed=False,
         ),
+        SupportPlanStatus(
+            plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.monitoring,
+            is_latest_status=False,
+            completed=False,
+        ),
     ]
     db_session.add_all(statuses)
     await db_session.commit()
@@ -731,29 +750,29 @@ async def test_upload_monitoring_then_draft_plan_in_cycle2(
 
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 
-    # 3. monitoringのPDFをアップロード
-    pdf_content = b"%PDF-1.4 monitoring report mock content"
+    # 3. assessmentシートをアップロード
+    pdf_content = b"%PDF-1.4 assessment mock content"
     files = {
-        "file": ("monitoring_report.pdf", io.BytesIO(pdf_content), "application/pdf")
+        "file": ("assessment.pdf", io.BytesIO(pdf_content), "application/pdf")
     }
     data = {
         "plan_cycle_id": cycle2.id,
-        "deliverable_type": DeliverableType.monitoring_report_pdf.value,
+        "deliverable_type": DeliverableType.assessment_sheet.value,
     }
 
     response = await async_client.post("/api/v1/support-plans/plan-deliverables", files=files, data=data)
 
-    # 4. monitoringのアップロード成功を確認
+    # 4. assessmentのアップロード成功を確認
     assert response.status_code == 201
 
-    # 5. DBの状態を確認（monitoringが完了し、draft_planが最新になっている）
+    # 5. DBの状態を確認（assessmentが完了し、draft_planが最新になっている）
     stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == cycle2.id).options(selectinload(SupportPlanCycle.statuses))
     result = await db_session.execute(stmt)
     refreshed_cycle = result.scalar_one()
 
-    monitoring_status = next((s for s in refreshed_cycle.statuses if s.step_type == SupportPlanStep.monitoring), None)
-    assert monitoring_status.completed is True
-    assert monitoring_status.is_latest_status is False
+    assessment_status = next((s for s in refreshed_cycle.statuses if s.step_type == SupportPlanStep.assessment), None)
+    assert assessment_status.completed is True
+    assert assessment_status.is_latest_status is False
 
     draft_plan_status = next((s for s in refreshed_cycle.statuses if s.step_type == SupportPlanStep.draft_plan), None)
     assert draft_plan_status.is_latest_status is True
