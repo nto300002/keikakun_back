@@ -719,10 +719,10 @@ async def test_monitoring_upload_creates_calendar_event(
     assert monitoring_status is not None
 
     monitoring_events = await crud.calendar_event.get_by_status_id(db=db, status_id=monitoring_status.id)
-    monitoring_deadline_events = [e for e in monitoring_events if e.event_type == CalendarEventType.monitoring_deadline]
+    next_plan_start_date_events = [e for e in monitoring_events if e.event_type == CalendarEventType.next_plan_start_date]
 
-    assert len(monitoring_deadline_events) == 1, "モニタリング期限イベントが1つ作成されているべき"
-    monitoring_event = monitoring_deadline_events[0]
+    assert len(next_plan_start_date_events) == 1, "モニタリング期限イベントが1つ作成されているべき"
+    monitoring_event = next_plan_start_date_events[0]
     assert monitoring_event.welfare_recipient_id == recipient_id
     assert monitoring_event.office_id == office_id
     assert "次の個別支援計画の開始期限" in monitoring_event.event_title
@@ -1002,7 +1002,7 @@ class TestCalendarEventDeletionHooks:
         await db.flush()
 
         # モニタリングイベントを作成
-        event_ids = await calendar_service.create_monitoring_deadline_events(
+        event_ids = await calendar_service.create_next_plan_start_date_events(
             db=db,
             office_id=office.id,
             welfare_recipient_id=recipient.id,
@@ -1017,7 +1017,7 @@ class TestCalendarEventDeletionHooks:
         from sqlalchemy import select
         event_stmt = select(CalendarEvent).where(
             CalendarEvent.support_plan_status_id == status.id,
-            CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+            CalendarEvent.event_type == CalendarEventType.next_plan_start_date
         )
         event = (await db.execute(event_stmt)).scalar_one_or_none()
         assert event is not None

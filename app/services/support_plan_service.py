@@ -104,10 +104,10 @@ class SupportPlanService:
             due_date = None
 
             if step_type == SupportPlanStep.monitoring:
-                # モニタリング期限のデフォルトは7日
-                monitoring_deadline = 7
-                new_cycle.monitoring_deadline = monitoring_deadline
-                due_date = (monitoring_completed_at + datetime.timedelta(days=monitoring_deadline)).date()
+                # 次回計画開始期限のデフォルトは7日
+                next_plan_start_date = 7
+                new_cycle.next_plan_start_date = next_plan_start_date
+                due_date = (monitoring_completed_at + datetime.timedelta(days=next_plan_start_date)).date()
 
             new_status = SupportPlanStatus(
                 plan_cycle_id=new_cycle.id,
@@ -154,7 +154,7 @@ class SupportPlanService:
                 logger.info(f"Created renewal deadline calendar event for cycle {cycle_id}")
 
             # モニタリング期限イベントを作成（cycle_number >= 2の場合、1日目9:00～7日目18:00の1イベント）
-            monitoring_event_ids = await calendar_service.create_monitoring_deadline_events(
+            monitoring_event_ids = await calendar_service.create_next_plan_start_date_events(
                 db=db,
                 office_id=office_id,
                 welfare_recipient_id=welfare_recipient_id,
@@ -294,7 +294,7 @@ class SupportPlanService:
                 deleted = await calendar_service.delete_event_by_status(
                     db=db,
                     status_id=current_status.id,
-                    event_type=CalendarEventType.monitoring_deadline
+                    event_type=CalendarEventType.next_plan_start_date
                 )
                 if deleted:
                     logger.info(f"[CALENDAR_EVENT] Monitoring deadline event deleted for status_id={current_status.id}")
@@ -556,7 +556,7 @@ class SupportPlanService:
                     deleted = await calendar_service.delete_event_by_status(
                         db=db,
                         status_id=status.id,
-                        event_type=CalendarEventType.monitoring_deadline
+                        event_type=CalendarEventType.next_plan_start_date
                     )
                     if deleted:
                         logger.info(f"[CALENDAR_EVENT] Monitoring deadline event deleted for status_id={status.id}")

@@ -201,7 +201,7 @@ async def test_renewal_deadline_event_has_correct_datetime(
 
 
 @pytest.mark.asyncio
-async def test_monitoring_deadline_event_creation(
+async def test_next_plan_start_date_event_creation(
     db_session,
     calendar_account_fixture,
     welfare_recipient_fixture,
@@ -250,7 +250,7 @@ async def test_monitoring_deadline_event_creation(
     await db_session.refresh(monitoring_status)
 
     # Act
-    event_id = await calendar_service.create_monitoring_deadline_event(
+    event_id = await calendar_service.create_next_plan_start_date_event(
         db=db_session,
         office_id=office_id,
         welfare_recipient_id=welfare_recipient_fixture.id,
@@ -282,7 +282,7 @@ async def test_monitoring_deadline_event_creation(
     assert calendar_event.event_end_datetime == expected_end, \
         f"終了時刻が正しくありません: {calendar_event.event_end_datetime}"
     assert calendar_event.sync_status == CalendarSyncStatus.pending
-    assert calendar_event.event_type == CalendarEventType.monitoring_deadline
+    assert calendar_event.event_type == CalendarEventType.next_plan_start_date
 
     print(f"\n✅ モニタリング期限イベント作成成功")
     print(f"   開始: {calendar_event.event_start_datetime}")

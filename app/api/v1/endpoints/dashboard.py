@@ -67,7 +67,12 @@ async def get_dashboard(
     for recipient, cycle_count, latest_cycle in filtered_results:
         latest_step = service._get_latest_step(latest_cycle) if latest_cycle else None
         monitoring_due_date = service._calculate_monitoring_due_date(latest_cycle) if latest_cycle else None
-        monitoring_deadline = latest_cycle.monitoring_deadline if latest_cycle else None
+        next_plan_start_date = latest_cycle.next_plan_start_date if latest_cycle else None
+
+        # 次回計画開始までの残り日数を計算
+        next_plan_start_days_remaining = service._calculate_next_plan_start_days_remaining(
+            recipient, latest_cycle
+        )
 
         summary = schemas.dashboard.DashboardSummary(
             id=str(recipient.id),
@@ -79,7 +84,8 @@ async def get_dashboard(
             latest_step=latest_step,
             next_renewal_deadline=latest_cycle.next_renewal_deadline if latest_cycle else None,
             monitoring_due_date=monitoring_due_date,
-            monitoring_deadline=monitoring_deadline
+            next_plan_start_date=next_plan_start_date,
+            next_plan_start_days_remaining=next_plan_start_days_remaining
         )
         recipient_summaries.append(summary)
 

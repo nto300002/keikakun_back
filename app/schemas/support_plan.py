@@ -32,7 +32,7 @@ class PlanDeliverableDownloadResponse(BaseModel):
 
 
 class SupportPlanCycleUpdate(BaseModel):
-    monitoring_deadline: int
+    next_plan_start_date: int
 
 
 class SupportPlanStatusResponse(BaseModel):
@@ -43,7 +43,7 @@ class SupportPlanStatusResponse(BaseModel):
     completed: bool
     completed_at: Optional[datetime]
     due_date: Optional[date]
-    monitoring_deadline: Optional[int] = None  # モニタリング期限（日数）
+    next_plan_start_date: Optional[int] = None  # 次回計画開始期限（日数）
     pdf_url: Optional[str] = None  # 署名付きPDF URL（フロントエンド用）
     pdf_filename: Optional[str] = None  # PDF元ファイル名（フロントエンド用）
 
@@ -57,7 +57,7 @@ class SupportPlanCycleRead(BaseModel):
     next_renewal_deadline: Optional[date]
     is_latest_cycle: bool
     cycle_number: int
-    monitoring_deadline: Optional[int]
+    next_plan_start_date: Optional[int]
     statuses: List[SupportPlanStatusResponse] = []
 
     model_config = ConfigDict(from_attributes=True)

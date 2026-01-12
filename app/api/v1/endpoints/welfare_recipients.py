@@ -213,12 +213,15 @@ async def get_deadline_alerts(
     Returns:
         期限が近い利用者のリスト（残り日数が少ない順）
     """
+    logger.info("[DEADLINE_ALERTS_DEBUG] get_deadline_alerts endpoint called")
+
     # 現在のスタッフの事業所を取得
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
         raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
+    logger.info(f"[DEADLINE_ALERTS_DEBUG] office_id={office_id}, threshold_days={threshold_days}, limit={limit}, offset={offset}")
 
     # サービス層で期限アラートを取得
     result = await WelfareRecipientService.get_deadline_alerts(
@@ -228,6 +231,13 @@ async def get_deadline_alerts(
         limit=limit,
         offset=offset
     )
+
+    logger.info(f"[DEADLINE_ALERTS_DEBUG] Total alerts returned: {result.total}")
+    logger.info(f"[DEADLINE_ALERTS_DEBUG] Number of alerts in response: {len(result.alerts)}")
+
+    # ログに各アラートの詳細を出力（cycle_number=1の有無を確認）
+    for i, alert in enumerate(result.alerts):
+        logger.info(f"[DEADLINE_ALERTS_DEBUG] Alert {i}: id={alert.id}, name={alert.full_name}, type={alert.alert_type}, cycle={alert.current_cycle_number}")
 
     return result
 

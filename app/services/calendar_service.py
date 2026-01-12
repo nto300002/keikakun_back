@@ -472,7 +472,7 @@ class CalendarService:
         logger.info(f"[DEBUG] create_renewal_deadline_events END: created event_id={event.id}")
         return [event.id]
 
-    async def create_monitoring_deadline_events(
+    async def create_next_plan_start_date_events(
         self,
         db: AsyncSession,
         office_id: UUID,
@@ -482,7 +482,7 @@ class CalendarService:
         cycle_number: int,
         status_id: Optional[UUID] = None
     ) -> Optional[list[UUID]]:
-        """モニタリング期限イベントを複数作成する（cycle_number>=2の場合、1~7日の1イベント）
+        """次回計画開始期限イベントを作成する（1~7日の1イベント）
 
         Args:
             db: データベースセッション
@@ -494,14 +494,9 @@ class CalendarService:
             status_id: モニタリングステータスID（オプション）
 
         Returns:
-            作成されたイベントIDのリスト、またはNone（cycle_number=1の場合）
+            作成されたイベントIDのリスト、またはNone（status_id未指定の場合）
         """
-        logger.info(f"[DEBUG] create_monitoring_deadline_events START: cycle_number={cycle_number}, cycle_id={cycle_id}")
-
-        # cycle_number=1の場合は作成しない
-        if cycle_number < 2:
-            logger.info(f"[DEBUG] Skipping monitoring events for cycle_number={cycle_number}")
-            return None
+        logger.info(f"[DEBUG] create_next_plan_start_date_events START: cycle_number={cycle_number}, cycle_id={cycle_id}")
 
         # status_idが指定されていない場合はイベントを作成しない
         if not status_id:
@@ -513,7 +508,7 @@ class CalendarService:
         existing_event_result = await db.execute(
             select(CalendarEvent).where(
                 CalendarEvent.support_plan_status_id == status_id,
-                CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+                CalendarEvent.event_type == CalendarEventType.next_plan_start_date
             ).limit(1)
         )
         existing_event = existing_event_result.scalar_one_or_none()
@@ -580,7 +575,7 @@ class CalendarService:
             office_id=office_id,
             welfare_recipient_id=welfare_recipient_id,
             support_plan_status_id=status_id,
-            event_type=CalendarEventType.monitoring_deadline,
+            event_type=CalendarEventType.next_plan_start_date,
             google_calendar_id=account_calendar_id,
             event_title=event_title,
             event_description=f"次の個別支援計画の開始期限です（{cycle_number}回目）。",
@@ -594,12 +589,12 @@ class CalendarService:
         await db.flush()
 
         logger.info(
-            f"[DEBUG] create_monitoring_deadline_events END: "
+            f"[DEBUG] create_next_plan_start_date_events END: "
             f"created event_id={event.id}, cycle_id={cycle_id}, status_id={status_id}"
         )
         return [event.id]
 
-    async def create_monitoring_deadline_event(
+    async def create_next_plan_start_date_event(
         self,
         db: AsyncSession,
         office_id: UUID,
@@ -623,7 +618,7 @@ class CalendarService:
         existing_event_result = await db.execute(
             select(CalendarEvent).where(
                 CalendarEvent.support_plan_status_id == status_id,
-                CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+                CalendarEvent.event_type == CalendarEventType.next_plan_start_date
             )
         )
         existing_event = existing_event_result.scalar_one_or_none()
@@ -708,7 +703,7 @@ class CalendarService:
             office_id=office_id,
             welfare_recipient_id=welfare_recipient_id,
             support_plan_status_id=status_id,
-            event_type=CalendarEventType.monitoring_deadline,
+            event_type=CalendarEventType.next_plan_start_date,
             google_calendar_id=account.google_calendar_id,
             event_title=event_title,
             event_description=f"次の個別支援計画の開始期限です（{cycle_number}回目）。\n期限: {due_date}",

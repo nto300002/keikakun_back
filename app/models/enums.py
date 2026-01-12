@@ -158,7 +158,7 @@ class NotificationTiming(str, enum.Enum):
 class CalendarEventType(str, enum.Enum):
     """カレンダーイベントタイプ"""
     renewal_deadline = "renewal_deadline"       # 更新期限
-    monitoring_deadline = "monitoring_deadline" # モニタリング期限
+    next_plan_start_date = "next_plan_start_date" # 次回計画開始期限
     custom = "custom"                           # カスタムイベント
 
 class CalendarSyncStatus(str, enum.Enum):

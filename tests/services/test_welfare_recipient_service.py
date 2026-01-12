@@ -14,7 +14,7 @@ from app.models.staff import Staff
 from app.models.office import Office
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
-from app.models.enums import SupportPlanStep, StaffRole, OfficeType
+from app.models.enums import SupportPlanStep, StaffRole, OfficeType, GenderType
 from app.core.security import get_password_hash
 
 
@@ -399,7 +399,7 @@ async def test_delete_recipient_also_deletes_calendar_events(db: AsyncSession):
     )
     assert len(renewal_event_ids) == 1
 
-    monitoring_event_ids = await calendar_service.create_monitoring_deadline_events(
+    monitoring_event_ids = await calendar_service.create_next_plan_start_date_events(
         db=db,
         office_id=office.id,
         welfare_recipient_id=recipient.id,
@@ -461,3 +461,104 @@ async def test_delete_recipient_also_deletes_calendar_events(db: AsyncSession):
     # 利用者も削除されたことを確認
     recipient_after = await db.get(WelfareRecipient, recipient_id)
     assert recipient_after is None
+
+
+async def test_calendar_events_created_for_cycle1(
+    db_session: AsyncSession,
+    office_factory
+):
+    """1サイクル目でも次回計画開始期限イベントが作成されることをテスト"""
+    from app.services.calendar_service import CalendarService
+    from app.models.calendar_events import CalendarEvent
+    from app.models.calendar_account import OfficeCalendarAccount
+    from app.models.welfare_recipient import OfficeWelfareRecipient
+    from app.models.enums import CalendarConnectionStatus
+    from sqlalchemy import select
+
+    calendar_service = CalendarService()
+    db = db_session
+
+    # 事業所を作成
+    office = await office_factory(session=db)
+
+    # カレンダーアカウントを作成
+    calendar_account = OfficeCalendarAccount(
+        office_id=office.id,
+        google_calendar_id=f"test_calendar_{uuid4().hex[:8]}@group.calendar.google.com",
+        service_account_key='{"test": "data"}',
+        connection_status=CalendarConnectionStatus.connected
+    )
+    db.add(calendar_account)
+    await db.flush()
+
+    # 利用者を作成
+    recipient = WelfareRecipient(
+        first_name="太郎",
+        last_name="山田",
+        first_name_furigana="たろう",
+        last_name_furigana="やまだ",
+        birth_day=date(1990, 1, 1),
+        gender=GenderType.male
+    )
+    db_session.add(recipient)
+    await db_session.flush()
+
+    association = OfficeWelfareRecipient(
+        office_id=office.id,
+        welfare_recipient_id=recipient.id
+    )
+    db_session.add(association)
+    await db_session.flush()
+
+    # 1サイクル目を作成
+    cycle_start = date.today()
+    cycle = SupportPlanCycle(
+        welfare_recipient_id=recipient.id,
+        office_id=office.id,
+        plan_cycle_start_date=cycle_start,
+        next_renewal_deadline=cycle_start + timedelta(days=180),
+        cycle_number=1,  # 1サイクル目
+        is_latest_cycle=True,
+        next_plan_start_date=7  # 7日後に次回計画開始
+    )
+    db_session.add(cycle)
+    await db_session.flush()
+
+    # アセスメントステータスを作成
+    from app.models.support_plan_cycle import SupportPlanStatus
+    status = SupportPlanStatus(
+        plan_cycle_id=cycle.id,
+        welfare_recipient_id=recipient.id,
+        office_id=office.id,
+        step_type=SupportPlanStep.assessment,
+        is_latest_status=True
+    )
+    db_session.add(status)
+    await db_session.flush()
+
+    await db_session.commit()
+
+    # 次回計画開始期限イベントを作成
+    event_ids = await calendar_service.create_next_plan_start_date_events(
+        db=db_session,
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_id=cycle.id,
+        cycle_start_date=cycle_start,
+        cycle_number=1,  # 1サイクル目
+        status_id=status.id
+    )
+
+    # イベントが作成されたことを確認
+    assert event_ids is not None, "cycle_number=1でもイベントが作成されるべき"
+    assert len(event_ids) == 1, "1つのイベントが作成されるべき"
+
+    # DBからイベントを確認
+    events = await db_session.execute(
+        select(CalendarEvent).where(
+            CalendarEvent.welfare_recipient_id == recipient.id,
+            CalendarEvent.event_type == 'next_plan_start_date'
+        )
+    )
+    events_list = events.scalars().all()
+    assert len(events_list) == 1, "DBに1つのイベントが保存されているべき"

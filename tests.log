@@ -1,0 +1,55 @@
+WARNING  app.api.deps:deps.py:73 No token provided - raising 401
+INFO     app.api.deps:deps.py:61 Cookie token: absent
+INFO     app.api.deps:deps.py:62 Header token: present
+INFO     app.api.deps:deps.py:63 Using token from: header
+INFO     app.api.deps:deps.py:78 Decoded payload: {'exp': 1768810222, 'sub': '53534f21-2d4b-4b1f-9042-021075301139', 'iat': 1768205422, 'session_type': 'standard', 'session_duration': 604800}
+INFO     app.api.deps:deps.py:88 TokenData created with sub: 53534f21-2d4b-4b1f-9042-021075301139
+INFO     app.api.deps:deps.py:103 Parsed user_id: 53534f21-2d4b-4b1f-9042-021075301139
+INFO     app.api.deps:deps.py:176 User found: employee_fd739fa7ed2b4493852431944e4fc8ba_1768205419642025_1@example.com, id: 53534f21-2d4b-4b1f-9042-021075301139
+INFO     app.api.deps:deps.py:60 === get_current_user called ===
+INFO     app.api.deps:deps.py:61 Cookie token: absent
+INFO     app.api.deps:deps.py:62 Header token: absent
+INFO     app.api.deps:deps.py:63 Using token from: none
+WARNING  app.api.deps:deps.py:73 No token provided - raising 401
+INFO     app.api.deps:deps.py:60 === get_current_user called ===
+INFO     app.api.deps:deps.py:61 Cookie token: absent
+INFO     app.api.deps:deps.py:62 Header token: present
+INFO     app.api.deps:deps.py:63 Using token from: header
+INFO     app.api.deps:deps.py:78 Decoded payload: {'exp': 1768810229, 'sub': 'f35bc04a-54af-42ff-b44b-79e1c1189e5e', 'iat': 1768205429, 'session_type': 'standard', 'session_duration': 604800}
+INFO     app.api.deps:deps.py:88 TokenData created with sub: f35bc04a-54af-42ff-b44b-79e1c1189e5e
+INFO     app.api.deps:deps.py:103 Parsed user_id: f35bc04a-54af-42ff-b44b-79e1c1189e5e
+INFO     app.api.deps:deps.py:176 User found: employee_f3218a13e36c415d874332425086642c_1768205426940688_1@example.com, id: f35bc04a-54af-42ff-b44b-79e1c1189e5e
+INFO     app.api.deps:deps.py:60 === get_current_user called ===
+INFO     app.api.deps:deps.py:61 Cookie token: absent
+INFO     app.api.deps:deps.py:62 Header token: present
+INFO     app.api.deps:deps.py:63 Using token from: header
+INFO     app.api.deps:deps.py:78 Decoded payload: {'exp': 1768810240, 'sub': '4e493cc4-964e-4940-9818-e411bec76449', 'iat': 1768205440, 'session_type': 'standard', 'session_duration': 604800}
+INFO     app.api.deps:deps.py:88 TokenData created with sub: 4e493cc4-964e-4940-9818-e411bec76449
+INFO     app.api.deps:deps.py:103 Parsed user_id: 4e493cc4-964e-4940-9818-e411bec76449
+INFO     app.api.deps:deps.py:176 User found: employee_959069ac3a114c16a47405a0c56108a4_1768205437773336_1@example.com, id: 4e493cc4-964e-4940-9818-e411bec76449
+INFO     app.api.deps:deps.py:60 === get_current_user called ===
+INFO     app.api.deps:deps.py:61 Cookie token: absent
+INFO     app.api.deps:deps.py:62 Header token: present
+INFO     app.api.deps:deps.py:63 Using token from: header
+INFO     app.api.deps:deps.py:78 Decoded payload: {'exp': 1768810251, 'sub': 'c47f88d7-8c25-42a0-8734-e528d7315d41', 'iat': 1768205451, 'session_type': 'standard', 'session_duration': 604800}
+INFO     app.api.deps:deps.py:88 TokenData created with sub: c47f88d7-8c25-42a0-8734-e528d7315d41
+INFO     app.api.deps:deps.py:103 Parsed user_id: c47f88d7-8c25-42a0-8734-e528d7315d41
+INFO     app.api.deps:deps.py:176 User found: employee_f285fb431a3b441b83495274072157e7_1768205449329293_1@example.com, id: c47f88d7-8c25-42a0-8734-e528d7315d41
+INFO     app.services.billing_service:billing_service.py:87 Stripe Customer created: cus_test_12345
+INFO     app.services.billing_service:billing_service.py:121 Stripe Checkout Session created: cs_test_12345
+INFO     app.services.billing_service:billing_service.py:423 [Webhook:unknown] Subscription created for customer cus_test_12345, office_id=601703de-5165-4510-aeff-76e5b209bc80, status=early_payment, trial_active=True
+INFO     app.services.billing_service:billing_service.py:235 [Webhook:evt_idempotency_test_001] Payment succeeded for billing_id=dd6e42ee-eedf-4635-ae44-50059f51cf79
+INFO     app.api.v1.endpoints.billing:billing.py:320 [Webhook:evt_idempotency_test_001] Event already processed - skipping
+INFO     app.services.billing_service:billing_service.py:235 [Webhook:evt_different_001] Payment succeeded for billing_id=abfd4dc1-6c7a-4a22-9a34-f8057fcf1a66
+INFO     app.services.billing_service:billing_service.py:235 [Webhook:evt_different_002] Payment succeeded for billing_id=abfd4dc1-6c7a-4a22-9a34-f8057fcf1a66
+WARNING  app.services.billing_service:billing_service.py:180 [Webhook:evt_failed_test_001] Billing not found for customer cus_nonexistent_12345 - skipping (possibly test data)
+INFO     app.api.deps:deps.py:60 === get_current_user called ===
+INFO     app.api.deps:deps.py:61 Cookie token: absent
+INFO     app.api.deps:deps.py:62 Header token: present
+INFO     app.api.deps:deps.py:63 Using token from: header
+INFO     app.api.deps:deps.py:78 Decoded payload: {'exp': 1768810294, 'sub': 'b7580a28-9f95-4818-a079-b9ddb019b356', 'iat': 1768205494, 'session_type': 'standard', 'session_duration': 604800}
+INFO     app.api.deps:deps.py:88 TokenData created with sub: b7580a28-9f95-4818-a079-b9ddb019b356
+INFO     app.api.deps:deps.py:103 Parsed user_id: b7580a28-9f95-4818-a079-b9ddb019b356
+INFO     app.api.deps:deps.py:176 User found: employee_d1c5188a1b81402a809c4ff7873662ec_1768205491047633_1@example.com, id: b7580a28-9f95-4818-a079-b9ddb019b356
+INFO     app.services.billing_service:billing_service.py:87 Stripe Customer created: cus_TmEh7IWhGt5iJo
+INFO     app.services.billing_service:billing_service.py:121 Stripe Checkout Session created: cs_test_a1STxeiMbbXl98eWiAGUaATsBKdKGolh41rxOwyZLX7MDxpvdatpoZtqdH
