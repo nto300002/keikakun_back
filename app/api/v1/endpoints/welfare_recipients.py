@@ -19,6 +19,7 @@ from app.schemas.welfare_recipient import (
     UserRegistrationRequest,
     UserRegistrationResponse
 )
+from app.schemas.deadline_alert import DeadlineAlertResponse
 from app.services.welfare_recipient_service import WelfareRecipientService
 from app.core.exceptions import (
     NotFoundException,
@@ -190,6 +191,45 @@ async def list_welfare_recipients(
         per_page=limit,
         pages=(total + limit - 1) // limit if limit > 0 else 1
     )
+
+
+@router.get("/deadline-alerts", response_model=DeadlineAlertResponse)
+async def get_deadline_alerts(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_staff: Staff = Depends(deps.get_current_user),
+    threshold_days: int = 30,
+    limit: int = None,
+    offset: int = 0
+) -> Any:
+    """
+    更新期限が近い利用者のアラート一覧を取得します。
+
+    Args:
+        threshold_days: 通知する残り日数の閾値（デフォルト: 30日）
+        limit: 取得件数上限（指定しない場合は全件）
+        offset: ページネーション用オフセット
+
+    Returns:
+        期限が近い利用者のリスト（残り日数が少ない順）
+    """
+    # 現在のスタッフの事業所を取得
+    office_associations = getattr(current_staff, 'office_associations', None)
+    if not office_associations:
+        raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
+
+    office_id = office_associations[0].office_id
+
+    # サービス層で期限アラートを取得
+    result = await WelfareRecipientService.get_deadline_alerts(
+        db=db,
+        office_id=office_id,
+        threshold_days=threshold_days,
+        limit=limit,
+        offset=offset
+    )
+
+    return result
 
 
 @router.get("/{recipient_id}", response_model=WelfareRecipientResponse)

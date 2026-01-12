@@ -19,6 +19,7 @@ from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 from app.models.enums import SupportPlanStep, CYCLE_STEPS
 from app.schemas.welfare_recipient import UserRegistrationRequest
+from app.schemas.deadline_alert import DeadlineAlertResponse, DeadlineAlertItem
 from app.core.exceptions import BadRequestException, InternalServerException
 from datetime import timedelta
 import logging
@@ -196,9 +197,9 @@ class WelfareRecipientService:
                 # その他のエラーも警告のみ（カレンダー設定がない等）
                 logger.warning(f"[DEBUG] Could not create renewal deadline events: {type(e).__name__}: {e}")
 
-            # モニタリング期限イベント（cycle_number>=2の場合のみ、1~7日の7イベント）
+            # 次回計画開始期限イベント（cycle_number>=2の場合のみ、1~7日の7イベント）
             try:
-                await calendar_service.create_monitoring_deadline_events(
+                await calendar_service.create_next_plan_start_date_events(
                     db=db,
                     office_id=office_id,
                     welfare_recipient_id=welfare_recipient_id,
@@ -206,13 +207,13 @@ class WelfareRecipientService:
                     cycle_start_date=cycle.plan_cycle_start_date,
                     cycle_number=new_cycle_number
                 )
-                logger.info("[DEBUG] Monitoring deadline events created successfully")
+                logger.info("[DEBUG] Next plan start date events created successfully")
             except SQLAlchemyIntegrityError as e:
                 # 重複エラーの場合は警告のみ（既にイベントが存在する）
-                logger.warning(f"[DEBUG] Monitoring deadline events already exist for cycle_id={cycle.id}: {e}")
+                logger.warning(f"[DEBUG] Next plan start date events already exist for cycle_id={cycle.id}: {e}")
             except Exception as e:
                 # その他のエラーも警告のみ（cycle_number=1等）
-                logger.warning(f"[DEBUG] Could not create monitoring deadline events: {type(e).__name__}: {e}")
+                logger.warning(f"[DEBUG] Could not create next plan start date events: {type(e).__name__}: {e}")
 
         except Exception as e:
             # calendar_service自体のインポートエラー等、予期しないエラー
@@ -653,10 +654,73 @@ class WelfareRecipientService:
         logger.warning(f"[DEBUG] delete_recipient END: recipient {recipient_id} not found")
         return False
 
-# ensure module exports an instance expected by tests/endpoints
-try:
-    welfare_recipient_service  # type: ignore[name-defined]
-except NameError:
-    welfare_recipient_service = WelfareRecipientService()
+    @staticmethod
+    async def get_deadline_alerts(
+        db: AsyncSession,
+        office_id: UUID,
+        threshold_days: int = 30,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> DeadlineAlertResponse:
+        """
+        更新期限が近い利用者のアラート一覧を取得します。
 
-__all__ = globals().get("__all__", []) + ["WelfareRecipientService", "welfare_recipient_service"]
+        Args:
+            db: データベースセッション
+            office_id: 事業所ID
+            threshold_days: 通知する残り日数の閾値（デフォルト: 30日）
+            limit: 取得件数上限（Noneの場合は全件）
+            offset: ページネーション用オフセット
+
+        Returns:
+            期限が近い利用者のリスト（残り日数が少ない順）
+        """
+        today = date.today()
+        threshold_date = today + timedelta(days=threshold_days)
+
+        stmt = (
+            select(WelfareRecipient, SupportPlanCycle)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .where(
+                SupportPlanCycle.office_id == office_id,
+                SupportPlanCycle.is_latest_cycle == True,
+                SupportPlanCycle.next_renewal_deadline.isnot(None),
+                SupportPlanCycle.next_renewal_deadline <= threshold_date,
+                SupportPlanCycle.next_renewal_deadline >= today
+            )
+            .order_by(
+                SupportPlanCycle.next_renewal_deadline.asc(),
+                WelfareRecipient.last_name.asc(),
+                WelfareRecipient.first_name.asc()
+            )
+        )
+
+        total_result = await db.execute(stmt)
+        all_results = total_result.all()
+        total = len(all_results)
+
+        if limit is not None:
+            stmt = stmt.offset(offset).limit(limit)
+
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        alerts = []
+        for recipient, cycle in rows:
+            days_remaining = (cycle.next_renewal_deadline - today).days
+            alert_item = DeadlineAlertItem(
+                id=str(recipient.id),
+                full_name=f"{recipient.last_name} {recipient.first_name}",
+                next_renewal_deadline=cycle.next_renewal_deadline,
+                days_remaining=days_remaining,
+                current_cycle_number=cycle.cycle_number
+            )
+            alerts.append(alert_item)
+
+        return DeadlineAlertResponse(alerts=alerts, total=total)
+
+
+__all__ = ["WelfareRecipientService"]
