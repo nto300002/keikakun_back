@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, model_valida
 from typing import List, Optional
 from datetime import date, datetime
 import uuid
+import html
+import re
 
 from app.models.enums import (
     Household,
@@ -420,6 +422,31 @@ class HospitalVisitResponse(HospitalVisitBase):
 # 5. 就労関係スキーマ（Employment Schemas）
 # =============================================================================
 
+def sanitize_text_field(v: Optional[str]) -> Optional[str]:
+    """
+    テキストフィールドのXSS対策サニタイゼーション
+
+    - HTMLタグをエスケープ
+    - 先頭・末尾の空白を除去
+    - 連続する改行を制限（DoS対策）
+    - 空文字をNULLに統一
+    """
+    if not v:
+        return None
+
+    # HTMLタグをエスケープ
+    v = html.escape(v)
+
+    # 先頭・末尾の空白を除去
+    v = v.strip()
+
+    # 連続する改行を制限（DoS対策）
+    v = re.sub(r'\n{3,}', '\n\n', v)
+
+    # 空文字をNULLに統一
+    return v if v else None
+
+
 class EmploymentBase(BaseModel):
     """就労関係の基本スキーマ"""
     model_config = ConfigDict(populate_by_name=True)
@@ -436,6 +463,12 @@ class EmploymentBase(BaseModel):
     special_remarks: Optional[str] = Field(None, max_length=1000, description="特記事項")
     work_outside_the_facility: WorkOutsideFacility = Field(..., description="施設外就労の希望")
     special_note_about_working_outside_the_facility: Optional[str] = Field(None, max_length=1000, description="施設外就労の特記事項")
+    desired_tasks_on_asobe: Optional[str] = Field(None, max_length=1000, description="asoBeで希望する作業")
+    no_employment_experience: bool = Field(False, description="就労経験なし（親チェックボックス）")
+    attended_job_selection_office: bool = Field(False, description="就職選択事務所を利用したことがある")
+    received_employment_assessment: bool = Field(False, description="就労アセスメントを受けたことがある")
+    employment_other_experience: bool = Field(False, description="その他の就労関連経験がある")
+    employment_other_text: Optional[str] = Field(None, max_length=1000, description="その他の就労関連経験の詳細")
 
     @field_validator('qualifications')
     @classmethod
@@ -477,6 +510,62 @@ class EmploymentBase(BaseModel):
             raise ValueError('施設外就労の特記事項は1000文字以内で入力してください')
         return v
 
+    @field_validator('employment_other_text')
+    @classmethod
+    def validate_employment_other_text(cls, v: Optional[str]) -> Optional[str]:
+        """その他の就労経験詳細のバリデーション（XSS対策含む）"""
+        # XSS対策: HTMLエスケープ
+        v = sanitize_text_field(v)
+
+        # 文字数制限
+        if v and len(v) > 1000:  # エスケープ後の文字数でチェック
+            raise ValueError('その他の詳細は1000文字以内で入力してください')
+        return v
+
+    @field_validator('desired_tasks_on_asobe')
+    @classmethod
+    def validate_desired_tasks(cls, v: Optional[str]) -> Optional[str]:
+        """asoBeで希望する作業のバリデーション（XSS対策含む）"""
+        # XSS対策: HTMLエスケープ
+        v = sanitize_text_field(v)
+
+        # 文字数制限
+        if v and len(v) > 1000:  # エスケープ後の文字数でチェック
+            raise ValueError('asoBeで希望する作業は1000文字以内で入力してください')
+        return v
+
+    @model_validator(mode='after')
+    def validate_no_employment_experience_children(self):
+        """親子チェックボックスのバリデーション
+
+        1. no_employment_experience（親）がFalseの場合、
+           全ての子チェックボックスを自動的にFalseにする
+        2. no_employment_experience（親）がTrueの場合、
+           最低1つの子チェックボックスが選択されている必要がある
+        3. employment_other_experience = Trueの場合、employment_other_textが必須
+        """
+        if not self.no_employment_experience:
+            self.attended_job_selection_office = False
+            self.received_employment_assessment = False
+            self.employment_other_experience = False
+            self.employment_other_text = None
+        else:
+            if not any([
+                self.attended_job_selection_office,
+                self.received_employment_assessment,
+                self.employment_other_experience
+            ]):
+                raise ValueError(
+                    '就労経験なしにチェックを入れた場合、「就労選択事業所に通所した」「就労アセスメント受けた」「その他」のいずれか1つ以上を選択してください'
+                )
+
+        if self.employment_other_experience and not self.employment_other_text:
+            raise ValueError(
+                'その他の就労経験にチェックを入れた場合、その他の詳細を入力してください'
+            )
+
+        return self
+
 
 class EmploymentCreate(EmploymentBase):
     """就労関係作成時のスキーマ"""
@@ -499,6 +588,12 @@ class EmploymentUpdate(BaseModel):
     special_remarks: Optional[str] = Field(None, max_length=1000)
     work_outside_the_facility: Optional[WorkOutsideFacility] = None
     special_note_about_working_outside_the_facility: Optional[str] = Field(None, max_length=1000)
+    desired_tasks_on_asobe: Optional[str] = Field(None, max_length=1000)
+    no_employment_experience: Optional[bool] = None
+    attended_job_selection_office: Optional[bool] = None
+    received_employment_assessment: Optional[bool] = None
+    employment_other_experience: Optional[bool] = None
+    employment_other_text: Optional[str] = Field(None, max_length=1000)
 
 
 class EmploymentResponse(EmploymentBase):

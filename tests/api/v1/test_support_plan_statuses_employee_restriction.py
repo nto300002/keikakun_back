@@ -134,7 +134,7 @@ async def override_current_user(db_session, staff):
 # PATCH /{status_id} (UPDATE - モニタリング期限更新) のテスト
 # ============================================================================
 
-async def test_employee_update_monitoring_deadline_creates_request(
+async def test_employee_update_next_plan_start_date_creates_request(
     async_client: AsyncClient,
     db_session: AsyncSession,
     service_admin_user_factory,
@@ -151,7 +151,7 @@ async def test_employee_update_monitoring_deadline_creates_request(
     await db_session.commit()
 
     # Act
-    update_data = {"monitoring_deadline": 14}
+    update_data = {"next_plan_start_date": 14}
     response = await async_client.patch(
         f"/api/v1/support-plan-statuses/{status_id}",
         json=update_data
@@ -174,19 +174,19 @@ async def test_employee_update_monitoring_deadline_creates_request(
     assert request.request_data["resource_type"] == ResourceType.support_plan_status.value
     assert request.request_data["action_type"] == ActionType.update.value
     assert request.status == RequestStatus.pending
-    assert request.request_data["original_request_data"]["monitoring_deadline"] == 14
+    assert request.request_data["original_request_data"]["next_plan_start_date"] == 14
 
     # モニタリング期限は更新されていないことを確認（承認待ち）
     status = await db_session.get(SupportPlanStatus, status_id)
     await db_session.refresh(status, ["plan_cycle"])
     # 初期値のまま（Noneまたは設定されていない）
-    assert status.plan_cycle.monitoring_deadline is None or status.plan_cycle.monitoring_deadline != 14
+    assert status.plan_cycle.next_plan_start_date is None or status.plan_cycle.next_plan_start_date != 14
 
     # Cleanup
     app.dependency_overrides.clear()
 
 
-async def test_manager_update_monitoring_deadline_direct(
+async def test_manager_update_next_plan_start_date_direct(
     async_client: AsyncClient,
     db_session: AsyncSession,
     service_admin_user_factory,
@@ -203,7 +203,7 @@ async def test_manager_update_monitoring_deadline_direct(
     await db_session.commit()
 
     # Act
-    update_data = {"monitoring_deadline": 21}
+    update_data = {"next_plan_start_date": 21}
     response = await async_client.patch(
         f"/api/v1/support-plan-statuses/{status_id}",
         json=update_data
@@ -212,7 +212,7 @@ async def test_manager_update_monitoring_deadline_direct(
     # Assert
     assert response.status_code == 200  # OK
     response_data = response.json()
-    assert response_data["monitoring_deadline"] == 21
+    assert response_data["next_plan_start_date"] == 21
 
     # due_date が再計算されていることを確認
     expected_due_date = (date.today() - timedelta(days=10) + timedelta(days=21)).strftime("%Y-%m-%d")
@@ -222,7 +222,7 @@ async def test_manager_update_monitoring_deadline_direct(
     app.dependency_overrides.clear()
 
 
-async def test_owner_update_monitoring_deadline_direct(
+async def test_owner_update_next_plan_start_date_direct(
     async_client: AsyncClient,
     db_session: AsyncSession,
     service_admin_user_factory,
@@ -239,7 +239,7 @@ async def test_owner_update_monitoring_deadline_direct(
     await db_session.commit()
 
     # Act
-    update_data = {"monitoring_deadline": 28}
+    update_data = {"next_plan_start_date": 28}
     response = await async_client.patch(
         f"/api/v1/support-plan-statuses/{status_id}",
         json=update_data
@@ -248,7 +248,7 @@ async def test_owner_update_monitoring_deadline_direct(
     # Assert
     assert response.status_code == 200  # OK
     response_data = response.json()
-    assert response_data["monitoring_deadline"] == 28
+    assert response_data["next_plan_start_date"] == 28
 
     # Cleanup
     app.dependency_overrides.clear()

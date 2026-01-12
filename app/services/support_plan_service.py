@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app import crud
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
-from app.models.enums import DeliverableType, SupportPlanStep
+from app.models.enums import DeliverableType, SupportPlanStep, CYCLE_STEPS
 from app.schemas.support_plan import PlanDeliverableCreate
 from app.services.calendar_service import calendar_service
 
@@ -27,15 +27,6 @@ DELIVERABLE_TO_STEP_MAP = {
     DeliverableType.final_plan_signed_pdf: SupportPlanStep.final_plan_signed,
     DeliverableType.monitoring_report_pdf: SupportPlanStep.monitoring,
 }
-
-# ステップの順序
-STEP_ORDER = [
-    SupportPlanStep.assessment,
-    SupportPlanStep.draft_plan,
-    SupportPlanStep.staff_meeting,
-    SupportPlanStep.final_plan_signed,
-    SupportPlanStep.monitoring, # モニタリングはサイクルの最後かつ次のサイクルの最初
-]
 
 class SupportPlanService:
     @staticmethod
@@ -78,12 +69,12 @@ class SupportPlanService:
         await db.flush()
 
     @staticmethod
-    async def _create_new_cycle_from_final_plan(
+    async def _create_new_cycle_from_monitoring(
         db: AsyncSession,
         old_cycle: SupportPlanCycle,
-        final_plan_completed_at: datetime.datetime
+        monitoring_completed_at: datetime.datetime
     ):
-        """最終計画書アップロード時に新しいサイクルを作成する"""
+        """モニタリングアップロード時に新しいサイクルを作成する"""
         # MissingGreenletエラーを防ぐため、old_cycleの全属性をロード
         await db.refresh(old_cycle)
 
@@ -107,29 +98,23 @@ class SupportPlanService:
 
         logger.info(f"Created new cycle {new_cycle.id} for recipient {new_cycle.welfare_recipient_id}")
 
-        # 3. 新しいサイクル用のステータスを作成 (モニタリングから開始)
-        new_steps = [
-            SupportPlanStep.monitoring,
-            SupportPlanStep.draft_plan,
-            SupportPlanStep.staff_meeting,
-            SupportPlanStep.final_plan_signed,
-        ]
+        # 3. 新しいサイクル用のステータスを作成 (アセスメントから開始)
         monitoring_status = None
-        for i, step_type in enumerate(new_steps):
+        for i, step_type in enumerate(CYCLE_STEPS):
             due_date = None
 
-            if step_type == SupportPlanStep.monitoring and i == 0:
-                # モニタリング期限のデフォルトは7日
-                monitoring_deadline = 7
-                new_cycle.monitoring_deadline = monitoring_deadline
-                due_date = (final_plan_completed_at + datetime.timedelta(days=monitoring_deadline)).date()
+            if step_type == SupportPlanStep.monitoring:
+                # 次回計画開始期限のデフォルトは7日
+                next_plan_start_date = 7
+                new_cycle.next_plan_start_date = next_plan_start_date
+                due_date = (monitoring_completed_at + datetime.timedelta(days=next_plan_start_date)).date()
 
             new_status = SupportPlanStatus(
                 plan_cycle_id=new_cycle.id,
                 welfare_recipient_id=old_cycle.welfare_recipient_id,
                 office_id=old_cycle.office_id,
                 step_type=step_type,
-                is_latest_status=(i == 0),  # 最初のステップ(monitoring)を最新にする
+                is_latest_status=(i == 0),  # 最初のステップ(assessment)を最新にする
                 due_date=due_date
             )
             db.add(new_status)
@@ -169,7 +154,7 @@ class SupportPlanService:
                 logger.info(f"Created renewal deadline calendar event for cycle {cycle_id}")
 
             # モニタリング期限イベントを作成（cycle_number >= 2の場合、1日目9:00～7日目18:00の1イベント）
-            monitoring_event_ids = await calendar_service.create_monitoring_deadline_events(
+            monitoring_event_ids = await calendar_service.create_next_plan_start_date_events(
                 db=db,
                 office_id=office_id,
                 welfare_recipient_id=welfare_recipient_id,
@@ -275,8 +260,8 @@ class SupportPlanService:
         # ステータスを更新
         current_status.completed = True
         current_status.completed_at = datetime.datetime.now(datetime.timezone.utc)
-        # final_plan_signedの場合は、サイクルの最終ステップなのでis_latest_status=Trueのまま維持
-        if target_step_type != SupportPlanStep.final_plan_signed:
+        # monitoringの場合は、サイクルの最終ステップなのでis_latest_status=Trueのまま維持
+        if target_step_type != SupportPlanStep.monitoring:
             current_status.is_latest_status = False
         current_status.completed_by = uploaded_by_staff_id
 
@@ -309,7 +294,7 @@ class SupportPlanService:
                 deleted = await calendar_service.delete_event_by_status(
                     db=db,
                     status_id=current_status.id,
-                    event_type=CalendarEventType.monitoring_deadline
+                    event_type=CalendarEventType.next_plan_start_date
                 )
                 if deleted:
                     logger.info(f"[CALENDAR_EVENT] Monitoring deadline event deleted for status_id={current_status.id}")
@@ -318,8 +303,8 @@ class SupportPlanService:
             except Exception as e:
                 logger.warning(f"[CALENDAR_EVENT] Failed to delete monitoring deadline event: {e}")
 
-        if deliverable_in.deliverable_type == DeliverableType.final_plan_signed_pdf:
-            logger.info(f"[FINAL_PLAN] Detected final_plan_signed_pdf upload for cycle {cycle.id}")
+        if deliverable_in.deliverable_type == DeliverableType.monitoring_report_pdf:
+            logger.info(f"[MONITORING] Detected monitoring_report_pdf upload for cycle {cycle.id}")
 
             # ステータス更新をデータベースに反映させるため、ここでflushを呼ぶ
             await db.flush()
@@ -332,49 +317,38 @@ class SupportPlanService:
             future_cycle_result = await db.execute(future_cycle_stmt)
             has_future_cycles = future_cycle_result.scalar_one_or_none() is not None
 
-            logger.info(f"[FINAL_PLAN] has_future_cycles={has_future_cycles}")
+            logger.info(f"[MONITORING] has_future_cycles={has_future_cycles}")
 
             # 既に次のサイクルが存在する場合は、未来のサイクルを削除して再定義
             if has_future_cycles:
-                logger.info(f"[FINAL_PLAN] Resetting future cycles for recipient {cycle.welfare_recipient_id}")
+                logger.info(f"[MONITORING] Resetting future cycles for recipient {cycle.welfare_recipient_id}")
                 await SupportPlanService._reset_future_cycles(
                     db,
                     welfare_recipient_id=cycle.welfare_recipient_id,
                     current_cycle_number=cycle.cycle_number
                 )
-                logger.info(f"[FINAL_PLAN] Future cycles reset completed")
+                logger.info(f"[MONITORING] Future cycles reset completed")
 
             # 新しいサイクルを作成
-            logger.info(f"[FINAL_PLAN] Creating new cycle from final_plan for cycle {cycle.id}")
-            await SupportPlanService._create_new_cycle_from_final_plan(
-                db, old_cycle=cycle, final_plan_completed_at=current_status.completed_at
+            logger.info(f"[MONITORING] Creating new cycle from monitoring for cycle {cycle.id}")
+            await SupportPlanService._create_new_cycle_from_monitoring(
+                db, old_cycle=cycle, monitoring_completed_at=current_status.completed_at
             )
-            logger.info(f"[FINAL_PLAN] New cycle creation completed")
+            logger.info(f"[MONITORING] New cycle creation completed")
         else:
             # 次のステップを最新にする
-            # サイクル内のステップ順序を決定
-            if cycle.cycle_number == 1:
-                cycle_steps = [
-                    SupportPlanStep.assessment,
-                    SupportPlanStep.draft_plan,
-                    SupportPlanStep.staff_meeting,
-                    SupportPlanStep.final_plan_signed,
-                ]
-            else:
-                cycle_steps = [
-                    SupportPlanStep.monitoring,
-                    SupportPlanStep.draft_plan,
-                    SupportPlanStep.staff_meeting,
-                    SupportPlanStep.final_plan_signed,
-                ]
-
             try:
-                current_index = cycle_steps.index(target_step_type)
-                if current_index < len(cycle_steps) - 1:
-                    next_step_type = cycle_steps[current_index + 1]
+                current_index = CYCLE_STEPS.index(target_step_type)
+                if current_index < len(CYCLE_STEPS) - 1:
+                    next_step_type = CYCLE_STEPS[current_index + 1]
                     next_status = next((s for s in cycle.statuses if s.step_type == next_step_type), None)
                     if next_status:
+                        # 全てのステータスをis_latest_status=Falseにする
+                        for status in cycle.statuses:
+                            status.is_latest_status = False
+                        # 次のステップのみをis_latest_status=Trueにする
                         next_status.is_latest_status = True
+                        logger.info(f"[STEP_PROGRESS] Moved to next step: {next_step_type.value}")
             except (ValueError, IndexError):
                 pass
 
@@ -499,27 +473,11 @@ class SupportPlanService:
             logger.info(f"[DELIVERABLE_DELETE] Reverted status - step_type: {target_step_type}")
 
         # 次のステップを最新ではなくする
-        # サイクル内のステップ順序を決定
-        if cycle.cycle_number == 1:
-            cycle_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed,
-            ]
-        else:
-            cycle_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed,
-            ]
-
         try:
-            current_index = cycle_steps.index(target_step_type)
+            current_index = CYCLE_STEPS.index(target_step_type)
             # 次以降のステップをis_latest_status=Falseにする
-            for i in range(current_index + 1, len(cycle_steps)):
-                next_step_type = cycle_steps[i]
+            for i in range(current_index + 1, len(CYCLE_STEPS)):
+                next_step_type = CYCLE_STEPS[i]
                 next_status = next((s for s in cycle.statuses if s.step_type == next_step_type), None)
                 if next_status:
                     next_status.is_latest_status = False
@@ -598,7 +556,7 @@ class SupportPlanService:
                     deleted = await calendar_service.delete_event_by_status(
                         db=db,
                         status_id=status.id,
-                        event_type=CalendarEventType.monitoring_deadline
+                        event_type=CalendarEventType.next_plan_start_date
                     )
                     if deleted:
                         logger.info(f"[CALENDAR_EVENT] Monitoring deadline event deleted for status_id={status.id}")

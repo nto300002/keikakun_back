@@ -140,7 +140,7 @@ async def get_support_plan_cycles(
             next_renewal_deadline=cycle.next_renewal_deadline,
             is_latest_cycle=cycle.is_latest_cycle,
             cycle_number=cycle.cycle_number,
-            monitoring_deadline=cycle.monitoring_deadline,
+            next_plan_start_date=cycle.next_plan_start_date,
             statuses=statuses_with_url
         )
         cycles_response.append(cycle_response)
@@ -397,15 +397,15 @@ async def delete_plan_deliverable(
     await support_plan_service.handle_deliverable_delete(db=db, deliverable_id=deliverable_id)
 
 
-@router.patch("/cycles/{cycle_id}/monitoring-deadline", response_model=schemas.support_plan.SupportPlanCycleRead)
-async def update_cycle_monitoring_deadline(
+@router.patch("/cycles/{cycle_id}/next-plan-start-date", response_model=schemas.support_plan.SupportPlanCycleRead)
+async def update_cycle_next_plan_start_date(
     cycle_id: int,
     update_data: schemas.support_plan.SupportPlanCycleUpdate,
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.Staff = Depends(deps.require_active_billing),
 ):
     """
-    サイクルのモニタリング期限を更新する
+    サイクルの次回計画開始期限を更新する
     """
     # 1. サイクルを取得
     stmt = (
@@ -430,8 +430,8 @@ async def update_cycle_monitoring_deadline(
     if not recipient_office_assoc or recipient_office_assoc.office_id not in user_office_ids:
         raise ForbiddenException(ja.SUPPORT_PLAN_NO_CYCLE_ACCESS)
 
-    # 3. monitoring_deadlineを更新
-    cycle.monitoring_deadline = update_data.monitoring_deadline
+    # 3. next_plan_start_dateを更新
+    cycle.next_plan_start_date = update_data.next_plan_start_date
 
     await db.commit()
     await db.refresh(cycle)

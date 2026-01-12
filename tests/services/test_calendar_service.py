@@ -361,7 +361,7 @@ class TestCalendarService:
         assert event.sync_status == CalendarSyncStatus.pending
         assert f"{recipient.last_name} {recipient.first_name}" in event.event_title
 
-    async def test_create_monitoring_deadline_event_success(
+    async def test_create_next_plan_start_date_event_success(
         self,
         db_session: AsyncSession,
         setup_staff_and_office,
@@ -424,7 +424,7 @@ class TestCalendarService:
         await db_session.flush()
 
         # イベント作成
-        event_id = await calendar_service.create_monitoring_deadline_event(
+        event_id = await calendar_service.create_next_plan_start_date_event(
             db=db_session,
             office_id=office_id,
             welfare_recipient_id=recipient.id,
@@ -438,7 +438,7 @@ class TestCalendarService:
         # イベントが作成されたか確認
         event = await crud.calendar_event.get(db=db_session, id=event_id)
         assert event is not None
-        assert event.event_type == CalendarEventType.monitoring_deadline
+        assert event.event_type == CalendarEventType.next_plan_start_date
         assert event.welfare_recipient_id == recipient.id
         assert event.support_plan_status_id == status.id
         assert event.sync_status == CalendarSyncStatus.pending
@@ -809,7 +809,7 @@ class TestCalendarService:
         assert event_start_jst.time() == time(9, 0)
         assert event_end_jst.time() == time(18, 0)
 
-    async def test_create_monitoring_deadline_events_for_cycle_2_or_more(
+    async def test_create_next_plan_start_date_events_for_cycle_2_or_more(
         self,
         db_session: AsyncSession,
         setup_staff_and_office,
@@ -879,7 +879,7 @@ class TestCalendarService:
         await db_session.flush()
 
         # モニタリング期限イベントを作成（1日目～7日目の1イベント）
-        event_ids = await calendar_service.create_monitoring_deadline_events(
+        event_ids = await calendar_service.create_next_plan_start_date_events(
             db=db_session,
             office_id=office_id,
             welfare_recipient_id=recipient.id,
@@ -896,7 +896,7 @@ class TestCalendarService:
         # イベントが正しく作成されたか確認
         event = await crud.calendar_event.get(db=db_session, id=event_ids[0])
         assert event is not None
-        assert event.event_type == CalendarEventType.monitoring_deadline
+        assert event.event_type == CalendarEventType.next_plan_start_date
         assert event.welfare_recipient_id == recipient.id
         assert event.support_plan_status_id == status.id
         assert event.sync_status == CalendarSyncStatus.pending
@@ -938,7 +938,7 @@ class TestCalendarService:
         print(f"  event_end (JST): {event_end_jst}")
         print(f"  期間: {event_duration_days}日間（{expected_start_date} ～ {expected_end_date}）")
 
-    async def test_create_monitoring_deadline_events_for_cycle_1_not_created(
+    async def test_create_next_plan_start_date_events_for_cycle_1_not_created(
         self,
         db_session: AsyncSession,
         setup_staff_and_office,
@@ -992,7 +992,7 @@ class TestCalendarService:
         await db_session.flush()
 
         # モニタリング期限イベントを作成（cycle_number=1なので作成されない）
-        event_ids = await calendar_service.create_monitoring_deadline_events(
+        event_ids = await calendar_service.create_next_plan_start_date_events(
             db=db_session,
             office_id=office_id,
             welfare_recipient_id=recipient.id,
@@ -1310,7 +1310,7 @@ class TestEventDeletion:
         await db_session.flush()
 
         # モニタリング期限イベントを作成
-        event_ids = await calendar_service.create_monitoring_deadline_events(
+        event_ids = await calendar_service.create_next_plan_start_date_events(
             db=db_session,
             office_id=office_id,
             welfare_recipient_id=recipient.id,
@@ -1325,7 +1325,7 @@ class TestEventDeletion:
         result = await db_session.execute(
             select(CalendarEvent).where(
                 CalendarEvent.support_plan_status_id == status.id,
-                CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+                CalendarEvent.event_type == CalendarEventType.next_plan_start_date
             )
         )
         event = result.scalar_one_or_none()
@@ -1335,7 +1335,7 @@ class TestEventDeletion:
         deleted = await calendar_service.delete_event_by_status(
             db=db_session,
             status_id=status.id,
-            event_type=CalendarEventType.monitoring_deadline
+            event_type=CalendarEventType.next_plan_start_date
         )
         assert deleted is True
 
@@ -1343,7 +1343,7 @@ class TestEventDeletion:
         result = await db_session.execute(
             select(CalendarEvent).where(
                 CalendarEvent.support_plan_status_id == status.id,
-                CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+                CalendarEvent.event_type == CalendarEventType.next_plan_start_date
             )
         )
         event_after_delete = result.scalar_one_or_none()

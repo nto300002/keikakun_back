@@ -105,7 +105,11 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             stmt = stmt.outerjoin(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
             stmt = stmt.outerjoin(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
 
-        stmt = stmt.options(selectinload(SupportPlanCycle.statuses))
+        stmt = stmt.options(
+            selectinload(SupportPlanCycle.statuses),
+            selectinload(WelfareRecipient.support_plan_cycles).selectinload(SupportPlanCycle.statuses),
+            selectinload(SupportPlanCycle.deliverables)
+        )
 
         # --- 検索 ---
         if search_term:

@@ -75,7 +75,7 @@ class TestDashboardServiceHelpers:
             due_date=expected_date,
             is_latest_status=True
         )
-        cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[final_plan_status, monitoring_status])
+        cycle = SupportPlanCycle(id=1, next_plan_start_date=7, statuses=[final_plan_status, monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result == expected_date
@@ -101,7 +101,7 @@ class TestDashboardServiceHelpers:
             due_date=None,
             is_latest_status=True
         )
-        cycle = SupportPlanCycle(id=1, monitoring_deadline=None, statuses=[final_plan_status, monitoring_status])
+        cycle = SupportPlanCycle(id=1, next_plan_start_date=None, statuses=[final_plan_status, monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         # due_dateが設定されていない場合はNoneを返す
@@ -119,7 +119,7 @@ class TestDashboardServiceHelpers:
             completed=True,
             completed_at=datetime.utcnow()
         )
-        cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[monitoring_status])
+        cycle = SupportPlanCycle(id=1, next_plan_start_date=7, statuses=[monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result is None
@@ -135,7 +135,7 @@ class TestDashboardServiceHelpers:
             step_type=SupportPlanStep.monitoring,
             completed=False
         )
-        cycle = SupportPlanCycle(id=1, monitoring_deadline=7, statuses=[monitoring_status])
+        cycle = SupportPlanCycle(id=1, next_plan_start_date=7, statuses=[monitoring_status])
 
         result = dashboard_service._calculate_monitoring_due_date(cycle)
         assert result is None

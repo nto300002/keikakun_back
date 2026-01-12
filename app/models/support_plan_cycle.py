@@ -39,7 +39,7 @@ class SupportPlanCycle(Base):
     next_renewal_deadline: Mapped[Optional[datetime.date]]
     is_latest_cycle: Mapped[bool] = mapped_column(Boolean, default=True)
     cycle_number: Mapped[int] = mapped_column(Integer, default=1)  # 1, 2, 3, ...
-    monitoring_deadline: Mapped[Optional[int]] = mapped_column(Integer) # default = 7
+    next_plan_start_date: Mapped[Optional[int]] = mapped_column(Integer) # default = 7
     google_calendar_id: Mapped[Optional[str]] = mapped_column(Text)
     google_event_id: Mapped[Optional[str]] = mapped_column(Text)
     google_event_url: Mapped[Optional[str]] = mapped_column(Text)

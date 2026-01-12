@@ -54,11 +54,11 @@ class AuditLog(Base):
     __tablename__ = 'audit_logs'
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    staff_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('staffs.id', ondelete='CASCADE'),
-        nullable=False,
+    staff_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey('staffs.id', ondelete='SET NULL'),
+        nullable=True,
         index=True,
-        comment="操作実行者のスタッフID（旧: actor_id）"
+        comment="操作実行者のスタッフID（システム処理の場合はNULL、削除されたスタッフの場合もNULL）"
     )
     actor_role: Mapped[Optional[str]] = mapped_column(
         String(50),

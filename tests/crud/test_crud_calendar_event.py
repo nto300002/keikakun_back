@@ -78,7 +78,7 @@ async def test_create_calendar_event_for_renewal_deadline(
     assert calendar_event.event_title == event_data["event_title"]
 
 
-async def test_create_calendar_event_for_monitoring_deadline(
+async def test_create_calendar_event_for_next_plan_start_date(
     db_session: AsyncSession,
     office_factory,
     employee_user_factory
@@ -126,9 +126,9 @@ async def test_create_calendar_event_for_monitoring_deadline(
         "office_id": office.id,
         "welfare_recipient_id": recipient.id,
         "support_plan_status_id": status.id,
-        "event_type": CalendarEventType.monitoring_deadline,
+        "event_type": CalendarEventType.next_plan_start_date,
         "google_calendar_id": "test-calendar@example.com",
-        "event_title": f"{recipient.last_name} {recipient.first_name} モニタリング期限",
+        "event_title": f"{recipient.last_name} {recipient.first_name} 次の個別支援計画の開始期限",
         "event_start_datetime": datetime.combine(status.due_date, datetime.min.time()),
         "event_end_datetime": datetime.combine(status.due_date, datetime.min.time()) + timedelta(hours=1),
         "sync_status": CalendarSyncStatus.pending
@@ -137,7 +137,7 @@ async def test_create_calendar_event_for_monitoring_deadline(
     calendar_event = await crud.calendar_event.create(db=db_session, obj_in=event_data)
 
     assert calendar_event.id is not None
-    assert calendar_event.event_type == CalendarEventType.monitoring_deadline
+    assert calendar_event.event_type == CalendarEventType.next_plan_start_date
     assert calendar_event.support_plan_status_id == status.id
     assert calendar_event.support_plan_cycle_id is None
 

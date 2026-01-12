@@ -72,7 +72,7 @@ async def crud_dashboard_fixtures(
             status = SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipients[i].id, office_id=office.id, step_type=SupportPlanStep.assessment, completed=True, completed_at=datetime.utcnow())
             db_session.add(status)
         elif i == 1:
-            cycle.monitoring_deadline = 7
+            cycle.next_plan_start_date = 7
             status = SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipients[i].id, office_id=office.id, step_type=SupportPlanStep.monitoring, completed=False)
             db_session.add(status)
     await db_session.flush()

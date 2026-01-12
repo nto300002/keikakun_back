@@ -88,9 +88,10 @@ async def test_create_welfare_recipient_integration(
     assert len(db_recipient.support_plan_cycles) == 1
     cycle = db_recipient.support_plan_cycles[0]
     assert cycle.is_latest_cycle is True
-    
+
     await db_session.refresh(cycle, ["statuses"])
-    assert len(cycle.statuses) == 4
+    # Task 4: 全サイクルで5ステップ（assessment, draft_plan, staff_meeting, final_plan_signed, monitoring）
+    assert len(cycle.statuses) == 5
 
     # クリーンアップ
     del app.dependency_overrides[get_current_user]

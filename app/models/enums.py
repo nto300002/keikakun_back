@@ -23,6 +23,14 @@ class SupportPlanStep(str, enum.Enum):
     final_plan_signed = 'final_plan_signed'
     monitoring = 'monitoring'
 
+CYCLE_STEPS = [
+    SupportPlanStep.assessment,
+    SupportPlanStep.draft_plan,
+    SupportPlanStep.staff_meeting,
+    SupportPlanStep.final_plan_signed,
+    SupportPlanStep.monitoring,
+]
+
 class DeliverableType(str, enum.Enum):
     assessment_sheet = 'assessment_sheet'
     draft_plan_pdf = 'draft_plan_pdf'
@@ -150,7 +158,7 @@ class NotificationTiming(str, enum.Enum):
 class CalendarEventType(str, enum.Enum):
     """カレンダーイベントタイプ"""
     renewal_deadline = "renewal_deadline"       # 更新期限
-    monitoring_deadline = "monitoring_deadline" # モニタリング期限
+    next_plan_start_date = "next_plan_start_date" # 次回計画開始期限
     custom = "custom"                           # カスタムイベント
 
 class CalendarSyncStatus(str, enum.Enum):

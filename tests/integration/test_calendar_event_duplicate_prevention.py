@@ -93,7 +93,7 @@ async def test_duplicate_renewal_deadline_event_prevented(
 
 
 @pytest.mark.asyncio
-async def test_duplicate_monitoring_deadline_event_prevented(
+async def test_duplicate_next_plan_start_date_event_prevented(
     db_session,
     welfare_recipient_fixture,
     calendar_account_fixture
@@ -138,7 +138,7 @@ async def test_duplicate_monitoring_deadline_event_prevented(
     await db_session.refresh(status)
 
     # Act - 同じstatus_idで2回イベント作成を試みる
-    event_id_1 = await calendar_service.create_monitoring_deadline_event(
+    event_id_1 = await calendar_service.create_next_plan_start_date_event(
         db=db_session,
         office_id=welfare_recipient_fixture.office_id,
         welfare_recipient_id=welfare_recipient_fixture.id,
@@ -148,7 +148,7 @@ async def test_duplicate_monitoring_deadline_event_prevented(
 
     await db_session.flush()
 
-    event_id_2 = await calendar_service.create_monitoring_deadline_event(
+    event_id_2 = await calendar_service.create_next_plan_start_date_event(
         db=db_session,
         office_id=welfare_recipient_fixture.office_id,
         welfare_recipient_id=welfare_recipient_fixture.id,
@@ -166,7 +166,7 @@ async def test_duplicate_monitoring_deadline_event_prevented(
     result = await db_session.execute(
         select(func.count()).select_from(CalendarEvent).where(
             CalendarEvent.support_plan_status_id == status.id,
-            CalendarEvent.event_type == CalendarEventType.monitoring_deadline
+            CalendarEvent.event_type == CalendarEventType.next_plan_start_date
         )
     )
     count = result.scalar()

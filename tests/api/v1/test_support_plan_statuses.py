@@ -69,7 +69,7 @@ async def create_cycle_with_monitoring_status(db_session: AsyncSession, recipien
     return monitoring_status.id
 
 
-async def test_update_monitoring_deadline(
+async def test_update_next_plan_start_date(
     async_client: AsyncClient,
     db_session: AsyncSession,
     manager_user_factory,
@@ -115,7 +115,7 @@ async def test_update_monitoring_deadline(
     status_id = await create_cycle_with_monitoring_status(db_session, recipient.id, office.id)
 
     # 2. API呼び出し
-    update_data = {"monitoring_deadline": 14}
+    update_data = {"next_plan_start_date": 14}
     response = await async_client.patch(
         f"{settings.API_V1_STR}/support-plan-statuses/{status_id}",
         headers=headers,
@@ -125,7 +125,7 @@ async def test_update_monitoring_deadline(
     # 3. アサーション
     assert response.status_code == 200
     updated_status = response.json()
-    assert updated_status["monitoring_deadline"] == 14
+    assert updated_status["next_plan_start_date"] == 14
 
     # due_date が再計算されていることを確認
     # final_plan_completed_at が today - 10 days なので

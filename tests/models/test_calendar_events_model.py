@@ -319,7 +319,7 @@ class TestNotificationPatternModel:
         # 同じ名前のパターン → 制約違反
         pattern2 = NotificationPattern(
             pattern_name="ユニークパターン",
-            event_type=CalendarEventType.monitoring_deadline,
+            event_type=CalendarEventType.next_plan_start_date,
             reminder_days_before=[7, 1],
             title_template="テスト2",
         )

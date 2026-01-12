@@ -21,24 +21,24 @@ router = APIRouter()
 
 
 @router.patch("/{status_id}", response_model=SupportPlanStatusResponse)
-async def update_monitoring_deadline(
+async def update_next_plan_start_date(
     status_id: int,
     update_data: SupportPlanCycleUpdate,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
 ):
     """
-    モニタリング期限の日数を更新する
+    次回計画開始期限の日数を更新する
 
     - **status_id**: 更新するステータスのID
-    - **monitoring_deadline**: モニタリング期限（日数）
+    - **next_plan_start_date**: 次回計画開始期限（日数）
 
     処理:
     1. ステータスの存在確認
     2. モニタリングステータスであることを確認
     3. 利用者へのアクセス権限確認
-    4. monitoring_deadlineを更新
-    5. due_dateを再計算（final_plan_completed_at + monitoring_deadline）
+    4. next_plan_start_dateを更新
+    5. due_dateを再計算（final_plan_completed_at + next_plan_start_date）
     """
     # 1. ステータスを取得
     stmt = (
@@ -83,7 +83,7 @@ async def update_monitoring_deadline(
         resource_id=None,  # status_id は int なので None
         request_data={
             "status_id": status_id,
-            "monitoring_deadline": update_data.monitoring_deadline
+            "next_plan_start_date": update_data.next_plan_start_date
         }
     )
 
@@ -120,17 +120,17 @@ async def update_monitoring_deadline(
         if final_plan_status and final_plan_status.completed_at:
             final_plan_completed_at = final_plan_status.completed_at.date()
 
-    # 6. monitoring_deadlineを更新 (SupportPlanCycleに設定)
-    plan_status.plan_cycle.monitoring_deadline = update_data.monitoring_deadline
+    # 6. next_plan_start_dateを更新 (SupportPlanCycleに設定)
+    plan_status.plan_cycle.next_plan_start_date = update_data.next_plan_start_date
 
     # 7. due_dateを再計算
     if final_plan_completed_at:
-        plan_status.due_date = final_plan_completed_at + timedelta(days=update_data.monitoring_deadline)
+        plan_status.due_date = final_plan_completed_at + timedelta(days=update_data.next_plan_start_date)
 
     await db.commit()
     await db.refresh(plan_status)
 
-    logger.info(f"モニタリング期限を更新: status_id={status_id}, monitoring_deadline={update_data.monitoring_deadline}")
+    logger.info(f"次回計画開始期限を更新: status_id={status_id}, next_plan_start_date={update_data.next_plan_start_date}")
 
     return SupportPlanStatusResponse(
         id=plan_status.id,
@@ -139,7 +139,7 @@ async def update_monitoring_deadline(
         is_latest_status=plan_status.is_latest_status,
         completed=plan_status.completed,
         completed_at=plan_status.completed_at,
-        monitoring_deadline=plan_status.plan_cycle.monitoring_deadline,
+        next_plan_start_date=plan_status.plan_cycle.next_plan_start_date,
         due_date=plan_status.due_date,
         pdf_url=None,
         pdf_filename=None

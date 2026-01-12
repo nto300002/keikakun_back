@@ -35,10 +35,7 @@ from app.schemas.assessment import (
     IssueAnalysisCreate,
     AssessmentResponse,
 )
-from app.crud.crud_family_member import crud_family_member
-from app.crud.crud_medical_info import crud_medical_info
-from app.crud.crud_employment import crud_employment
-from app.crud.crud_issue_analysis import crud_issue_analysis
+from app import crud
 
 
 async def verify_recipient_access(
@@ -224,7 +221,7 @@ async def create_family_member_with_validation(
     await verify_recipient_access(db, recipient_id, current_user)
 
     # 家族メンバーを作成
-    family_member = await crud_family_member.create(
+    family_member = await crud.family_member.create(
         db=db,
         recipient_id=recipient_id,
         obj_in=data
@@ -272,7 +269,7 @@ async def update_family_member_with_validation(
     await verify_recipient_access(db, family_member.welfare_recipient_id, current_user)
 
     # 家族メンバーを更新
-    updated_member = await crud_family_member.update(
+    updated_member = await crud.family_member.update(
         db=db,
         family_member_id=family_member_id,
         obj_in=data
@@ -315,7 +312,7 @@ async def delete_family_member_with_validation(
     await verify_recipient_access(db, family_member.welfare_recipient_id, current_user)
 
     # 家族メンバーを削除
-    await crud_family_member.delete(db=db, family_member_id=family_member_id)
+    await crud.family_member.delete(db=db, family_member_id=family_member_id)
 
 
 # =============================================================================
@@ -348,7 +345,7 @@ async def upsert_medical_info_with_validation(
     await verify_recipient_access(db, recipient_id, current_user)
 
     # 医療情報をupsert
-    medical_info = await crud_medical_info.upsert(
+    medical_info = await crud.medical_info.upsert(
         db=db,
         recipient_id=recipient_id,
         obj_in=data
@@ -384,14 +381,43 @@ async def upsert_employment_with_validation(
         HTTPException: アクセス権限がない場合（403）
     """
     # アクセス権限を検証
-    await verify_recipient_access(db, recipient_id, current_user)
+    recipient = await verify_recipient_access(db, recipient_id, current_user)
+
+    # 既存データの有無を確認（作成か更新かを判定）
+    existing = await crud.employment.get_employment(db=db, recipient_id=recipient_id)
+    is_update = existing is not None
 
     # 就労情報をupsert
-    employment = await crud_employment.upsert(
+    employment = await crud.employment.upsert(
         db=db,
         recipient_id=recipient_id,
         staff_id=current_user.id,
         obj_in=data
+    )
+
+    # 監査ログを記録
+    action = "employment.updated" if is_update else "employment.created"
+    await crud.audit_log.create_log(
+        db=db,
+        actor_id=current_user.id,
+        action=action,
+        target_type="employment_related",
+        target_id=recipient_id,  # 利用者IDを対象として記録
+        office_id=current_user.office.id,
+        actor_role=current_user.role.value,
+        details={
+            "recipient_id": str(recipient_id),
+            "employment_id": employment.id,
+            "changes": {
+                "no_employment_experience": data.no_employment_experience,
+                "attended_job_selection_office": data.attended_job_selection_office,
+                "received_employment_assessment": data.received_employment_assessment,
+                "employment_other_experience": data.employment_other_experience,
+                "employment_other_text": data.employment_other_text,
+                "desired_tasks_on_asobe": data.desired_tasks_on_asobe,
+            }
+        },
+        auto_commit=False  # 外部でコミット
     )
 
     return employment
@@ -427,7 +453,7 @@ async def upsert_issue_analysis_with_validation(
     await verify_recipient_access(db, recipient_id, current_user)
 
     # 課題分析をupsert
-    issue_analysis = await crud_issue_analysis.upsert(
+    issue_analysis = await crud.issue_analysis.upsert(
         db=db,
         recipient_id=recipient_id,
         staff_id=current_user.id,

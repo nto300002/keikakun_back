@@ -153,7 +153,7 @@ async def test_event_with_daily_reminder(
     client = GoogleCalendarClient(service_account_json)
     client.authenticate()
 
-    test_title = f"{welfare_recipient_fixture.last_name} {welfare_recipient_fixture.first_name} モニタリング期限"
+    test_title = f"{welfare_recipient_fixture.last_name} {welfare_recipient_fixture.first_name} 次の個別支援計画の開始期限"
     test_start = datetime.now() + timedelta(days=7)
     test_end = test_start.replace(hour=18)
 
@@ -169,7 +169,7 @@ async def test_event_with_daily_reminder(
     event_id = client.create_event(
         calendar_id=calendar_account_fixture.google_calendar_id,
         title=test_title,
-        description="モニタリング期限テスト",
+        description="次の個別支援計画の開始期限テスト",
         start_datetime=test_start,
         end_datetime=test_end,
         reminders=reminders

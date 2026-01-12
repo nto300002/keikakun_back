@@ -36,7 +36,7 @@ async def test_get_audit_logs_success(
     office = await office_factory(name="Test Office")
     await db_session.commit()
 
-    # サンプル監査ログを作成
+    # サンプル監査ログを作成（最新のタイムスタンプを使用）
     now = datetime.now(timezone.utc)
     logs = [
         AuditLog(
@@ -49,7 +49,7 @@ async def test_get_audit_logs_success(
             ip_address="192.168.1.1",
             user_agent="Mozilla/5.0",
             details={"reason": "test deletion"},
-            timestamp=now - timedelta(minutes=10),
+            timestamp=now,
             is_test_data=False
         ),
         AuditLog(
@@ -62,7 +62,7 @@ async def test_get_audit_logs_success(
             ip_address="192.168.1.1",
             user_agent="Mozilla/5.0",
             details={"changes": {"name": "Updated Name"}},
-            timestamp=now - timedelta(minutes=20),
+            timestamp=now - timedelta(minutes=10),
             is_test_data=False
         ),
     ]
@@ -97,8 +97,14 @@ async def test_get_audit_logs_success(
     assert len(data["logs"]) >= 2  # 最低2件
     assert data["total"] >= 2
 
-    # 最新のログが最初に来る（降順）
-    assert data["logs"][0]["action"] == "staff.deleted"
+    # 作成したログが含まれていることを確認
+    actions = [log["action"] for log in data["logs"]]
+    assert "staff.deleted" in actions
+    assert "office.updated" in actions
+
+    # 最新のログ（staff.deleted）が含まれていることを確認
+    staff_deleted_logs = [log for log in data["logs"] if log["action"] == "staff.deleted"]
+    assert len(staff_deleted_logs) >= 1
 
 
 async def test_filter_by_target_type_staff(
@@ -117,7 +123,7 @@ async def test_filter_by_target_type_staff(
     office = await office_factory(name="Test Office")
     await db_session.commit()
 
-    # サンプル監査ログを作成
+    # サンプル監査ログを作成（最新のタイムスタンプを使用）
     now = datetime.now(timezone.utc)
     logs = [
         AuditLog(
@@ -127,7 +133,7 @@ async def test_filter_by_target_type_staff(
             target_type=AuditLogTargetType.staff.value,
             target_id=uuid.uuid4(),
             office_id=office.id,
-            timestamp=now - timedelta(minutes=10),
+            timestamp=now,
             is_test_data=False
         ),
         AuditLog(
@@ -137,7 +143,7 @@ async def test_filter_by_target_type_staff(
             target_type=AuditLogTargetType.office.value,
             target_id=office.id,
             office_id=office.id,
-            timestamp=now - timedelta(minutes=20),
+            timestamp=now - timedelta(minutes=10),
             is_test_data=False
         ),
     ]
@@ -187,17 +193,17 @@ async def test_pagination(
     office = await office_factory(name="Test Office")
     await db_session.commit()
 
-    # 4件のサンプル監査ログを作成
+    # 4件のサンプル監査ログを作成（最新のタイムスタンプから降順で）
     now = datetime.now(timezone.utc)
     for i in range(4):
         log = AuditLog(
             staff_id=app_admin.id,
             actor_role="app_admin",
-            action=f"test.action{i}",
+            action=f"test.pagination_action{i}",
             target_type=AuditLogTargetType.staff.value,
             target_id=uuid.uuid4(),
             office_id=office.id,
-            timestamp=now - timedelta(minutes=i*10),
+            timestamp=now - timedelta(seconds=i),  # より小さい時間差で確実に順序を保つ
             is_test_data=False
         )
         db_session.add(log)

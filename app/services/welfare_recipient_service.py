@@ -17,8 +17,9 @@ import uuid
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
-from app.models.enums import SupportPlanStep
+from app.models.enums import SupportPlanStep, CYCLE_STEPS
 from app.schemas.welfare_recipient import UserRegistrationRequest
+from app.schemas.deadline_alert import DeadlineAlertResponse, DeadlineAlertItem
 from app.core.exceptions import BadRequestException, InternalServerException
 from datetime import timedelta
 import logging
@@ -157,23 +158,8 @@ class WelfareRecipientService:
         await db.flush()  # cycle.id を取得するため
         logger.info(f"[DEBUG] Cycle created with id={cycle.id}")
 
-        if new_cycle_number == 1:
-            initial_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-        else:
-            initial_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-
-        logger.info(f"[DEBUG] Creating {len(initial_steps)} status records...")
-        for i, step in enumerate(initial_steps):
+        logger.info(f"[DEBUG] Creating {len(CYCLE_STEPS)} status records...")
+        for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
                 welfare_recipient_id=welfare_recipient_id,
@@ -211,9 +197,9 @@ class WelfareRecipientService:
                 # その他のエラーも警告のみ（カレンダー設定がない等）
                 logger.warning(f"[DEBUG] Could not create renewal deadline events: {type(e).__name__}: {e}")
 
-            # モニタリング期限イベント（cycle_number>=2の場合のみ、1~7日の7イベント）
+            # 次回計画開始期限イベント（cycle_number>=2の場合のみ、1~7日の7イベント）
             try:
-                await calendar_service.create_monitoring_deadline_events(
+                await calendar_service.create_next_plan_start_date_events(
                     db=db,
                     office_id=office_id,
                     welfare_recipient_id=welfare_recipient_id,
@@ -221,13 +207,13 @@ class WelfareRecipientService:
                     cycle_start_date=cycle.plan_cycle_start_date,
                     cycle_number=new_cycle_number
                 )
-                logger.info("[DEBUG] Monitoring deadline events created successfully")
+                logger.info("[DEBUG] Next plan start date events created successfully")
             except SQLAlchemyIntegrityError as e:
                 # 重複エラーの場合は警告のみ（既にイベントが存在する）
-                logger.warning(f"[DEBUG] Monitoring deadline events already exist for cycle_id={cycle.id}: {e}")
+                logger.warning(f"[DEBUG] Next plan start date events already exist for cycle_id={cycle.id}: {e}")
             except Exception as e:
                 # その他のエラーも警告のみ（cycle_number=1等）
-                logger.warning(f"[DEBUG] Could not create monitoring deadline events: {type(e).__name__}: {e}")
+                logger.warning(f"[DEBUG] Could not create next plan start date events: {type(e).__name__}: {e}")
 
         except Exception as e:
             # calendar_service自体のインポートエラー等、予期しないエラー
@@ -258,22 +244,7 @@ class WelfareRecipientService:
         db.add(cycle)
         db.flush()  # cycle.id を取得するため
 
-        if new_cycle_number == 1:
-            initial_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-        else:
-            initial_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-
-        for i, step in enumerate(initial_steps):
+        for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
                 step_type=step,
@@ -331,23 +302,8 @@ class WelfareRecipientService:
                 )
                 statuses = list(db.execute(status_stmt).scalars().all())
 
-                if latest_cycle.cycle_number == 1:
-                    expected_steps = [
-                        SupportPlanStep.assessment,
-                        SupportPlanStep.draft_plan,
-                        SupportPlanStep.staff_meeting,
-                        SupportPlanStep.final_plan_signed
-                    ]
-                else:
-                    expected_steps = [
-                        SupportPlanStep.monitoring,
-                        SupportPlanStep.draft_plan,
-                        SupportPlanStep.staff_meeting,
-                        SupportPlanStep.final_plan_signed
-                    ]
-
                 existing_steps = [status.step for status in statuses]
-                missing_steps = [step for step in expected_steps if step not in existing_steps]
+                missing_steps = [step for step in CYCLE_STEPS if step not in existing_steps]
 
                 if missing_steps:
                     result["is_valid"] = False
@@ -429,24 +385,8 @@ class WelfareRecipientService:
         existing_statuses = list(db.execute(status_stmt).scalars().all())
         existing_steps = [status.step for status in existing_statuses]
 
-        # 必要なステップを特定
-        if latest_cycle.cycle_number == 1:
-            required_steps = [
-                SupportPlanStep.assessment,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-        else:
-            required_steps = [
-                SupportPlanStep.monitoring,
-                SupportPlanStep.draft_plan,
-                SupportPlanStep.staff_meeting,
-                SupportPlanStep.final_plan_signed
-            ]
-
         # 不足しているステップを追加
-        for step in required_steps:
+        for step in CYCLE_STEPS:
             if step not in existing_steps:
                 status = SupportPlanStatus(
                     support_plan_cycle_id=latest_cycle.id,
@@ -714,10 +654,134 @@ class WelfareRecipientService:
         logger.warning(f"[DEBUG] delete_recipient END: recipient {recipient_id} not found")
         return False
 
-# ensure module exports an instance expected by tests/endpoints
-try:
-    welfare_recipient_service  # type: ignore[name-defined]
-except NameError:
-    welfare_recipient_service = WelfareRecipientService()
+    @staticmethod
+    async def get_deadline_alerts(
+        db: AsyncSession,
+        office_id: UUID,
+        threshold_days: int = 30,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> DeadlineAlertResponse:
+        """
+        更新期限が近い利用者のアラート一覧を取得します。
 
-__all__ = globals().get("__all__", []) + ["WelfareRecipientService", "welfare_recipient_service"]
+        Args:
+            db: データベースセッション
+            office_id: 事業所ID
+            threshold_days: 通知する残り日数の閾値（デフォルト: 30日）
+            limit: 取得件数上限（Noneの場合は全件）
+            offset: ページネーション用オフセット
+
+        Returns:
+            期限が近い利用者のリスト（残り日数が少ない順）+ アセスメント未完了の利用者リスト
+        """
+        from sqlalchemy.orm import selectinload
+        from app.models.support_plan_cycle import PlanDeliverable
+        from app.models.enums import DeliverableType
+
+        today = date.today()
+        threshold_date = today + timedelta(days=threshold_days)
+
+        alerts = []
+
+        # 1. 更新期限アラート（既存機能）
+        renewal_stmt = (
+            select(WelfareRecipient, SupportPlanCycle)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .where(
+                SupportPlanCycle.office_id == office_id,
+                SupportPlanCycle.is_latest_cycle == True,
+                SupportPlanCycle.next_renewal_deadline.isnot(None),
+                SupportPlanCycle.next_renewal_deadline <= threshold_date,
+                SupportPlanCycle.next_renewal_deadline >= today
+            )
+            .order_by(
+                SupportPlanCycle.next_renewal_deadline.asc(),
+                WelfareRecipient.last_name.asc(),
+                WelfareRecipient.first_name.asc()
+            )
+        )
+
+        renewal_result = await db.execute(renewal_stmt)
+        renewal_rows = renewal_result.all()
+
+        for recipient, cycle in renewal_rows:
+            days_remaining = (cycle.next_renewal_deadline - today).days
+            alert_item = DeadlineAlertItem(
+                id=str(recipient.id),
+                full_name=f"{recipient.last_name} {recipient.first_name}",
+                alert_type="renewal_deadline",
+                message=f"{recipient.last_name} {recipient.first_name}の更新期限まで残り{days_remaining}日",
+                next_renewal_deadline=cycle.next_renewal_deadline,
+                days_remaining=days_remaining,
+                current_cycle_number=cycle.cycle_number
+            )
+            alerts.append(alert_item)
+
+        # 2. アセスメント未完了アラート（新機能）
+        # アセスメントPDFがアップロードされていない利用者を全て含める（cycle_numberに関わらず）
+        logger.info("[DEADLINE_ALERTS_DEBUG] Starting assessment incomplete alert query")
+        assessment_stmt = (
+            select(WelfareRecipient, SupportPlanCycle)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .options(
+                selectinload(SupportPlanCycle.deliverables)
+            )
+            .where(
+                SupportPlanCycle.office_id == office_id,
+                SupportPlanCycle.is_latest_cycle == True
+            )
+            .order_by(
+                WelfareRecipient.last_name.asc(),
+                WelfareRecipient.first_name.asc()
+            )
+        )
+
+        assessment_result = await db.execute(assessment_stmt)
+        assessment_rows = assessment_result.all()
+        logger.info(f"[DEADLINE_ALERTS_DEBUG] Found {len(assessment_rows)} candidates for assessment alerts")
+
+        for recipient, cycle in assessment_rows:
+            full_name = f"{recipient.last_name} {recipient.first_name}"
+            logger.info(f"[DEADLINE_ALERTS_DEBUG] Checking: {full_name}, cycle_number={cycle.cycle_number}, is_latest={cycle.is_latest_cycle}")
+
+            has_assessment_pdf = False
+            if hasattr(cycle, 'deliverables') and cycle.deliverables:
+                logger.info(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(cycle.deliverables)} deliverables")
+                assessment_deliverables = [d for d in cycle.deliverables if d.deliverable_type == DeliverableType.assessment_sheet]
+                logger.info(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(assessment_deliverables)} assessment_sheet deliverables")
+                has_assessment_pdf = len(assessment_deliverables) > 0
+            else:
+                logger.info(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has NO deliverables")
+
+            if not has_assessment_pdf:
+                logger.info(f"[DEADLINE_ALERTS_DEBUG]   ✅ Adding {full_name} to assessment incomplete alerts")
+                alert_item = DeadlineAlertItem(
+                    id=str(recipient.id),
+                    full_name=full_name,
+                    alert_type="assessment_incomplete",
+                    message=f"{recipient.last_name} {recipient.first_name}のアセスメントが完了していません",
+                    next_renewal_deadline=None,
+                    days_remaining=None,
+                    current_cycle_number=cycle.cycle_number
+                )
+                alerts.append(alert_item)
+            else:
+                logger.info(f"[DEADLINE_ALERTS_DEBUG]   ❌ Skipping {full_name} - assessment PDF already uploaded")
+
+        total = len(alerts)
+
+        if limit is not None:
+            alerts = alerts[offset:offset + limit]
+
+        return DeadlineAlertResponse(alerts=alerts, total=total)
+
+
+welfare_recipient_service = WelfareRecipientService()
+__all__ = ["WelfareRecipientService", "welfare_recipient_service"]

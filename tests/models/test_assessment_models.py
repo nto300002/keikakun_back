@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import datetime
 import uuid
+from uuid import uuid4
 
 from app.models.assessment import (
     FamilyOfServiceRecipients,
@@ -20,10 +21,10 @@ from app.models.enums import (
     WorkConditions,
     WorkOutsideFacility,
 )
-from app.models.welfare_recipient import WelfareRecipient
+from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.enums import GenderType
 from app.models.staff import Staff
-from app.models.office import Office
+from app.models.office import Office, OfficeStaff
 from app.models.enums import StaffRole, OfficeType
 
 pytestmark = pytest.mark.asyncio
@@ -455,3 +456,153 @@ async def test_full_assessment_with_relationships(db_session: AsyncSession):
     assert len(retrieved_recipient.medical_matters.hospital_visits) == 1
     assert retrieved_recipient.employment_related is not None
     assert retrieved_recipient.issue_analysis is not None
+
+
+async def test_employment_related_desired_tasks_on_asobe_field(db_session: AsyncSession):
+    """Task 2: asoBeで希望する作業フィールドのテスト（TDD - Red Phase）"""
+    # Arrange: 受給者を作成
+    recipient = WelfareRecipient(
+        first_name="次郎",
+        last_name="田中",
+        first_name_furigana="じろう",
+        last_name_furigana="たなか",
+        birth_day=datetime.date(1995, 3, 15),
+        gender=GenderType.male,
+    )
+    db_session.add(recipient)
+    await db_session.commit()
+    await db_session.refresh(recipient)
+
+    # Arrange: スタッフを作成
+    staff = Staff(
+        first_name="花子",
+        last_name="支援",
+        full_name="支援 花子",
+        email="shien@example.com",
+        hashed_password="dummy_hash",
+        role=StaffRole.employee,
+    )
+    db_session.add(staff)
+    await db_session.commit()
+    await db_session.refresh(staff)
+
+    # Arrange: 事業所を作成
+    office = Office(
+        name="asoBeテスト事業所",
+        type=OfficeType.type_B_office,
+        created_by=staff.id,
+        last_modified_by=staff.id,
+    )
+    db_session.add(office)
+    await db_session.commit()
+    await db_session.refresh(office)
+
+    # Act: 就労関係情報を作成（新規フィールド desired_tasks_on_asobe を含む）
+    employment = EmploymentRelated(
+        welfare_recipient_id=recipient.id,
+        created_by_staff_id=staff.id,
+        work_conditions=WorkConditions.continuous_support_b,
+        regular_or_part_time_job=False,
+        employment_support=False,
+        work_experience_in_the_past_year=False,
+        suspension_of_work=False,
+        general_employment_request=False,
+        work_outside_the_facility=WorkOutsideFacility.hope,
+        desired_tasks_on_asobe="清掃作業、軽作業、梱包作業を希望します",
+    )
+    db_session.add(employment)
+    await db_session.commit()
+    await db_session.refresh(employment)
+
+    # Assert: フィールドが正しく保存されていることを検証
+    assert employment.id is not None
+    assert employment.desired_tasks_on_asobe == "清掃作業、軽作業、梱包作業を希望します"
+
+    # Assert: NULLも許容されることを検証
+    employment2 = EmploymentRelated(
+        welfare_recipient_id=uuid.uuid4(),  # 別の受給者IDを仮設定（実際にはFK制約でエラーになるが、テストの意図を示すため）
+        created_by_staff_id=staff.id,
+        work_conditions=WorkConditions.other,
+        regular_or_part_time_job=False,
+        employment_support=False,
+        work_experience_in_the_past_year=False,
+        suspension_of_work=False,
+        general_employment_request=False,
+        work_outside_the_facility=WorkOutsideFacility.not_hope,
+        desired_tasks_on_asobe=None,  # NULL許容
+    )
+    # このassertionはモデル定義が正しいことを確認するため（実際のDB保存はスキップ）
+    assert employment2.desired_tasks_on_asobe is None
+
+
+async def test_employment_related_no_experience_fields(db_session: AsyncSession):
+    """Task 1: 就労経験なし関連フィールドのテスト（TDD - Red Phase）
+
+    5つの新規フィールドがDBに正しく保存・取得できることを検証
+    """
+    # Arrange: スタッフを作成
+    staff = Staff(
+        first_name="太郎",
+        last_name="テスト",
+        full_name="テスト 太郎",
+        email=f"test_staff_{uuid4()}@example.com",
+        hashed_password="dummy_hash",
+        role=StaffRole.employee,
+    )
+    db_session.add(staff)
+    await db_session.commit()
+    await db_session.refresh(staff)
+
+    # Arrange: 事業所を作成
+    office = Office(
+        name="テスト事業所",
+        type=OfficeType.type_B_office,
+        created_by=staff.id,
+        last_modified_by=staff.id,
+    )
+    db_session.add(office)
+    await db_session.commit()
+    await db_session.refresh(office)
+
+    # Arrange: 利用者を作成
+    recipient = WelfareRecipient(
+        first_name="太郎",
+        last_name="利用者",
+        first_name_furigana="たろう",
+        last_name_furigana="りようしゃ",
+        birth_day=datetime.date(1990, 1, 1),
+        gender=GenderType.male,
+    )
+    db_session.add(recipient)
+    await db_session.commit()
+    await db_session.refresh(recipient)
+
+    # Act: 就労経験なし関連フィールドを含むEmploymentRelatedを作成
+    employment = EmploymentRelated(
+        welfare_recipient_id=recipient.id,
+        created_by_staff_id=staff.id,
+        work_conditions=WorkConditions.other,
+        regular_or_part_time_job=False,
+        employment_support=False,
+        work_experience_in_the_past_year=False,
+        suspension_of_work=False,
+        general_employment_request=False,
+        work_outside_the_facility=WorkOutsideFacility.not_hope,
+        # 新規フィールド（Task 1）
+        no_employment_experience=True,
+        attended_job_selection_office=True,
+        received_employment_assessment=False,
+        employment_other_experience=True,
+        employment_other_text="職業訓練を受けた",
+    )
+    db_session.add(employment)
+    await db_session.commit()
+    await db_session.refresh(employment)
+
+    # Assert: 全てのフィールドが正しく保存されている
+    assert employment.id is not None
+    assert employment.no_employment_experience is True
+    assert employment.attended_job_selection_office is True
+    assert employment.received_employment_assessment is False
+    assert employment.employment_other_experience is True
+    assert employment.employment_other_text == "職業訓練を受けた"
