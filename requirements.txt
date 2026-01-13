@@ -37,6 +37,9 @@ google-api-python-client
 google-auth
 google-auth-oauthlib
 
+# 祝日判定
+jpholiday>=0.1.8
+
 # その他依存関係
 annotated-types==0.6.0
 anyio==4.3.0
