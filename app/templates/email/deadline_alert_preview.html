@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【ケイカくん】更新期限が近い利用者がいます</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .content {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 0 0 5px 5px;
+        }
+        .greeting {
+            margin-bottom: 20px;
+        }
+        .alert-section {
+            margin-bottom: 30px;
+        }
+        .alert-title {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #d32f2f;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            background-color: white;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+        .days-remaining {
+            font-weight: bold;
+            color: #d32f2f;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>【ケイカくん】更新期限が近い利用者がいます</h1>
+    </div>
+    <div class="content">
+        <div class="greeting">
+            <p>山田 太郎 様</p>
+            <p>○○福祉事業所 にて、更新期限が近い利用者がいますのでお知らせいたします。</p>
+        </div>
+
+        <div class="alert-section">
+            <div class="alert-title">📅 更新期限が30日以内の利用者</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>利用者名</th>
+                        <th>残り日数</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>田中 花子</td>
+                        <td class="days-remaining">残り 15 日</td>
+                    </tr>
+                    <tr>
+                        <td>佐藤 次郎</td>
+                        <td class="days-remaining">残り 28 日</td>
+                    </tr>
+                    <tr>
+                        <td>鈴木 三郎</td>
+                        <td class="days-remaining">残り 7 日</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="alert-section">
+            <div class="alert-title">⚠️ アセスメント未完了の利用者</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>利用者名</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>高橋 四郎</td>
+                    </tr>
+                    <tr>
+                        <td>伊藤 五郎</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p>詳細はダッシュボードでご確認ください。</p>
+        <a href="https://keikakun.com/protected/dashboard" class="button">ダッシュボードを開く</a>
+
+        <div class="footer">
+            <p>このメールは【ケイカくん】から自動送信されています。</p>
+            <p>心当たりがない場合は、このメールを破棄してください。</p>
+        </div>
+    </div>
+</body>
+</html>

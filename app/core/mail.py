@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from app.core.config import settings
@@ -345,6 +345,69 @@ async def send_withdrawal_rejected_email(
         recipient_email=staff_email,
         subject=subject,
         template_name="withdrawal_rejected.html",
+        context=context,
+    )
+
+
+async def send_deadline_alert_email(
+    staff_email: str,
+    staff_name: str,
+    office_name: str,
+    renewal_alerts: List[Any],
+    assessment_alerts: List[Any],
+    dashboard_url: str
+) -> None:
+    """
+    期限アラートメールを送信します。
+
+    Args:
+        staff_email: スタッフのメールアドレス
+        staff_name: スタッフの氏名
+        office_name: 事業所名
+        renewal_alerts: 更新期限が近い利用者のリスト
+        assessment_alerts: アセスメント未完了の利用者のリスト
+        dashboard_url: ダッシュボードURL
+
+    Examples:
+        >>> await send_deadline_alert_email(
+        ...     staff_email="staff@example.com",
+        ...     staff_name="山田 太郎",
+        ...     office_name="○○事業所",
+        ...     renewal_alerts=[...],
+        ...     assessment_alerts=[...],
+        ...     dashboard_url="https://keikakun.com/protected/dashboard"
+        ... )
+    """
+    subject = "【ケイカくん】更新期限が近い利用者がいます"
+
+    context = {
+        "title": subject,
+        "staff_name": staff_name,
+        "office_name": office_name,
+        "renewal_alerts": [
+            {
+                "full_name": alert.full_name,
+                "days_remaining": alert.days_remaining,
+                "current_cycle_number": alert.current_cycle_number,
+            }
+            for alert in renewal_alerts
+        ],
+        "assessment_alerts": [
+            {
+                "full_name": alert.full_name,
+                "current_cycle_number": alert.current_cycle_number,
+            }
+            for alert in assessment_alerts
+        ],
+        "dashboard_url": dashboard_url,
+        "has_renewal_alerts": len(renewal_alerts) > 0,
+        "has_assessment_alerts": len(assessment_alerts) > 0,
+    }
+
+    await send_email(
+        recipient_email=staff_email,
+        subject=subject,
+        template_name="deadline_alert.html",
         context=context,
     )
 
