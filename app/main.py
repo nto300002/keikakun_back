@@ -18,7 +18,7 @@ from app.api.v1.api import api_router
 from app.scheduler.calendar_sync_scheduler import calendar_sync_scheduler
 from app.scheduler.cleanup_scheduler import cleanup_scheduler
 from app.scheduler.billing_scheduler import billing_scheduler
-from app.scheduler.deadline_notification_scheduler import deadline_notification_scheduler
+from app.scheduler import deadline_notification_scheduler
 
 # ログ設定（標準出力に出力）
 logging.basicConfig(
