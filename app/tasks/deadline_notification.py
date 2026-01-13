@@ -5,6 +5,7 @@
 実行条件: 平日かつ祝日でない場合のみ
 """
 import logging
+import asyncio
 from datetime import datetime, timezone, date
 from typing import List
 from sqlalchemy import select
@@ -71,6 +72,7 @@ async def send_deadline_alert_emails(
     logger.info(f"[DEADLINE_NOTIFICATION] Found {len(offices)} active offices")
 
     email_count = 0
+    rate_limit_semaphore = asyncio.Semaphore(5)
 
     for office in offices:
         try:
@@ -136,25 +138,56 @@ async def send_deadline_alert_emails(
                     )
                     email_count += 1
                 else:
-                    try:
-                        await send_deadline_alert_email(
-                            staff_email=staff.email,
-                            staff_name=f"{staff.last_name} {staff.first_name}",
-                            office_name=office.name,
-                            renewal_alerts=renewal_alerts,
-                            assessment_alerts=assessment_alerts,
-                            dashboard_url=f"{settings.FRONTEND_URL}/dashboard"
-                        )
-                        logger.info(
-                            f"[DEADLINE_NOTIFICATION] Email sent to {staff.email} "
-                            f"({staff.last_name} {staff.first_name})"
-                        )
-                        email_count += 1
-                    except Exception as e:
-                        logger.error(
-                            f"[DEADLINE_NOTIFICATION] Failed to send email to {staff.email}: {e}",
-                            exc_info=True
-                        )
+                    async with rate_limit_semaphore:
+                        try:
+                            await asyncio.wait_for(
+                                send_deadline_alert_email(
+                                    staff_email=staff.email,
+                                    staff_name=f"{staff.last_name} {staff.first_name}",
+                                    office_name=office.name,
+                                    renewal_alerts=renewal_alerts,
+                                    assessment_alerts=assessment_alerts,
+                                    dashboard_url=f"{settings.FRONTEND_URL}/dashboard"
+                                ),
+                                timeout=30.0
+                            )
+                            logger.info(
+                                f"[DEADLINE_NOTIFICATION] Email sent to {staff.email} "
+                                f"({staff.last_name} {staff.first_name})"
+                            )
+                            email_count += 1
+
+                            await crud.audit_log.create_log(
+                                db=db,
+                                actor_id=None,
+                                actor_role="system",
+                                action="deadline_notification_sent",
+                                target_type="email_notification",
+                                target_id=staff.id,
+                                office_id=office.id,
+                                details={
+                                    "recipient_email": staff.email,
+                                    "office_name": office.name,
+                                    "renewal_alert_count": len(renewal_alerts),
+                                    "assessment_alert_count": len(assessment_alerts),
+                                    "staff_name": f"{staff.last_name} {staff.first_name}"
+                                },
+                                auto_commit=False
+                            )
+
+                            await asyncio.sleep(0.1)
+
+                        except asyncio.TimeoutError:
+                            logger.error(
+                                f"[DEADLINE_NOTIFICATION] Timeout sending email to {staff.email} "
+                                f"({staff.last_name} {staff.first_name}) - exceeded 30s limit",
+                                exc_info=True
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"[DEADLINE_NOTIFICATION] Failed to send email to {staff.email}: {e}",
+                                exc_info=True
+                            )
 
         except Exception as e:
             logger.error(
