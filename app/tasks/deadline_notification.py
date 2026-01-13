@@ -143,7 +143,7 @@ async def send_deadline_alert_emails(
                             office_name=office.name,
                             renewal_alerts=renewal_alerts,
                             assessment_alerts=assessment_alerts,
-                            dashboard_url=f"{settings.FRONTEND_URL}/protected/dashboard"
+                            dashboard_url=f"{settings.FRONTEND_URL}/dashboard"
                         )
                         logger.info(
                             f"[DEADLINE_NOTIFICATION] Email sent to {staff.email} "
