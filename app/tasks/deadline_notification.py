@@ -11,6 +11,13 @@ from typing import List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 
 from app import crud
 from app.models.office import Office
@@ -21,8 +28,42 @@ from app.schemas.deadline_alert import DeadlineAlertItem
 from app.core.mail import send_deadline_alert_email
 from app.core.config import settings
 from app.utils.holiday_utils import is_japanese_weekday_and_not_holiday
+from app.utils.privacy_utils import mask_email
 
 logger = logging.getLogger(__name__)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True
+)
+async def _send_email_with_retry(
+    staff_email: str,
+    staff_name: str,
+    office_name: str,
+    renewal_alerts: List,
+    assessment_alerts: List,
+    dashboard_url: str
+):
+    """
+    リトライロジック付きメール送信
+
+    リトライ設定:
+    - 最大3回試行（初回 + 2回リトライ）
+    - 指数バックオフ: 2秒、4秒、8秒...
+    - すべての例外でリトライ
+    """
+    await send_deadline_alert_email(
+        staff_email=staff_email,
+        staff_name=staff_name,
+        office_name=office_name,
+        renewal_alerts=renewal_alerts,
+        assessment_alerts=assessment_alerts,
+        dashboard_url=dashboard_url
+    )
 
 
 async def send_deadline_alert_emails(
@@ -53,7 +94,7 @@ async def send_deadline_alert_emails(
         >>> count = await send_deadline_alert_emails(db=db, dry_run=True)
         >>> print(f"Would send {count} deadline alert emails")
     """
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     if not is_japanese_weekday_and_not_holiday(today):
         logger.info(
             f"[DEADLINE_NOTIFICATION] Skipping email notification: "
@@ -133,7 +174,7 @@ async def send_deadline_alert_emails(
             for staff in staffs:
                 if dry_run:
                     logger.info(
-                        f"[DRY RUN] Would send email to {staff.email} "
+                        f"[DRY RUN] Would send email to {mask_email(staff.email)} "
                         f"({staff.last_name} {staff.first_name})"
                     )
                     email_count += 1
@@ -141,7 +182,7 @@ async def send_deadline_alert_emails(
                     async with rate_limit_semaphore:
                         try:
                             await asyncio.wait_for(
-                                send_deadline_alert_email(
+                                _send_email_with_retry(
                                     staff_email=staff.email,
                                     staff_name=f"{staff.last_name} {staff.first_name}",
                                     office_name=office.name,
@@ -152,7 +193,7 @@ async def send_deadline_alert_emails(
                                 timeout=30.0
                             )
                             logger.info(
-                                f"[DEADLINE_NOTIFICATION] Email sent to {staff.email} "
+                                f"[DEADLINE_NOTIFICATION] Email sent to {mask_email(staff.email)} "
                                 f"({staff.last_name} {staff.first_name})"
                             )
                             email_count += 1
@@ -179,13 +220,13 @@ async def send_deadline_alert_emails(
 
                         except asyncio.TimeoutError:
                             logger.error(
-                                f"[DEADLINE_NOTIFICATION] Timeout sending email to {staff.email} "
+                                f"[DEADLINE_NOTIFICATION] Timeout sending email to {mask_email(staff.email)} "
                                 f"({staff.last_name} {staff.first_name}) - exceeded 30s limit",
                                 exc_info=True
                             )
                         except Exception as e:
                             logger.error(
-                                f"[DEADLINE_NOTIFICATION] Failed to send email to {staff.email}: {e}",
+                                f"[DEADLINE_NOTIFICATION] Failed to send email to {mask_email(staff.email)}: {e}",
                                 exc_info=True
                             )
 
