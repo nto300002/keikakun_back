@@ -26,6 +26,7 @@ from app.models.office import OfficeStaff
 from app.services.welfare_recipient_service import WelfareRecipientService
 from app.schemas.deadline_alert import DeadlineAlertItem
 from app.core.mail import send_deadline_alert_email
+from app.core.push import send_push_notification
 from app.core.config import settings
 from app.utils.holiday_utils import is_japanese_weekday_and_not_holiday
 from app.utils.privacy_utils import mask_email
@@ -69,30 +70,36 @@ async def _send_email_with_retry(
 async def send_deadline_alert_emails(
     db: AsyncSession,
     dry_run: bool = False
-) -> int:
+) -> dict:
     """
-    全事業所の期限アラートメールを送信
+    全事業所の期限アラートメール + Web Push通知を送信（閾値カスタマイズ対応）
 
     処理内容:
     1. 全事業所を取得
-    2. 各事業所ごとに期限アラートを取得
-    3. アラートがある場合、該当事業所の全スタッフにメール送信
+    2. 各事業所ごとに期限アラートを取得（最大閾値30日で取得）
+    3. 各スタッフの通知設定に基づいて、個別にアラートをフィルタリングして送信
+       - email_notification=trueのスタッフのみメール送信
+       - system_notification=trueのスタッフのみWeb Push送信
+       - 各スタッフのemail_threshold_days/push_threshold_daysに基づいてアラートをフィルタリング
 
     Args:
         db: データベースセッション
         dry_run: Trueの場合は送信せず、送信予定件数のみ返す
 
     Returns:
-        int: 送信したメール件数
+        dict: 送信結果
+            - email_sent: 送信したメール件数
+            - push_sent: 送信したWeb Push件数
+            - push_failed: 失敗したWeb Push件数
 
     Examples:
         >>> # 本番実行
-        >>> count = await send_deadline_alert_emails(db=db)
-        >>> logger.info(f"Sent {count} deadline alert emails")
+        >>> result = await send_deadline_alert_emails(db=db)
+        >>> logger.info(f"Sent {result['email_sent']} emails, {result['push_sent']} push notifications")
 
         >>> # ドライラン（テスト実行）
-        >>> count = await send_deadline_alert_emails(db=db, dry_run=True)
-        >>> print(f"Would send {count} deadline alert emails")
+        >>> result = await send_deadline_alert_emails(db=db, dry_run=True)
+        >>> print(f"Would send {result['email_sent']} emails, {result['push_sent']} push notifications")
     """
     today = datetime.now(timezone.utc).date()
     if not is_japanese_weekday_and_not_holiday(today):
@@ -113,6 +120,8 @@ async def send_deadline_alert_emails(
     logger.info(f"[DEADLINE_NOTIFICATION] Found {len(offices)} active offices")
 
     email_count = 0
+    push_sent_count = 0
+    push_failed_count = 0
     rate_limit_semaphore = asyncio.Semaphore(5)
 
     for office in offices:
@@ -132,19 +141,19 @@ async def send_deadline_alert_emails(
                 )
                 continue
 
-            renewal_alerts: List[DeadlineAlertItem] = []
-            assessment_alerts: List[DeadlineAlertItem] = []
+            all_renewal_alerts: List[DeadlineAlertItem] = []
+            all_assessment_alerts: List[DeadlineAlertItem] = []
 
             for alert in alert_response.alerts:
                 if alert.alert_type == "renewal_deadline":
-                    renewal_alerts.append(alert)
+                    all_renewal_alerts.append(alert)
                 elif alert.alert_type == "assessment_incomplete":
-                    assessment_alerts.append(alert)
+                    all_assessment_alerts.append(alert)
 
             logger.info(
                 f"[DEADLINE_NOTIFICATION] Office {office.name} "
-                f"(ID: {office.id}): {len(renewal_alerts)} renewal alerts, "
-                f"{len(assessment_alerts)} assessment alerts"
+                f"(ID: {office.id}): {len(all_renewal_alerts)} renewal alerts, "
+                f"{len(all_assessment_alerts)} assessment alerts (max threshold: 30 days)"
             )
 
             staff_stmt = (
@@ -168,14 +177,59 @@ async def send_deadline_alert_emails(
 
             logger.info(
                 f"[DEADLINE_NOTIFICATION] Office {office.name} "
-                f"(ID: {office.id}): Sending to {len(staffs)} staff members"
+                f"(ID: {office.id}): Processing {len(staffs)} staff members"
             )
 
             for staff in staffs:
+                # notification_preferencesがNoneの場合はデフォルト値を使用
+                notification_prefs = staff.notification_preferences or {
+                    "in_app_notification": True,
+                    "email_notification": True,
+                    "system_notification": False,
+                    "email_threshold_days": 30,
+                    "push_threshold_days": 10
+                }
+
+                email_notification_enabled = notification_prefs.get("email_notification", True)
+
+                if not email_notification_enabled:
+                    logger.debug(
+                        f"[DEADLINE_NOTIFICATION] Staff {mask_email(staff.email)} "
+                        f"({staff.last_name} {staff.first_name}): email_notification disabled, skipping"
+                    )
+                    continue
+
+                staff_email_threshold = notification_prefs.get("email_threshold_days", 30)
+
+                staff_renewal_alerts = [
+                    alert for alert in all_renewal_alerts
+                    if alert.days_remaining is not None and alert.days_remaining <= staff_email_threshold
+                ]
+                # assessment_incomplete alerts: Include all (days_remaining may be None)
+                # renewal_deadline alerts: Filter by threshold only if days_remaining exists
+                staff_assessment_alerts = [
+                    alert for alert in all_assessment_alerts
+                    if alert.days_remaining is None or alert.days_remaining <= staff_email_threshold
+                ]
+
+                if not staff_renewal_alerts and not staff_assessment_alerts:
+                    logger.debug(
+                        f"[DEADLINE_NOTIFICATION] Staff {mask_email(staff.email)} "
+                        f"({staff.last_name} {staff.first_name}): No alerts within threshold "
+                        f"({staff_email_threshold} days), skipping"
+                    )
+                    continue
+
+                logger.info(
+                    f"[DEADLINE_NOTIFICATION] Staff {mask_email(staff.email)} "
+                    f"({staff.last_name} {staff.first_name}): {len(staff_renewal_alerts)} renewal alerts, "
+                    f"{len(staff_assessment_alerts)} assessment alerts (threshold: {staff_email_threshold} days)"
+                )
+
                 if dry_run:
                     logger.info(
                         f"[DRY RUN] Would send email to {mask_email(staff.email)} "
-                        f"({staff.last_name} {staff.first_name})"
+                        f"({staff.last_name} {staff.first_name}) - threshold: {staff_email_threshold} days"
                     )
                     email_count += 1
                 else:
@@ -186,15 +240,15 @@ async def send_deadline_alert_emails(
                                     staff_email=staff.email,
                                     staff_name=f"{staff.last_name} {staff.first_name}",
                                     office_name=office.name,
-                                    renewal_alerts=renewal_alerts,
-                                    assessment_alerts=assessment_alerts,
+                                    renewal_alerts=staff_renewal_alerts,
+                                    assessment_alerts=staff_assessment_alerts,
                                     dashboard_url=f"{settings.FRONTEND_URL}/dashboard"
                                 ),
                                 timeout=30.0
                             )
                             logger.info(
                                 f"[DEADLINE_NOTIFICATION] Email sent to {mask_email(staff.email)} "
-                                f"({staff.last_name} {staff.first_name})"
+                                f"({staff.last_name} {staff.first_name}) - threshold: {staff_email_threshold} days"
                             )
                             email_count += 1
 
@@ -209,9 +263,10 @@ async def send_deadline_alert_emails(
                                 details={
                                     "recipient_email": staff.email,
                                     "office_name": office.name,
-                                    "renewal_alert_count": len(renewal_alerts),
-                                    "assessment_alert_count": len(assessment_alerts),
-                                    "staff_name": f"{staff.last_name} {staff.first_name}"
+                                    "renewal_alert_count": len(staff_renewal_alerts),
+                                    "assessment_alert_count": len(staff_assessment_alerts),
+                                    "staff_name": f"{staff.last_name} {staff.first_name}",
+                                    "email_threshold_days": staff_email_threshold
                                 },
                                 auto_commit=False
                             )
@@ -230,6 +285,131 @@ async def send_deadline_alert_emails(
                                 exc_info=True
                             )
 
+                # Web Push通知送信（system_notification=trueのスタッフのみ）
+                system_notification_enabled = notification_prefs.get("system_notification", False)
+
+                if system_notification_enabled:
+                    staff_push_threshold = notification_prefs.get("push_threshold_days", 10)
+
+                    # Push用のアラートをフィルタリング（閾値反映）
+                    push_renewal_alerts = [
+                        alert for alert in all_renewal_alerts
+                        if alert.days_remaining is not None and alert.days_remaining <= staff_push_threshold
+                    ]
+                    # assessment_incomplete alerts: Include all (days_remaining may be None)
+                    push_assessment_alerts = [
+                        alert for alert in all_assessment_alerts
+                        if alert.days_remaining is None or alert.days_remaining <= staff_push_threshold
+                    ]
+
+                    if push_renewal_alerts or push_assessment_alerts:
+                        # スタッフの全デバイス（購読）を取得
+                        subscriptions = await crud.push_subscription.get_by_staff_id(
+                            db=db,
+                            staff_id=staff.id
+                        )
+
+                        logger.info(
+                            f"[WEB_PUSH] Staff {mask_email(staff.email)} "
+                            f"({staff.last_name} {staff.first_name}): {len(subscriptions)} device(s), "
+                            f"{len(push_renewal_alerts)} renewal alerts, "
+                            f"{len(push_assessment_alerts)} assessment alerts "
+                            f"(threshold: {staff_push_threshold} days)"
+                        )
+
+                        # スタッフごとのPush送信結果カウンター（監査ログ用）
+                        staff_push_sent = 0
+                        staff_push_failed = 0
+
+                        for sub in subscriptions:
+                            if dry_run:
+                                logger.info(
+                                    f"[DRY RUN] Would send push to device: "
+                                    f"{sub.endpoint[:50]}... - threshold: {staff_push_threshold} days"
+                                )
+                                push_sent_count += 1
+                                staff_push_sent += 1
+                            else:
+                                try:
+                                    # Push通知を送信
+                                    success, should_delete = await send_push_notification(
+                                        subscription_info={
+                                            "endpoint": sub.endpoint,
+                                            "keys": {
+                                                "p256dh": sub.p256dh_key,
+                                                "auth": sub.auth_key
+                                            }
+                                        },
+                                        title=f"期限アラート（{office.name}）",
+                                        body=f"更新期限: {len(push_renewal_alerts)}件、アセスメント未完了: {len(push_assessment_alerts)}件",
+                                        data={
+                                            "type": "deadline_alert",
+                                            "office_id": str(office.id),
+                                            "office_name": office.name,
+                                            "renewal_count": len(push_renewal_alerts),
+                                            "assessment_count": len(push_assessment_alerts),
+                                            "push_threshold_days": staff_push_threshold
+                                        }
+                                    )
+
+                                    if success:
+                                        logger.info(
+                                            f"[WEB_PUSH] Push sent successfully to device: "
+                                            f"{sub.endpoint[:50]}... - threshold: {staff_push_threshold} days"
+                                        )
+                                        push_sent_count += 1
+                                        staff_push_sent += 1
+                                    elif should_delete:
+                                        # 購読期限切れの場合、削除する
+                                        logger.warning(
+                                            f"[WEB_PUSH] Subscription expired (410/404), deleting: {sub.endpoint[:50]}..."
+                                        )
+                                        await crud.push_subscription.delete_by_endpoint(
+                                            db=db,
+                                            endpoint=sub.endpoint
+                                        )
+                                        push_failed_count += 1
+                                        staff_push_failed += 1
+                                    else:
+                                        # その他のエラー（一時的なネットワークエラーなど）
+                                        logger.error(
+                                            f"[WEB_PUSH] Failed to send push (temporary error): {sub.endpoint[:50]}..."
+                                        )
+                                        push_failed_count += 1
+                                        staff_push_failed += 1
+
+                                except Exception as e:
+                                    logger.error(
+                                        f"[WEB_PUSH] Failed to send push to device {sub.endpoint[:50]}...: {e}",
+                                        exc_info=True
+                                    )
+                                    push_failed_count += 1
+                                    staff_push_failed += 1
+
+                        # Push送信完了後、監査ログを作成（セキュリティ実装）
+                        if not dry_run and len(subscriptions) > 0:
+                            await crud.audit_log.create_log(
+                                db=db,
+                                actor_id=None,
+                                actor_role="system",
+                                action="push_notification_sent",
+                                target_type="push_notification",
+                                target_id=staff.id,
+                                office_id=office.id,
+                                details={
+                                    "recipient_email": staff.email,
+                                    "office_name": office.name,
+                                    "staff_name": f"{staff.last_name} {staff.first_name}",
+                                    "push_sent_count": staff_push_sent,
+                                    "push_failed_count": staff_push_failed,
+                                    "device_count": len(subscriptions),
+                                    "renewal_alert_count": len(push_renewal_alerts),
+                                    "assessment_alert_count": len(push_assessment_alerts),
+                                    "push_threshold_days": staff_push_threshold
+                                },
+                                auto_commit=False
+                            )
+
         except Exception as e:
             logger.error(
                 f"[DEADLINE_NOTIFICATION] Error processing office {office.name} "
@@ -239,7 +419,13 @@ async def send_deadline_alert_emails(
 
     logger.info(
         f"[DEADLINE_NOTIFICATION] Completed: "
-        f"{'Would send' if dry_run else 'Sent'} {email_count} emails"
+        f"{'Would send' if dry_run else 'Sent'} {email_count} emails, "
+        f"{push_sent_count} push notifications "
+        f"({push_failed_count} failed)"
     )
 
-    return email_count
+    return {
+        "email_sent": email_count,
+        "push_sent": push_sent_count,
+        "push_failed": push_failed_count
+    }
