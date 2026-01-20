@@ -19,24 +19,26 @@ deadline_notification_scheduler = AsyncIOScheduler()
 
 async def scheduled_send_alerts():
     """
-    期限アラートメール送信のスケジュール実行
+    期限アラート通知のスケジュール実行（メール + Web Push）
 
     実行頻度: 毎日 0:00 UTC (9:00 JST)
     実行条件: 平日かつ祝日でない場合のみ（バッチ処理内で判定）
     処理内容:
     - 全事業所の期限アラートを取得
     - 該当事業所の全スタッフにメール送信
+    - 通知設定でsystem_notification=trueのスタッフにWeb Push送信
     """
     async with AsyncSessionLocal() as db:
         try:
-            count = await send_deadline_alert_emails(db=db)
+            result = await send_deadline_alert_emails(db=db)
             logger.info(
-                f"[DEADLINE_NOTIFICATION_SCHEDULER] Email notification completed: "
-                f"{count} email(s) sent"
+                f"[DEADLINE_NOTIFICATION_SCHEDULER] Deadline notification completed: "
+                f"Emails: {result['email_sent']}, Push: {result['push_sent']}, "
+                f"Push failed: {result['push_failed']}"
             )
         except Exception as e:
             logger.error(
-                f"[DEADLINE_NOTIFICATION_SCHEDULER] Email notification failed: {e}",
+                f"[DEADLINE_NOTIFICATION_SCHEDULER] Deadline notification failed: {e}",
                 exc_info=True
             )
 
