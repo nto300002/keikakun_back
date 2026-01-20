@@ -80,9 +80,9 @@ async def test_retry_on_temporary_failure(db_session: AsyncSession):
 
         mock_send_email.side_effect = failing_then_success
 
-        count = await send_deadline_alert_emails(db=db_session, dry_run=False)
+        result = await send_deadline_alert_emails(db=db_session, dry_run=False)
 
-        assert count == 1, f"Expected 1 email sent after retry, got {count}"
+        assert result["email_sent"] == 1, f"Expected 1 email sent after retry, got {result["email_sent"]}"
         assert mock_send_email.call_count == 3, f"Expected 3 attempts (2 retries), got {mock_send_email.call_count}"
 
 
@@ -145,9 +145,9 @@ async def test_max_retries_exceeded(db_session: AsyncSession):
 
         mock_send_email.side_effect = always_fail
 
-        count = await send_deadline_alert_emails(db=db_session, dry_run=False)
+        result = await send_deadline_alert_emails(db=db_session, dry_run=False)
 
-        assert count == 0, f"Expected 0 emails sent after max retries, got {count}"
+        assert result["email_sent"] == 0, f"Expected 0 emails sent after max retries, got {result["email_sent"]}"
         assert mock_send_email.call_count == 3, f"Expected 3 attempts (initial + 2 retries), got {mock_send_email.call_count}"
 
 
@@ -216,10 +216,10 @@ async def test_exponential_backoff(db_session: AsyncSession):
 
         import time
         start = time.time()
-        count = await send_deadline_alert_emails(db=db_session, dry_run=False)
+        result = await send_deadline_alert_emails(db=db_session, dry_run=False)
         total_time = time.time() - start
 
-        assert count == 1, f"Expected 1 email sent, got {count}"
+        assert result["email_sent"] == 1, f"Expected 1 email sent, got {result["email_sent"]}"
         assert len(attempt_times) == 3, f"Expected 3 attempts, got {len(attempt_times)}"
 
         # 指数バックオフの検証（最低でも2秒 + 2秒 = 4秒待機）

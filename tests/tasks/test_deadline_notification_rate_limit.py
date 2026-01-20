@@ -156,11 +156,11 @@ async def test_timeout_on_slow_email(db_session: AsyncSession):
 
         import time
         start = time.time()
-        count = await send_deadline_alert_emails(db=db_session, dry_run=False)
+        result = await send_deadline_alert_emails(db=db_session, dry_run=False)
         elapsed = time.time() - start
 
         assert elapsed < 32, f"Expected timeout around 30s, took {elapsed}s"
-        assert count == 0, "Expected 0 emails sent due to timeout"
+        assert result["email_sent"] == 0, "Expected 0 emails sent due to timeout"
 
 
 @pytest.mark.asyncio
