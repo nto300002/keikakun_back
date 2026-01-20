@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     archived_staffs,
     inquiries,
     billing,
+    push_subscriptions,
 )
 
 api_router = APIRouter()
@@ -56,3 +57,4 @@ api_router.include_router(admin_announcements.router, prefix="/admin/announcemen
 api_router.include_router(archived_staffs.router, prefix="/admin/archived-staffs", tags=["admin-archived-staffs"])
 api_router.include_router(inquiries.router, prefix="/inquiries", tags=["inquiries"])
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
+api_router.include_router(push_subscriptions.router, prefix="/push-subscriptions", tags=["push-subscriptions"])

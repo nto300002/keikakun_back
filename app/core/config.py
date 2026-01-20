@@ -1,7 +1,7 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr, model_validator
 from typing import Optional
-from pydantic import SecretStr
 
 ENV_FILE = os.getenv("ENV_FILE", ".env")
 
@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[SecretStr] = None
     STRIPE_PRICE_ID: Optional[str] = None  # 月額6,000円プランのPrice ID
+
+    # --- Web Push通知設定 (VAPID) ---
+    VAPID_PRIVATE_KEY_DER: Optional[str] = None  # VAPID秘密鍵（Base64エンコード済みDER形式）
+    VAPID_PRIVATE_KEY: Optional[str] = None  # VAPID秘密鍵（pywebpush用、DER形式Base64文字列）
+    VAPID_PUBLIC_KEY: Optional[str] = None   # VAPID公開鍵（Base64 URL-safe）
+    VAPID_SUBJECT: Optional[str] = None      # mailto: または https:// URL
+
+    @model_validator(mode='after')
+    def set_vapid_private_key(self):
+        """VAPID_PRIVATE_KEY_DERをVAPID_PRIVATE_KEYに設定（DER形式Base64をそのまま使用）"""
+        if self.VAPID_PRIVATE_KEY_DER and not self.VAPID_PRIVATE_KEY:
+            self.VAPID_PRIVATE_KEY = self.VAPID_PRIVATE_KEY_DER
+        return self
 
 
 # 設定クラスのインスタンスを作成し、他のモジュールからインポートして使用できるようにします。

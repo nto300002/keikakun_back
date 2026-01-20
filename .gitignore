@@ -3,3 +3,4 @@ myenv/
 __pycache__/
 .env.test*.log
 .env.testtests.log
+*.pem
