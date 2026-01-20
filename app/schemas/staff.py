@@ -2,7 +2,7 @@ import uuid
 import re
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field, model_validator
 from app.models.enums import StaffRole
 from app.messages import ja
 
@@ -134,3 +134,34 @@ StaffRead = Staff
 class EmailVerificationResponse(BaseModel):
     message: str
     role: StaffRole
+
+
+class NotificationPreferences(BaseModel):
+    """通知設定（閾値カスタマイズ対応）"""
+    in_app_notification: bool
+    email_notification: bool
+    system_notification: bool
+    email_threshold_days: int = Field(default=30, description="メール通知開始日数（5, 10, 20, 30のいずれか）")
+    push_threshold_days: int = Field(default=10, description="Web Push通知開始日数（5, 10, 20, 30のいずれか）")
+
+    @field_validator('email_threshold_days', 'push_threshold_days')
+    @classmethod
+    def validate_threshold_days(cls, v: int, info) -> int:
+        """
+        閾値は5, 10, 20, 30のいずれかである必要がある
+        """
+        valid_values = [5, 10, 20, 30]
+        if v not in valid_values:
+            raise ValueError(f"{info.field_name}は5, 10, 20, 30のいずれかである必要があります（現在の値: {v}）")
+        return v
+
+    @model_validator(mode='after')
+    def validate_at_least_one_enabled(self) -> 'NotificationPreferences':
+        """
+        少なくとも1つの通知チャネルがONである必要がある
+        """
+        if not self.in_app_notification and not self.email_notification and not self.system_notification:
+            raise ValueError("少なくとも1つの通知チャネルをONにしてください")
+        return self
+
+    model_config = ConfigDict(from_attributes=True)

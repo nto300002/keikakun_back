@@ -398,3 +398,48 @@ async def delete_staff(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.STAFF_DELETE_FAILED.format(error=str(e))
         )
+
+
+@router.get("/me/notification-preferences", response_model=schemas.NotificationPreferences)
+async def get_my_notification_preferences(
+    current_user: Staff = Depends(deps.get_current_user)
+):
+    """
+    自分の通知設定を取得
+
+    Returns:
+        NotificationPreferences: 通知設定
+            - in_app_notification: アプリ内通知（トースト・ポップオーバー）
+            - email_notification: メール通知（バッチメール）
+            - system_notification: システム通知（Web Push）
+    """
+    return schemas.NotificationPreferences(**current_user.notification_preferences)
+
+
+@router.put("/me/notification-preferences", response_model=schemas.NotificationPreferences)
+async def update_my_notification_preferences(
+    preferences: schemas.NotificationPreferences,
+    current_user: Staff = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db)
+):
+    """
+    自分の通知設定を更新
+
+    Args:
+        preferences: 新しい通知設定
+            - in_app_notification: アプリ内通知
+            - email_notification: メール通知
+            - system_notification: システム通知（Web Push）
+
+    Returns:
+        NotificationPreferences: 更新後の通知設定
+
+    Raises:
+        422: バリデーションエラー（全ての通知がfalseの場合など）
+    """
+    current_user.notification_preferences = preferences.model_dump()
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return schemas.NotificationPreferences(**current_user.notification_preferences)
