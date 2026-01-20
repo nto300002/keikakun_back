@@ -109,6 +109,19 @@ async def test_send_deadline_alert_emails_with_threshold_filtering(
     db_session.add(cycle)
     await db_session.flush()
 
+    # アセスメントPDFをアップロード済みにして、assessment_incompleteアラートを抑制
+    from app.models.support_plan_cycle import PlanDeliverable
+    from app.models.enums import DeliverableType
+    deliverable = PlanDeliverable(
+        plan_cycle_id=cycle.id,
+        deliverable_type=DeliverableType.assessment_sheet,
+        file_path="/test/assessment.pdf",
+        original_filename="assessment.pdf",
+        uploaded_by=test_admin_user.id
+    )
+    db_session.add(deliverable)
+    await db_session.flush()
+
     result = await send_deadline_alert_emails(db=db_session, dry_run=True)
 
     assert result["email_sent"] == 1
@@ -218,6 +231,19 @@ async def test_send_deadline_alert_emails_multiple_thresholds(
         next_plan_start_date=22
     )
     db_session.add(cycle)
+    await db_session.flush()
+
+    # アセスメントPDFをアップロード済みにして、assessment_incompleteアラートを抑制
+    from app.models.support_plan_cycle import PlanDeliverable
+    from app.models.enums import DeliverableType
+    deliverable = PlanDeliverable(
+        plan_cycle_id=cycle.id,
+        deliverable_type=DeliverableType.assessment_sheet,
+        file_path="/test/assessment.pdf",
+        original_filename="assessment.pdf",
+        uploaded_by=test_admin_user.id
+    )
+    db_session.add(deliverable)
     await db_session.flush()
 
     result = await send_deadline_alert_emails(db=db_session, dry_run=True)

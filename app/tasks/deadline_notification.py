@@ -205,12 +205,9 @@ async def send_deadline_alert_emails(
                     alert for alert in all_renewal_alerts
                     if alert.days_remaining is not None and alert.days_remaining <= staff_email_threshold
                 ]
-                # assessment_incomplete alerts: Include all (days_remaining may be None)
-                # renewal_deadline alerts: Filter by threshold only if days_remaining exists
-                staff_assessment_alerts = [
-                    alert for alert in all_assessment_alerts
-                    if alert.days_remaining is None or alert.days_remaining <= staff_email_threshold
-                ]
+                # assessment_incomplete alerts: 常に全スタッフに送信（閾値フィルタリングなし）
+                # アセスメント未完了は緊急性が高いため、days_remainingに関係なく通知
+                staff_assessment_alerts = all_assessment_alerts
 
                 if not staff_renewal_alerts and not staff_assessment_alerts:
                     logger.debug(
@@ -296,11 +293,9 @@ async def send_deadline_alert_emails(
                         alert for alert in all_renewal_alerts
                         if alert.days_remaining is not None and alert.days_remaining <= staff_push_threshold
                     ]
-                    # assessment_incomplete alerts: Include all (days_remaining may be None)
-                    push_assessment_alerts = [
-                        alert for alert in all_assessment_alerts
-                        if alert.days_remaining is None or alert.days_remaining <= staff_push_threshold
-                    ]
+                    # assessment_incomplete alerts: 常に全スタッフに送信（閾値フィルタリングなし）
+                    # アセスメント未完了は緊急性が高いため、days_remainingに関係なく通知
+                    push_assessment_alerts = all_assessment_alerts
 
                     if push_renewal_alerts or push_assessment_alerts:
                         # スタッフの全デバイス（購読）を取得
