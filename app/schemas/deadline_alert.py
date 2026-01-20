@@ -8,10 +8,10 @@ class DeadlineAlertItem(BaseModel):
     """期限アラート項目"""
     id: str = Field(..., description="利用者ID（recipient.id）")
     full_name: str = Field(..., min_length=1, description="利用者フルネーム")
-    alert_type: str = Field(..., description="アラートタイプ (renewal_deadline, assessment_incomplete)")
+    alert_type: str = Field(..., description="アラートタイプ (renewal_deadline, renewal_overdue, assessment_incomplete)")
     message: str = Field(..., description="アラートメッセージ")
     next_renewal_deadline: date | None = Field(None, description="次回更新期限（renewal_deadlineの場合）")
-    days_remaining: int | None = Field(None, ge=0, description="残り日数（renewal_deadlineの場合）")
+    days_remaining: int | None = Field(None, description="残り日数（renewal_deadlineの場合、負の値は期限切れを示す）")
     current_cycle_number: int = Field(..., ge=0, description="現在のサイクル番号")
 
     model_config = ConfigDict(
