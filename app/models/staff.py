@@ -2,7 +2,8 @@ import uuid
 import datetime
 from typing import List, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Integer, select, delete
+from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Integer, select, delete, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -11,6 +12,7 @@ from app.models.enums import StaffRole
 if TYPE_CHECKING:
     from app.models.office import Office, OfficeStaff
     from app.models.terms_agreement import TermsAgreement
+    from app.models.push_subscription import PushSubscription
 
 class Staff(Base):
     """スタッフ"""
@@ -65,6 +67,14 @@ class Staff(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     is_test_data: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True, comment="テストデータフラグ。Factory関数で生成されたデータはTrue")
 
+    # 通知設定（閾値カスタマイズ対応）
+    notification_preferences: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{\"in_app_notification\": true, \"email_notification\": true, \"system_notification\": false, \"email_threshold_days\": 30, \"push_threshold_days\": 10}'::jsonb"),
+        comment="通知チャネル設定（in_app: アプリ内通知、email: メール通知、system: Web Push通知）+ 閾値設定（email_threshold_days, push_threshold_days）"
+    )
+
     # Relationships
     office_associations: Mapped[List["OfficeStaff"]] = relationship(
         "OfficeStaff",
@@ -86,6 +96,13 @@ class Staff(Base):
     )
     blacklisted_refresh_tokens: Mapped[List["RefreshTokenBlacklist"]] = relationship(
         "RefreshTokenBlacklist",
+        back_populates="staff",
+        cascade="all, delete-orphan"
+    )
+
+    # Web Push通知関連
+    push_subscriptions: Mapped[List["PushSubscription"]] = relationship(
+        "PushSubscription",
         back_populates="staff",
         cascade="all, delete-orphan"
     )

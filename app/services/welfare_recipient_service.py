@@ -684,7 +684,8 @@ class WelfareRecipientService:
 
         alerts = []
 
-        # 1. 更新期限アラート（既存機能）
+        # 1. 更新期限アラート（期限切れを含む）
+        # 期限切れ（0日を含む）のアイテムも含めるため、>= today の条件を削除
         renewal_stmt = (
             select(WelfareRecipient, SupportPlanCycle)
             .join(
@@ -695,8 +696,8 @@ class WelfareRecipientService:
                 SupportPlanCycle.office_id == office_id,
                 SupportPlanCycle.is_latest_cycle == True,
                 SupportPlanCycle.next_renewal_deadline.isnot(None),
-                SupportPlanCycle.next_renewal_deadline <= threshold_date,
-                SupportPlanCycle.next_renewal_deadline >= today
+                SupportPlanCycle.next_renewal_deadline <= threshold_date
+                # 注: next_renewal_deadline >= today を削除し、期限切れも含める
             )
             .order_by(
                 SupportPlanCycle.next_renewal_deadline.asc(),
@@ -710,11 +711,21 @@ class WelfareRecipientService:
 
         for recipient, cycle in renewal_rows:
             days_remaining = (cycle.next_renewal_deadline - today).days
+            full_name = f"{recipient.last_name} {recipient.first_name}"
+
+            # 期限切れ（0日を含む）の場合は特別なメッセージと alert_type
+            if days_remaining <= 0:
+                alert_type = "renewal_overdue"
+                message = f"!{full_name}の更新期限が過ぎています!"
+            else:
+                alert_type = "renewal_deadline"
+                message = f"{full_name}の更新期限まで残り{days_remaining}日"
+
             alert_item = DeadlineAlertItem(
                 id=str(recipient.id),
-                full_name=f"{recipient.last_name} {recipient.first_name}",
-                alert_type="renewal_deadline",
-                message=f"{recipient.last_name} {recipient.first_name}の更新期限まで残り{days_remaining}日",
+                full_name=full_name,
+                alert_type=alert_type,
+                message=message,
                 next_renewal_deadline=cycle.next_renewal_deadline,
                 days_remaining=days_remaining,
                 current_cycle_number=cycle.cycle_number

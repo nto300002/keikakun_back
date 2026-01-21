@@ -1,5 +1,7 @@
 myenv/
 .env
 __pycache__/
-.env.test*.log
-.env.testtests.log
+.env.test
+*.log
+tests.log
+*.pem
