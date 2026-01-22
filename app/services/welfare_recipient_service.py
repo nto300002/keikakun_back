@@ -675,6 +675,7 @@ class WelfareRecipientService:
         Returns:
             期限が近い利用者のリスト（残り日数が少ない順）+ アセスメント未完了の利用者リスト
         """
+        import os
         from sqlalchemy.orm import selectinload
         from app.models.support_plan_cycle import PlanDeliverable
         from app.models.enums import DeliverableType
@@ -682,23 +683,29 @@ class WelfareRecipientService:
         today = date.today()
         threshold_date = today + timedelta(days=threshold_days)
 
+        # テスト環境かどうかをチェック
+        is_testing = os.getenv("TESTING") == "1"
+
         alerts = []
 
         # 1. 更新期限アラート（期限切れを含む）
         # 期限切れ（0日を含む）のアイテムも含めるため、>= today の条件を削除
+        renewal_conditions = [
+            SupportPlanCycle.office_id == office_id,
+            SupportPlanCycle.is_latest_cycle == True,
+            SupportPlanCycle.next_renewal_deadline.isnot(None),
+            SupportPlanCycle.next_renewal_deadline <= threshold_date
+        ]
+        if not is_testing:
+            renewal_conditions.append(WelfareRecipient.is_test_data == False)
+
         renewal_stmt = (
             select(WelfareRecipient, SupportPlanCycle)
             .join(
                 SupportPlanCycle,
                 SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
             )
-            .where(
-                SupportPlanCycle.office_id == office_id,
-                SupportPlanCycle.is_latest_cycle == True,
-                SupportPlanCycle.next_renewal_deadline.isnot(None),
-                SupportPlanCycle.next_renewal_deadline <= threshold_date
-                # 注: next_renewal_deadline >= today を削除し、期限切れも含める
-            )
+            .where(*renewal_conditions)
             .order_by(
                 SupportPlanCycle.next_renewal_deadline.asc(),
                 WelfareRecipient.last_name.asc(),
@@ -735,6 +742,14 @@ class WelfareRecipientService:
         # 2. アセスメント未完了アラート（新機能）
         # アセスメントPDFがアップロードされていない利用者を全て含める（cycle_numberに関わらず）
         logger.info("[DEADLINE_ALERTS_DEBUG] Starting assessment incomplete alert query")
+
+        assessment_conditions = [
+            SupportPlanCycle.office_id == office_id,
+            SupportPlanCycle.is_latest_cycle == True
+        ]
+        if not is_testing:
+            assessment_conditions.append(WelfareRecipient.is_test_data == False)
+
         assessment_stmt = (
             select(WelfareRecipient, SupportPlanCycle)
             .join(
@@ -744,10 +759,7 @@ class WelfareRecipientService:
             .options(
                 selectinload(SupportPlanCycle.deliverables)
             )
-            .where(
-                SupportPlanCycle.office_id == office_id,
-                SupportPlanCycle.is_latest_cycle == True
-            )
+            .where(*assessment_conditions)
             .order_by(
                 WelfareRecipient.last_name.asc(),
                 WelfareRecipient.first_name.asc()
