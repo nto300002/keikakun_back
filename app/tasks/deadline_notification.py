@@ -6,6 +6,7 @@
 """
 import logging
 import asyncio
+import os
 from datetime import datetime, timezone, date
 from typing import List
 from sqlalchemy import select
@@ -113,7 +114,15 @@ async def send_deadline_alert_emails(
         f"[DEADLINE_NOTIFICATION] Starting deadline alert email notification"
     )
 
-    stmt = select(Office).where(Office.deleted_at.is_(None))
+    # テスト環境かどうかをチェック
+    is_testing = os.getenv("TESTING") == "1"
+
+    # Office取得クエリ（本番環境のみis_test_dataでフィルタ）
+    office_conditions = [Office.deleted_at.is_(None)]
+    if not is_testing:
+        office_conditions.append(Office.is_test_data == False)
+
+    stmt = select(Office).where(*office_conditions)
     result = await db.execute(stmt)
     offices = result.scalars().all()
 
@@ -156,14 +165,19 @@ async def send_deadline_alert_emails(
                 f"{len(all_assessment_alerts)} assessment alerts (max threshold: 30 days)"
             )
 
+            # Staff取得クエリ（本番環境のみis_test_dataでフィルタ）
+            staff_conditions = [
+                OfficeStaff.office_id == office.id,
+                Staff.deleted_at.is_(None),
+                Staff.email.isnot(None)
+            ]
+            if not is_testing:
+                staff_conditions.append(Staff.is_test_data == False)
+
             staff_stmt = (
                 select(Staff)
                 .join(OfficeStaff, OfficeStaff.staff_id == Staff.id)
-                .where(
-                    OfficeStaff.office_id == office.id,
-                    Staff.deleted_at.is_(None),
-                    Staff.email.isnot(None)
-                )
+                .where(*staff_conditions)
             )
             staff_result = await db.execute(staff_stmt)
             staffs = staff_result.scalars().all()
