@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # --- API設定 ---
     API_V1_STR: str = "/api/v1"
 
+    # --- 環境設定 ---
+    ENVIRONMENT: str = "development"  # development, production, test
+
     # --- フロントエンド設定 ---
     FRONTEND_URL: str
 

@@ -53,12 +53,12 @@ class WelfareRecipientService:
         利用者情報と初期支援計画の一括作成 (非同期)
         """
         try:
-            logger.info("[SERVICE DEBUG] create_recipient_with_initial_plan START")
+            logger.debug("[SERVICE DEBUG] create_recipient_with_initial_plan START")
             # Pydanticによる型変換とバリデーションが完了しているため、手動バリデーションは不要
 
             # 2. 利用者基本情報の作成
             basic_info = registration_data.basic_info
-            logger.info(f"[SERVICE DEBUG] Creating WelfareRecipient: {basic_info.lastName} {basic_info.firstName}")
+            logger.debug(f"[SERVICE DEBUG] Creating WelfareRecipient: {basic_info.lastName} {basic_info.firstName}")
             welfare_recipient = WelfareRecipient(
                 first_name=basic_info.firstName,
                 last_name=basic_info.lastName,
@@ -68,33 +68,33 @@ class WelfareRecipientService:
                 gender=basic_info.gender
             )
             db.add(welfare_recipient)
-            logger.info("[SERVICE DEBUG] Flushing WelfareRecipient...")
+            logger.debug("[SERVICE DEBUG] Flushing WelfareRecipient...")
             await db.flush()  # IDを取得するためにflush
 
             # IMPORTANT: flush()直後にIDを変数に保存する
             # その後の処理（flush等）でオブジェクトがexpired状態になり、
             # 再度welfare_recipient.idにアクセスするとgreenletエラーが発生するため
             recipient_id = welfare_recipient.id
-            logger.info(f"[SERVICE DEBUG] WelfareRecipient created with id={recipient_id}")
+            logger.debug(f"[SERVICE DEBUG] WelfareRecipient created with id={recipient_id}")
 
             # 3. 関連データの作成
-            logger.info("[SERVICE DEBUG] Calling crud_welfare_recipient.create_related_data...")
+            logger.debug("[SERVICE DEBUG] Calling crud_welfare_recipient.create_related_data...")
             await crud_welfare_recipient.create_related_data(
                 db=db,
                 welfare_recipient=welfare_recipient,
                 registration_data=registration_data,
                 office_id=office_id
             )
-            logger.info("[SERVICE DEBUG] create_related_data completed")
+            logger.debug("[SERVICE DEBUG] create_related_data completed")
 
             # 4. 初期支援計画の作成（mini.mdの要件）
             # 既に保存したrecipient_idを使用（welfare_recipient.idに再アクセスしない）
-            logger.info("[SERVICE DEBUG] Calling _create_initial_support_plan...")
+            logger.debug("[SERVICE DEBUG] Calling _create_initial_support_plan...")
             await WelfareRecipientService._create_initial_support_plan(db, recipient_id, office_id)
-            logger.info("[SERVICE DEBUG] _create_initial_support_plan completed")
+            logger.debug("[SERVICE DEBUG] _create_initial_support_plan completed")
 
             # 5. IDを返す (コミット/ロールバックは呼び出し元で行う)
-            logger.info(f"[SERVICE DEBUG] create_recipient_with_initial_plan END: returning recipient_id={recipient_id}")
+            logger.debug(f"[SERVICE DEBUG] create_recipient_with_initial_plan END: returning recipient_id={recipient_id}")
             return recipient_id
 
         except IntegrityError as e:
@@ -135,16 +135,16 @@ class WelfareRecipientService:
         サイクル番号に応じて作成するステップを変更する。
         カレンダーイベントも自動作成する。
         """
-        logger.info(f"[DEBUG] _create_initial_support_plan START: welfare_recipient_id={welfare_recipient_id}, office_id={office_id}")
+        logger.debug(f"[DEBUG] _create_initial_support_plan START: welfare_recipient_id={welfare_recipient_id}, office_id={office_id}")
 
         # 既存のサイクル数を取得して新しいサイクル番号を決定
-        logger.info("[DEBUG] Counting existing cycles...")
+        logger.debug("[DEBUG] Counting existing cycles...")
         count_stmt = select(func.count()).select_from(SupportPlanCycle).where(SupportPlanCycle.welfare_recipient_id == welfare_recipient_id)
         existing_cycles_count = (await db.execute(count_stmt)).scalar_one()
         new_cycle_number = existing_cycles_count + 1
-        logger.info(f"[DEBUG] New cycle_number={new_cycle_number}")
+        logger.debug(f"[DEBUG] New cycle_number={new_cycle_number}")
 
-        logger.info("[DEBUG] Creating SupportPlanCycle...")
+        logger.debug("[DEBUG] Creating SupportPlanCycle...")
         cycle = SupportPlanCycle(
             welfare_recipient_id=welfare_recipient_id,
             office_id=office_id,
@@ -154,11 +154,11 @@ class WelfareRecipientService:
             next_renewal_deadline=date.today() + timedelta(days=180)
         )
         db.add(cycle)
-        logger.info("[DEBUG] Flushing cycle...")
+        logger.debug("[DEBUG] Flushing cycle...")
         await db.flush()  # cycle.id を取得するため
-        logger.info(f"[DEBUG] Cycle created with id={cycle.id}")
+        logger.debug(f"[DEBUG] Cycle created with id={cycle.id}")
 
-        logger.info(f"[DEBUG] Creating {len(CYCLE_STEPS)} status records...")
+        logger.debug(f"[DEBUG] Creating {len(CYCLE_STEPS)} status records...")
         for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
@@ -170,12 +170,12 @@ class WelfareRecipientService:
             )
             db.add(status)
 
-        logger.info("[DEBUG] Flushing status records...")
+        logger.debug("[DEBUG] Flushing status records...")
         await db.flush()
-        logger.info("[DEBUG] Status records created successfully")
+        logger.debug("[DEBUG] Status records created successfully")
 
         # カレンダーイベントを自動作成（ベストエフォート：失敗してもサイクル作成は継続）
-        logger.info("[DEBUG] Creating calendar events...")
+        logger.debug("[DEBUG] Creating calendar events...")
         try:
             from app.services.calendar_service import calendar_service
             from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
@@ -189,7 +189,7 @@ class WelfareRecipientService:
                     cycle_id=cycle.id,
                     next_renewal_deadline=cycle.next_renewal_deadline
                 )
-                logger.info("[DEBUG] Renewal deadline event created successfully")
+                logger.debug("[DEBUG] Renewal deadline event created successfully")
             except SQLAlchemyIntegrityError as e:
                 # 重複エラーの場合は警告のみ（既にイベントが存在する）
                 logger.warning(f"[DEBUG] Renewal deadline event already exists for cycle_id={cycle.id}: {e}")
@@ -207,7 +207,7 @@ class WelfareRecipientService:
                     cycle_start_date=cycle.plan_cycle_start_date,
                     cycle_number=new_cycle_number
                 )
-                logger.info("[DEBUG] Next plan start date events created successfully")
+                logger.debug("[DEBUG] Next plan start date events created successfully")
             except SQLAlchemyIntegrityError as e:
                 # 重複エラーの場合は警告のみ（既にイベントが存在する）
                 logger.warning(f"[DEBUG] Next plan start date events already exist for cycle_id={cycle.id}: {e}")
@@ -222,7 +222,7 @@ class WelfareRecipientService:
             logger.error(f"[DEBUG] Traceback:\n{traceback.format_exc()}")
             # カレンダーイベント作成の失敗は利用者登録を妨げない
 
-        logger.info("[DEBUG] _create_initial_support_plan END")
+        logger.debug("[DEBUG] _create_initial_support_plan END")
 
     @staticmethod
     def _create_initial_support_plan_sync(db: Session, welfare_recipient_id: UUID) -> None:
@@ -583,7 +583,7 @@ class WelfareRecipientService:
         Returns:
             削除成功フラグ
         """
-        logger.info(f"[DEBUG] delete_recipient START: recipient_id={recipient_id}")
+        logger.debug(f"[DEBUG] delete_recipient START: recipient_id={recipient_id}")
 
         # 1. 利用者に紐づくカレンダーイベントを取得
         from app.models.calendar_events import CalendarEvent
@@ -595,7 +595,7 @@ class WelfareRecipientService:
         result = await db.execute(stmt)
         events = result.scalars().all()
 
-        logger.info(f"[DEBUG] Found {len(events)} calendar events for recipient {recipient_id}")
+        logger.debug(f"[DEBUG] Found {len(events)} calendar events for recipient {recipient_id}")
 
         # 2. Google Calendarから各イベントを削除
         for event in events:
@@ -606,34 +606,34 @@ class WelfareRecipientService:
 
             if google_event_id:
                 try:
-                    logger.info(f"[DEBUG-DELETE] Processing event {event_id} with google_event_id={google_event_id}, office_id={office_id}")
+                    logger.debug(f"[DEBUG-DELETE] Processing event {event_id} with google_event_id={google_event_id}, office_id={office_id}")
 
                     # カレンダーアカウント取得
                     account = await crud_office_calendar_account.get_by_office_id(
                         db=db,
                         office_id=office_id
                     )
-                    logger.info(f"[DEBUG-DELETE] Calendar account retrieved: {account is not None}")
+                    logger.debug(f"[DEBUG-DELETE] Calendar account retrieved: {account is not None}")
 
                     if account:
-                        logger.info(f"[DEBUG-DELETE] Account attributes: service_account_key exists={hasattr(account, 'service_account_key')}, decrypt method exists={hasattr(account, 'decrypt_service_account_key')}")
+                        logger.debug(f"[DEBUG-DELETE] Account attributes: service_account_key exists={hasattr(account, 'service_account_key')}, decrypt method exists={hasattr(account, 'decrypt_service_account_key')}")
 
                         # Google Calendarクライアント初期化
                         from app.services.google_calendar_client import GoogleCalendarClient
 
                         # decrypt_service_account_key() はメソッドなので呼び出す必要がある
                         decrypted_key = account.decrypt_service_account_key()
-                        logger.info(f"[DEBUG-DELETE] Decrypted key obtained: {decrypted_key is not None}")
+                        logger.debug(f"[DEBUG-DELETE] Decrypted key obtained: {decrypted_key is not None}")
 
                         calendar_client = GoogleCalendarClient(
                             service_account_json=decrypted_key,
                             calendar_id=account.google_calendar_id
                         )
-                        logger.info(f"[DEBUG-DELETE] GoogleCalendarClient initialized")
+                        logger.debug(f"[DEBUG-DELETE] GoogleCalendarClient initialized")
 
                         # Google Calendarからイベント削除
                         await calendar_client.delete_event(google_event_id)
-                        logger.info(f"[DEBUG] Deleted event {event_id} from Google Calendar: {google_event_id}")
+                        logger.debug(f"[DEBUG] Deleted event {event_id} from Google Calendar: {google_event_id}")
                     else:
                         logger.warning(f"[DEBUG] Calendar account not found for office_id={office_id}")
 
@@ -648,7 +648,7 @@ class WelfareRecipientService:
         if recipient:
             await db.delete(recipient)
             await db.flush()
-            logger.info(f"[DEBUG] delete_recipient END: deleted recipient {recipient_id}")
+            logger.debug(f"[DEBUG] delete_recipient END: deleted recipient {recipient_id}")
             return True
 
         logger.warning(f"[DEBUG] delete_recipient END: recipient {recipient_id} not found")
@@ -741,7 +741,7 @@ class WelfareRecipientService:
 
         # 2. アセスメント未完了アラート（新機能）
         # アセスメントPDFがアップロードされていない利用者を全て含める（cycle_numberに関わらず）
-        logger.info("[DEADLINE_ALERTS_DEBUG] Starting assessment incomplete alert query")
+        logger.debug("[DEADLINE_ALERTS_DEBUG] Starting assessment incomplete alert query")
 
         assessment_conditions = [
             SupportPlanCycle.office_id == office_id,
@@ -768,23 +768,23 @@ class WelfareRecipientService:
 
         assessment_result = await db.execute(assessment_stmt)
         assessment_rows = assessment_result.all()
-        logger.info(f"[DEADLINE_ALERTS_DEBUG] Found {len(assessment_rows)} candidates for assessment alerts")
+        logger.debug(f"[DEADLINE_ALERTS_DEBUG] Found {len(assessment_rows)} candidates for assessment alerts")
 
         for recipient, cycle in assessment_rows:
             full_name = f"{recipient.last_name} {recipient.first_name}"
-            logger.info(f"[DEADLINE_ALERTS_DEBUG] Checking: {full_name}, cycle_number={cycle.cycle_number}, is_latest={cycle.is_latest_cycle}")
+            logger.debug(f"[DEADLINE_ALERTS_DEBUG] Checking: {full_name}, cycle_number={cycle.cycle_number}, is_latest={cycle.is_latest_cycle}")
 
             has_assessment_pdf = False
             if hasattr(cycle, 'deliverables') and cycle.deliverables:
-                logger.info(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(cycle.deliverables)} deliverables")
+                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(cycle.deliverables)} deliverables")
                 assessment_deliverables = [d for d in cycle.deliverables if d.deliverable_type == DeliverableType.assessment_sheet]
-                logger.info(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(assessment_deliverables)} assessment_sheet deliverables")
+                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(assessment_deliverables)} assessment_sheet deliverables")
                 has_assessment_pdf = len(assessment_deliverables) > 0
             else:
-                logger.info(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has NO deliverables")
+                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has NO deliverables")
 
             if not has_assessment_pdf:
-                logger.info(f"[DEADLINE_ALERTS_DEBUG]   ✅ Adding {full_name} to assessment incomplete alerts")
+                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   ✅ Adding {full_name} to assessment incomplete alerts")
                 alert_item = DeadlineAlertItem(
                     id=str(recipient.id),
                     full_name=full_name,
@@ -796,7 +796,7 @@ class WelfareRecipientService:
                 )
                 alerts.append(alert_item)
             else:
-                logger.info(f"[DEADLINE_ALERTS_DEBUG]   ❌ Skipping {full_name} - assessment PDF already uploaded")
+                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   ❌ Skipping {full_name} - assessment PDF already uploaded")
 
         total = len(alerts)
 

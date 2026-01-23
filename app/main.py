@@ -20,17 +20,24 @@ from app.scheduler.cleanup_scheduler import cleanup_scheduler
 from app.scheduler.billing_scheduler import billing_scheduler
 from app.scheduler import deadline_notification_scheduler
 
-# ログ設定（標準出力に出力）
+# ログ設定（環境に応じてレベルを変更）
+# 本番環境ではWARNINGレベル、開発環境ではINFOレベル
+log_level = logging.WARNING if settings.ENVIRONMENT == "production" else logging.INFO
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
     ]
 )
 
+# SQLAlchemyのエンジンログを無効化（本番環境）
+if settings.ENVIRONMENT == "production":
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
-logger.info("Application starting...")
+logger.info(f"Application starting... (Environment: {settings.ENVIRONMENT}, Log Level: {logging.getLevelName(log_level)})")
 
 app = FastAPI()
 app.state.limiter = limiter
