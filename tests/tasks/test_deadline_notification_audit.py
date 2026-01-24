@@ -17,6 +17,16 @@ from app.models.push_subscription import PushSubscription
 from app.schemas.deadline_alert import DeadlineAlertResponse, DeadlineAlertItem
 
 
+@pytest.fixture(autouse=True)
+def mock_weekday_check():
+    """
+    すべてのテストで週末・祝日チェックをスキップ
+    テストは曜日に関係なく実行できるようにする
+    """
+    with patch('app.tasks.deadline_notification.is_japanese_weekday_and_not_holiday', return_value=True):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_audit_log_on_email_sent(db_session: AsyncSession):
     """

@@ -5,12 +5,23 @@ import pytest
 import pytest_asyncio
 from datetime import date, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
+from unittest.mock import patch
 
 from app.tasks.deadline_notification import send_deadline_alert_emails
 from app.models.office import Office, OfficeStaff
 from app.models.staff import Staff
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle
+
+
+@pytest.fixture(autouse=True)
+def mock_weekday_check():
+    """
+    すべてのテストで週末・祝日チェックをスキップ
+    テストは曜日に関係なく実行できるようにする
+    """
+    with patch('app.tasks.deadline_notification.is_japanese_weekday_and_not_holiday', return_value=True):
+        yield
 
 
 @pytest.mark.asyncio

@@ -108,7 +108,7 @@ async def send_deadline_alert_emails(
             f"[DEADLINE_NOTIFICATION] Skipping email notification: "
             f"today is weekend or holiday ({today})"
         )
-        return 0
+        return {"email_sent": 0, "push_sent": 0, "push_failed": 0}
 
     logger.info(
         f"[DEADLINE_NOTIFICATION] Starting deadline alert email notification"
