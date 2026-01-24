@@ -32,8 +32,8 @@ logging.basicConfig(
     ]
 )
 
-# SQLAlchemyのエンジンログを無効化（本番環境）
-if settings.ENVIRONMENT == "production":
+# SQLAlchemyのエンジンログを無効化（本番環境 + テスト環境）
+if settings.ENVIRONMENT == "production" or os.getenv("TESTING") == "1":
     logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
