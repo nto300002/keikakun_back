@@ -117,9 +117,13 @@ async def send_deadline_alert_emails(
     # テスト環境かどうかをチェック
     is_testing = os.getenv("TESTING") == "1"
 
-    # Office取得クエリ（本番環境のみis_test_dataでフィルタ）
+    # Office取得クエリ（環境に応じてis_test_dataでフィルタ）
     office_conditions = [Office.deleted_at.is_(None)]
-    if not is_testing:
+    if is_testing:
+        # テスト環境: テストデータのみ取得
+        office_conditions.append(Office.is_test_data == True)
+    else:
+        # 本番環境: 本番データのみ取得
         office_conditions.append(Office.is_test_data == False)
 
     stmt = select(Office).where(*office_conditions)
@@ -165,13 +169,17 @@ async def send_deadline_alert_emails(
                 f"{len(all_assessment_alerts)} assessment alerts (max threshold: 30 days)"
             )
 
-            # Staff取得クエリ（本番環境のみis_test_dataでフィルタ）
+            # Staff取得クエリ（環境に応じてis_test_dataでフィルタ）
             staff_conditions = [
                 OfficeStaff.office_id == office.id,
                 Staff.deleted_at.is_(None),
                 Staff.email.isnot(None)
             ]
-            if not is_testing:
+            if is_testing:
+                # テスト環境: テストデータのみ取得
+                staff_conditions.append(Staff.is_test_data == True)
+            else:
+                # 本番環境: 本番データのみ取得
                 staff_conditions.append(Staff.is_test_data == False)
 
             staff_stmt = (
