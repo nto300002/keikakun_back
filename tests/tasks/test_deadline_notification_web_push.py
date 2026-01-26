@@ -77,7 +77,8 @@ async def test_push_sent_when_system_notification_enabled(
         next_renewal_deadline=date.today() + timedelta(days=5),  # 5日後（10日以内）
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -143,7 +144,8 @@ async def test_push_skipped_when_system_notification_disabled(
         next_renewal_deadline=date.today() + timedelta(days=5),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -213,7 +215,8 @@ async def test_push_threshold_filtering(
         next_renewal_deadline=date.today() + timedelta(days=5),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle_a)
 
@@ -225,7 +228,8 @@ async def test_push_threshold_filtering(
         next_renewal_deadline=date.today() + timedelta(days=15),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle_b)
     await db_session.flush()
@@ -305,7 +309,8 @@ async def test_push_multiple_devices(
         next_renewal_deadline=date.today() + timedelta(days=5),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -388,7 +393,8 @@ async def test_push_subscription_cleanup_on_expired(
         next_renewal_deadline=date.today() + timedelta(days=5),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -470,7 +476,8 @@ async def test_push_failure_does_not_affect_email(
         next_renewal_deadline=date.today() + timedelta(days=5),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -543,7 +550,8 @@ async def test_dry_run_skips_push_sending(
         next_renewal_deadline=date.today() + timedelta(days=5),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()

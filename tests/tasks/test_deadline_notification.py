@@ -45,7 +45,8 @@ async def test_send_deadline_alert_emails_dry_run(
         next_renewal_deadline=date.today() + timedelta(days=15),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=7
+        next_plan_start_date=7,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -115,7 +116,8 @@ async def test_send_deadline_alert_emails_with_threshold_filtering(
         next_renewal_deadline=date.today() + timedelta(days=15),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=22
+        next_plan_start_date=22,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -169,7 +171,8 @@ async def test_send_deadline_alert_emails_email_notification_disabled(
         next_renewal_deadline=date.today() + timedelta(days=15),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=22
+        next_plan_start_date=22,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -239,7 +242,8 @@ async def test_send_deadline_alert_emails_multiple_thresholds(
         next_renewal_deadline=date.today() + timedelta(days=15),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=22
+        next_plan_start_date=22,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
@@ -291,7 +295,8 @@ async def test_send_deadline_alert_emails_default_threshold(
         next_renewal_deadline=date.today() + timedelta(days=25),
         is_latest_cycle=True,
         cycle_number=1,
-        next_plan_start_date=32
+        next_plan_start_date=32,
+        is_test_data=True
     )
     db_session.add(cycle)
     await db_session.flush()
