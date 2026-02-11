@@ -21,8 +21,8 @@ from app.scheduler.billing_scheduler import billing_scheduler
 from app.scheduler import deadline_notification_scheduler
 
 # ログ設定（環境に応じてレベルを変更）
-# 本番環境ではWARNINGレベル、開発環境ではINFOレベル
-log_level = logging.WARNING if settings.ENVIRONMENT == "production" else logging.INFO
+# 全環境でWARNINGレベルに統一（デバッグ出力を抑制）
+log_level = logging.WARNING
 
 logging.basicConfig(
     level=log_level,
