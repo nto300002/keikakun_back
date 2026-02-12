@@ -13,6 +13,9 @@ pytest-dotenv
 # pytestで非同期コード(async/await)をテストするために必要
 pytest-asyncio
 
+# pytest並列実行プラグイン（複数CPU/ワーカーでテストを同時実行）
+pytest-xdist>=3.5.0
+
 # テストコードからFastAPIエンドポイントにリクエストを送るための高機能なHTTPクライアント
 httpx>=0.25.0
 
