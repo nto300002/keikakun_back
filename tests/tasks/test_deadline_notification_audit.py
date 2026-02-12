@@ -37,7 +37,9 @@ async def test_audit_log_on_email_sent(db_session: AsyncSession):
     - crud.audit_log.create_logが呼び出される
     """
     with patch('app.tasks.deadline_notification.select') as mock_select, \
-         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts') as mock_get_alerts, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts_batch') as mock_get_alerts_batch, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_staffs_by_offices_batch') as mock_get_staffs_batch, \
+         patch('app.tasks.deadline_notification.crud.push_subscription.get_by_staff_ids_batch') as mock_get_push_subs_batch, \
          patch('app.tasks.deadline_notification.send_deadline_alert_email') as mock_send_email, \
          patch('app.tasks.deadline_notification.crud.audit_log.create_log') as mock_create_log:
 
@@ -77,41 +79,41 @@ async def test_audit_log_on_email_sent(db_session: AsyncSession):
         mock_office_result = MagicMock()
         mock_office_result.scalars().all.return_value = [office]
 
-        mock_staff_result = MagicMock()
-        mock_staff_result.scalars().all.return_value = staffs
+        db_session.execute = AsyncMock(return_value=mock_office_result)
 
-        execute_call_count = [0]
+        # バッチクエリのモック（office.idをキーとした辞書を返す）
+        mock_get_alerts_batch.return_value = {
+            "office-1": DeadlineAlertResponse(
+                alerts=[
+                    DeadlineAlertItem(
+                        id="recipient-1",
+                        full_name="利用者1",
+                        alert_type="renewal_deadline",
+                        message="更新期限が近づいています",
+                        days_remaining=15,
+                        current_cycle_number=1
+                    ),
+                    DeadlineAlertItem(
+                        id="recipient-2",
+                        full_name="利用者2",
+                        alert_type="assessment_incomplete",
+                        message="アセスメントが未完了です",
+                        current_cycle_number=2
+                    )
+                ],
+                total=2
+            )
+        }
 
-        async def execute_side_effect(stmt):
-            execute_call_count[0] += 1
-            # First call returns offices, all other calls return staffs
-            if execute_call_count[0] == 1:
-                return mock_office_result
-            else:
-                return mock_staff_result
+        mock_get_staffs_batch.return_value = {
+            "office-1": staffs
+        }
 
-        db_session.execute = AsyncMock(side_effect=execute_side_effect)
-
-        mock_get_alerts.return_value = DeadlineAlertResponse(
-            alerts=[
-                DeadlineAlertItem(
-                    id="recipient-1",
-                    full_name="利用者1",
-                    alert_type="renewal_deadline",
-                    message="更新期限が近づいています",
-                    days_remaining=15,
-                    current_cycle_number=1
-                ),
-                DeadlineAlertItem(
-                    id="recipient-2",
-                    full_name="利用者2",
-                    alert_type="assessment_incomplete",
-                    message="アセスメントが未完了です",
-                    current_cycle_number=2
-                )
-            ],
-            total=2
-        )
+        # Push購読情報のバッチクエリモック（Phase 4.2）
+        mock_get_push_subs_batch.return_value = {
+            "staff-1": [],  # Push通知なし
+            "staff-2": []   # Push通知なし
+        }
 
         mock_send_email.return_value = None
         mock_create_log.return_value = None
@@ -134,7 +136,9 @@ async def test_audit_log_contains_required_fields(db_session: AsyncSession):
     - details: メール送信詳細（受信者メール、アラート件数など）
     """
     with patch('app.tasks.deadline_notification.select') as mock_select, \
-         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts') as mock_get_alerts, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts_batch') as mock_get_alerts_batch, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_staffs_by_offices_batch') as mock_get_staffs_batch, \
+         patch('app.tasks.deadline_notification.crud.push_subscription.get_by_staff_ids_batch') as mock_get_push_subs_batch, \
          patch('app.tasks.deadline_notification.send_deadline_alert_email') as mock_send_email, \
          patch('app.tasks.deadline_notification.crud.audit_log.create_log') as mock_create_log:
 
@@ -157,41 +161,39 @@ async def test_audit_log_contains_required_fields(db_session: AsyncSession):
         mock_office_result = MagicMock()
         mock_office_result.scalars().all.return_value = [office]
 
-        mock_staff_result = MagicMock()
-        mock_staff_result.scalars().all.return_value = [staff]
+        db_session.execute = AsyncMock(return_value=mock_office_result)
 
-        execute_call_count = [0]
+        mock_get_alerts_batch.return_value = {
+            "office-123": DeadlineAlertResponse(
+                alerts=[
+                    DeadlineAlertItem(
+                        id="recipient-1",
+                        full_name="利用者1",
+                        alert_type="renewal_deadline",
+                        message="更新期限が近づいています",
+                        days_remaining=15,
+                        current_cycle_number=1
+                    ),
+                    DeadlineAlertItem(
+                        id="recipient-2",
+                        full_name="利用者2",
+                        alert_type="assessment_incomplete",
+                        message="アセスメントが未完了です",
+                        current_cycle_number=2
+                    )
+                ],
+                total=2
+            )
+        }
 
-        async def execute_side_effect(stmt):
-            execute_call_count[0] += 1
-            # First call returns offices, all other calls return staffs
-            if execute_call_count[0] == 1:
-                return mock_office_result
-            else:
-                return mock_staff_result
+        mock_get_staffs_batch.return_value = {
+            "office-123": [staff]
+        }
 
-        db_session.execute = AsyncMock(side_effect=execute_side_effect)
-
-        mock_get_alerts.return_value = DeadlineAlertResponse(
-            alerts=[
-                DeadlineAlertItem(
-                    id="recipient-1",
-                    full_name="利用者1",
-                    alert_type="renewal_deadline",
-                    message="更新期限が近づいています",
-                    days_remaining=15,
-                    current_cycle_number=1
-                ),
-                DeadlineAlertItem(
-                    id="recipient-2",
-                    full_name="利用者2",
-                    alert_type="assessment_incomplete",
-                    message="アセスメントが未完了です",
-                    current_cycle_number=2
-                )
-            ],
-            total=2
-        )
+        # Push購読情報のバッチクエリモック（Phase 4.2）
+        mock_get_push_subs_batch.return_value = {
+            "staff-456": []  # Push通知なし
+        }
 
         mock_send_email.return_value = None
         mock_create_log.return_value = None
@@ -236,7 +238,9 @@ async def test_audit_log_on_dry_run_skip(db_session: AsyncSession):
     - dry_run=Trueの場合、audit_logが作成されない
     """
     with patch('app.tasks.deadline_notification.select') as mock_select, \
-         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts') as mock_get_alerts, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts_batch') as mock_get_alerts_batch, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_staffs_by_offices_batch') as mock_get_staffs_batch, \
+         patch('app.tasks.deadline_notification.crud.push_subscription.get_by_staff_ids_batch') as mock_get_push_subs_batch, \
          patch('app.tasks.deadline_notification.crud.audit_log.create_log') as mock_create_log:
 
         office = Office(id="office-1", name="テスト事業所", deleted_at=None)
@@ -258,34 +262,32 @@ async def test_audit_log_on_dry_run_skip(db_session: AsyncSession):
         mock_office_result = MagicMock()
         mock_office_result.scalars().all.return_value = [office]
 
-        mock_staff_result = MagicMock()
-        mock_staff_result.scalars().all.return_value = [staff]
+        db_session.execute = AsyncMock(return_value=mock_office_result)
 
-        execute_call_count = [0]
+        mock_get_alerts_batch.return_value = {
+            "office-1": DeadlineAlertResponse(
+                alerts=[
+                    DeadlineAlertItem(
+                        id="recipient-1",
+                        full_name="利用者1",
+                        alert_type="renewal_deadline",
+                        message="更新期限が近づいています",
+                        days_remaining=15,
+                        current_cycle_number=1
+                    )
+                ],
+                total=1
+            )
+        }
 
-        async def execute_side_effect(stmt):
-            execute_call_count[0] += 1
-            # First call returns offices, all other calls return staffs
-            if execute_call_count[0] == 1:
-                return mock_office_result
-            else:
-                return mock_staff_result
+        mock_get_staffs_batch.return_value = {
+            "office-1": [staff]
+        }
 
-        db_session.execute = AsyncMock(side_effect=execute_side_effect)
-
-        mock_get_alerts.return_value = DeadlineAlertResponse(
-            alerts=[
-                DeadlineAlertItem(
-                    id="recipient-1",
-                    full_name="利用者1",
-                    alert_type="renewal_deadline",
-                    message="更新期限が近づいています",
-                    days_remaining=15,
-                    current_cycle_number=1
-                )
-            ],
-            total=1
-        )
+        # Push購読情報のバッチクエリモック（Phase 4.2）
+        mock_get_push_subs_batch.return_value = {
+            "staff-1": []  # Push通知なし
+        }
 
         mock_create_log.return_value = None
 
@@ -306,7 +308,9 @@ async def test_audit_log_on_push_sent(db_session: AsyncSession):
     - メール監査ログとは別にPush監査ログが記録される
     """
     with patch('app.tasks.deadline_notification.select') as mock_select, \
-         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts') as mock_get_alerts, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts_batch') as mock_get_alerts_batch, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_staffs_by_offices_batch') as mock_get_staffs_batch, \
+         patch('app.tasks.deadline_notification.crud.push_subscription.get_by_staff_ids_batch') as mock_get_push_subs_batch, \
          patch('app.tasks.deadline_notification.send_deadline_alert_email') as mock_send_email, \
          patch('app.tasks.deadline_notification.send_push_notification') as mock_send_push, \
          patch('app.tasks.deadline_notification.crud.audit_log.create_log') as mock_create_log:
@@ -339,9 +343,6 @@ async def test_audit_log_on_push_sent(db_session: AsyncSession):
         mock_office_result = MagicMock()
         mock_office_result.scalars().all.return_value = [office]
 
-        mock_staff_result = MagicMock()
-        mock_staff_result.scalars().all.return_value = [staff]
-
         mock_subscription_result = MagicMock()
         mock_subscription_result.scalars().all.return_value = [push_sub]
 
@@ -351,26 +352,41 @@ async def test_audit_log_on_push_sent(db_session: AsyncSession):
             execute_call_count[0] += 1
             if execute_call_count[0] == 1:
                 return mock_office_result  # Offices
-            elif execute_call_count[0] == 2:
-                return mock_staff_result   # Staffs
             else:
                 return mock_subscription_result  # Push subscriptions
 
         db_session.execute = AsyncMock(side_effect=execute_side_effect)
 
-        mock_get_alerts.return_value = DeadlineAlertResponse(
-            alerts=[
-                DeadlineAlertItem(
-                    id="recipient-1",
-                    full_name="利用者1",
-                    alert_type="renewal_deadline",
-                    message="更新期限が近づいています",
-                    days_remaining=5,  # Push閾値内
-                    current_cycle_number=1
+        mock_get_alerts_batch.return_value = {
+            "office-1": DeadlineAlertResponse(
+                alerts=[
+                    DeadlineAlertItem(
+                        id="recipient-1",
+                        full_name="利用者1",
+                        alert_type="renewal_deadline",
+                        message="更新期限が近づいています",
+                        days_remaining=5,  # Push閾値内
+                        current_cycle_number=1
+                    )
+                ],
+                total=1
+            )
+        }
+
+        mock_get_staffs_batch.return_value = {
+            "office-1": [staff]
+        }
+
+        # Push購読情報のバッチクエリモック（Phase 4.2）
+        mock_get_push_subs_batch.return_value = {
+            "staff-1": [
+                MagicMock(
+                    endpoint="https://fcm.googleapis.com/fcm/send/test",
+                    p256dh_key="test_p256dh",
+                    auth_key="test_auth"
                 )
-            ],
-            total=1
-        )
+            ]
+        }
 
         mock_send_email.return_value = None
         mock_send_push.return_value = (True, False)  # 成功
@@ -412,7 +428,9 @@ async def test_audit_log_push_contains_required_fields(db_session: AsyncSession)
     - details: Push送信詳細（送信件数、デバイス数、失敗件数など）
     """
     with patch('app.tasks.deadline_notification.select') as mock_select, \
-         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts') as mock_get_alerts, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts_batch') as mock_get_alerts_batch, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_staffs_by_offices_batch') as mock_get_staffs_batch, \
+         patch('app.tasks.deadline_notification.crud.push_subscription.get_by_staff_ids_batch') as mock_get_push_subs_batch, \
          patch('app.tasks.deadline_notification.send_deadline_alert_email') as mock_send_email, \
          patch('app.tasks.deadline_notification.send_push_notification') as mock_send_push, \
          patch('app.tasks.deadline_notification.crud.audit_log.create_log') as mock_create_log:
@@ -447,9 +465,6 @@ async def test_audit_log_push_contains_required_fields(db_session: AsyncSession)
         mock_office_result = MagicMock()
         mock_office_result.scalars().all.return_value = [office]
 
-        mock_staff_result = MagicMock()
-        mock_staff_result.scalars().all.return_value = [staff]
-
         mock_subscription_result = MagicMock()
         mock_subscription_result.scalars().all.return_value = push_subs
 
@@ -459,33 +474,49 @@ async def test_audit_log_push_contains_required_fields(db_session: AsyncSession)
             execute_call_count[0] += 1
             if execute_call_count[0] == 1:
                 return mock_office_result
-            elif execute_call_count[0] == 2:
-                return mock_staff_result
             else:
                 return mock_subscription_result
 
         db_session.execute = AsyncMock(side_effect=execute_side_effect)
 
-        mock_get_alerts.return_value = DeadlineAlertResponse(
-            alerts=[
-                DeadlineAlertItem(
-                    id="recipient-1",
-                    full_name="利用者1",
-                    alert_type="renewal_deadline",
-                    message="更新期限が近づいています",
-                    days_remaining=5,
-                    current_cycle_number=1
-                ),
-                DeadlineAlertItem(
-                    id="recipient-2",
-                    full_name="利用者2",
-                    alert_type="assessment_incomplete",
-                    message="アセスメントが未完了です",
-                    current_cycle_number=2
+        mock_get_alerts_batch.return_value = {
+            "office-123": DeadlineAlertResponse(
+                alerts=[
+                    DeadlineAlertItem(
+                        id="recipient-1",
+                        full_name="利用者1",
+                        alert_type="renewal_deadline",
+                        message="更新期限が近づいています",
+                        days_remaining=5,
+                        current_cycle_number=1
+                    ),
+                    DeadlineAlertItem(
+                        id="recipient-2",
+                        full_name="利用者2",
+                        alert_type="assessment_incomplete",
+                        message="アセスメントが未完了です",
+                        current_cycle_number=2
+                    )
+                ],
+                total=2
+            )
+        }
+
+        mock_get_staffs_batch.return_value = {
+            "office-123": [staff]
+        }
+
+        # Push購読情報のバッチクエリモック（Phase 4.2）- 3デバイス
+        mock_get_push_subs_batch.return_value = {
+            "staff-456": [
+                MagicMock(
+                    endpoint=f"https://fcm.googleapis.com/fcm/send/device-{i}",
+                    p256dh_key="test_p256dh",
+                    auth_key="test_auth"
                 )
-            ],
-            total=2
-        )
+                for i in range(3)
+            ]
+        }
 
         mock_send_email.return_value = None
         # 3デバイス: 2成功、1失敗
@@ -534,7 +565,9 @@ async def test_audit_log_push_on_dry_run_skip(db_session: AsyncSession):
     - メール監査ログのみスキップされる（既存の挙動）
     """
     with patch('app.tasks.deadline_notification.select') as mock_select, \
-         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts') as mock_get_alerts, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_deadline_alerts_batch') as mock_get_alerts_batch, \
+         patch('app.tasks.deadline_notification.WelfareRecipientService.get_staffs_by_offices_batch') as mock_get_staffs_batch, \
+         patch('app.tasks.deadline_notification.crud.push_subscription.get_by_staff_ids_batch') as mock_get_push_subs_batch, \
          patch('app.tasks.deadline_notification.send_push_notification') as mock_send_push, \
          patch('app.tasks.deadline_notification.crud.audit_log.create_log') as mock_create_log:
 
@@ -564,9 +597,6 @@ async def test_audit_log_push_on_dry_run_skip(db_session: AsyncSession):
         mock_office_result = MagicMock()
         mock_office_result.scalars().all.return_value = [office]
 
-        mock_staff_result = MagicMock()
-        mock_staff_result.scalars().all.return_value = [staff]
-
         mock_subscription_result = MagicMock()
         mock_subscription_result.scalars().all.return_value = [push_sub]
 
@@ -576,26 +606,41 @@ async def test_audit_log_push_on_dry_run_skip(db_session: AsyncSession):
             execute_call_count[0] += 1
             if execute_call_count[0] == 1:
                 return mock_office_result
-            elif execute_call_count[0] == 2:
-                return mock_staff_result
             else:
                 return mock_subscription_result
 
         db_session.execute = AsyncMock(side_effect=execute_side_effect)
 
-        mock_get_alerts.return_value = DeadlineAlertResponse(
-            alerts=[
-                DeadlineAlertItem(
-                    id="recipient-1",
-                    full_name="利用者1",
-                    alert_type="renewal_deadline",
-                    message="更新期限が近づいています",
-                    days_remaining=5,
-                    current_cycle_number=1
+        mock_get_alerts_batch.return_value = {
+            "office-1": DeadlineAlertResponse(
+                alerts=[
+                    DeadlineAlertItem(
+                        id="recipient-1",
+                        full_name="利用者1",
+                        alert_type="renewal_deadline",
+                        message="更新期限が近づいています",
+                        days_remaining=5,
+                        current_cycle_number=1
+                    )
+                ],
+                total=1
+            )
+        }
+
+        mock_get_staffs_batch.return_value = {
+            "office-1": [staff]
+        }
+
+        # Push購読情報のバッチクエリモック（Phase 4.2）
+        mock_get_push_subs_batch.return_value = {
+            "staff-1": [
+                MagicMock(
+                    endpoint="https://fcm.googleapis.com/fcm/send/test",
+                    p256dh_key="test_p256dh",
+                    auth_key="test_auth"
                 )
-            ],
-            total=1
-        )
+            ]
+        }
 
         mock_send_push.return_value = (True, False)
         mock_create_log.return_value = None

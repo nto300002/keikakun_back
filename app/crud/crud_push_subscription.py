@@ -1,7 +1,7 @@
 """
 Push通知購読のCRUD操作
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,44 @@ class CRUDPushSubscription(CRUDBase[PushSubscription, PushSubscriptionInDB, Push
         stmt = select(PushSubscription).where(PushSubscription.staff_id == staff_id)
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_by_staff_ids_batch(
+        self,
+        db: AsyncSession,
+        staff_ids: List[UUID]
+    ) -> Dict[UUID, List[PushSubscription]]:
+        """
+        複数スタッフの購読情報を一括取得（N+1問題解消）
+
+        Args:
+            db: データベースセッション
+            staff_ids: スタッフIDのリスト
+
+        Returns:
+            Dict[UUID, List[PushSubscription]]: {staff_id: [subscription, ...]} の辞書
+        """
+        if not staff_ids:
+            return {}
+
+        # 全スタッフの購読情報を1クエリで取得
+        stmt = (
+            select(PushSubscription)
+            .where(PushSubscription.staff_id.in_(staff_ids))
+            .order_by(PushSubscription.staff_id.asc(), PushSubscription.created_at.asc())
+        )
+
+        result = await db.execute(stmt)
+        subscriptions = result.scalars().all()
+
+        # スタッフIDごとにグループ化
+        subscriptions_by_staff: Dict[UUID, List[PushSubscription]] = {
+            staff_id: [] for staff_id in staff_ids
+        }
+
+        for subscription in subscriptions:
+            subscriptions_by_staff[subscription.staff_id].append(subscription)
+
+        return subscriptions_by_staff
 
     async def get_by_endpoint(
         self,

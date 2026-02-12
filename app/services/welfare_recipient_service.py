@@ -5,7 +5,7 @@ Welfare Recipient Service
 mini.mdの要件に基づいて、利用者情報と初期支援計画の一括作成を行います。
 """
 
-from typing import Optional
+from typing import Optional, List, Dict
 from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -804,6 +804,200 @@ class WelfareRecipientService:
             alerts = alerts[offset:offset + limit]
 
         return DeadlineAlertResponse(alerts=alerts, total=total)
+
+    @staticmethod
+    async def get_deadline_alerts_batch(
+        db: AsyncSession,
+        office_ids: List[UUID],
+        threshold_days: int = 30
+    ) -> Dict[UUID, DeadlineAlertResponse]:
+        """
+        複数事業所のアラートを一括取得（N+1問題解消）
+
+        Args:
+            db: データベースセッション
+            office_ids: 事業所IDのリスト
+            threshold_days: 通知閾値
+
+        Returns:
+            {office_id: DeadlineAlertResponse} の辞書
+        """
+        import os
+        from sqlalchemy.orm import selectinload
+        from app.models.support_plan_cycle import PlanDeliverable
+        from app.models.enums import DeliverableType
+
+        if not office_ids:
+            return {}
+
+        today = date.today()
+        threshold_date = today + timedelta(days=threshold_days)
+        is_testing = os.getenv("TESTING") == "1"
+
+        # 1. 更新期限アラート（複数事業所を一括取得）
+        renewal_conditions = [
+            SupportPlanCycle.office_id.in_(office_ids),
+            SupportPlanCycle.is_latest_cycle == True,
+            SupportPlanCycle.next_renewal_deadline.isnot(None),
+            SupportPlanCycle.next_renewal_deadline <= threshold_date
+        ]
+        if not is_testing:
+            renewal_conditions.append(WelfareRecipient.is_test_data == False)
+
+        renewal_stmt = (
+            select(WelfareRecipient, SupportPlanCycle)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .where(*renewal_conditions)
+            .order_by(
+                SupportPlanCycle.office_id.asc(),
+                SupportPlanCycle.next_renewal_deadline.asc(),
+                WelfareRecipient.last_name.asc(),
+                WelfareRecipient.first_name.asc()
+            )
+        )
+
+        renewal_result = await db.execute(renewal_stmt)
+        renewal_rows = renewal_result.all()
+
+        # 2. アセスメント未完了アラート（複数事業所を一括取得）
+        assessment_conditions = [
+            SupportPlanCycle.office_id.in_(office_ids),
+            SupportPlanCycle.is_latest_cycle == True
+        ]
+        if not is_testing:
+            assessment_conditions.append(WelfareRecipient.is_test_data == False)
+
+        assessment_stmt = (
+            select(WelfareRecipient, SupportPlanCycle)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .options(
+                selectinload(SupportPlanCycle.deliverables)
+            )
+            .where(*assessment_conditions)
+            .order_by(
+                SupportPlanCycle.office_id.asc(),
+                WelfareRecipient.last_name.asc(),
+                WelfareRecipient.first_name.asc()
+            )
+        )
+
+        assessment_result = await db.execute(assessment_stmt)
+        assessment_rows = assessment_result.all()
+
+        # 3. 事業所ごとにアラートをグループ化
+        alerts_by_office: Dict[UUID, List[DeadlineAlertItem]] = {office_id: [] for office_id in office_ids}
+
+        # 更新期限アラートを追加
+        for recipient, cycle in renewal_rows:
+            days_remaining = (cycle.next_renewal_deadline - today).days
+            full_name = f"{recipient.last_name} {recipient.first_name}"
+
+            if days_remaining <= 0:
+                alert_type = "renewal_overdue"
+                message = f"!{full_name}の更新期限が過ぎています!"
+            else:
+                alert_type = "renewal_deadline"
+                message = f"{full_name}の更新期限まで残り{days_remaining}日"
+
+            alert_item = DeadlineAlertItem(
+                id=str(recipient.id),
+                full_name=full_name,
+                alert_type=alert_type,
+                message=message,
+                next_renewal_deadline=cycle.next_renewal_deadline,
+                days_remaining=days_remaining,
+                current_cycle_number=cycle.cycle_number
+            )
+            alerts_by_office[cycle.office_id].append(alert_item)
+
+        # アセスメント未完了アラートを追加
+        for recipient, cycle in assessment_rows:
+            full_name = f"{recipient.last_name} {recipient.first_name}"
+
+            has_assessment_pdf = False
+            if hasattr(cycle, 'deliverables') and cycle.deliverables:
+                assessment_deliverables = [d for d in cycle.deliverables if d.deliverable_type == DeliverableType.assessment_sheet]
+                has_assessment_pdf = len(assessment_deliverables) > 0
+
+            if not has_assessment_pdf:
+                alert_item = DeadlineAlertItem(
+                    id=str(recipient.id),
+                    full_name=full_name,
+                    alert_type="assessment_incomplete",
+                    message=f"{recipient.last_name} {recipient.first_name}のアセスメントが完了していません",
+                    next_renewal_deadline=None,
+                    days_remaining=None,
+                    current_cycle_number=cycle.cycle_number
+                )
+                alerts_by_office[cycle.office_id].append(alert_item)
+
+        # 4. 各事業所のレスポンスを作成
+        result: Dict[UUID, DeadlineAlertResponse] = {}
+        for office_id, alerts in alerts_by_office.items():
+            result[office_id] = DeadlineAlertResponse(
+                alerts=alerts,
+                total=len(alerts)
+            )
+
+        return result
+
+    @staticmethod
+    async def get_staffs_by_offices_batch(
+        db: AsyncSession,
+        office_ids: List[UUID]
+    ) -> Dict[UUID, List]:
+        """
+        複数事業所のスタッフを一括取得
+
+        Args:
+            db: データベースセッション
+            office_ids: 事業所IDのリスト
+
+        Returns:
+            {office_id: [Staff, ...]} の辞書
+        """
+        import os
+        from app.models.staff import Staff
+        from app.models.office import OfficeStaff
+
+        if not office_ids:
+            return {}
+
+        # テスト環境かどうかをチェック
+        is_testing = os.getenv("TESTING") == "1"
+
+        # office_idsに紐づく全スタッフを一括取得
+        conditions = [
+            OfficeStaff.office_id.in_(office_ids),
+            Staff.deleted_at.is_(None),
+            Staff.email.isnot(None)
+        ]
+        if not is_testing:
+            conditions.append(Staff.is_test_data == False)
+
+        stmt = (
+            select(Staff, OfficeStaff.office_id)
+            .join(OfficeStaff, OfficeStaff.staff_id == Staff.id)
+            .where(*conditions)
+            .distinct()  # 重複を防ぐ（同じofficeに複数のOfficeStaffレコードがある場合）
+            .order_by(OfficeStaff.office_id.asc(), Staff.full_name.asc())
+        )
+
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        # 事業所ごとにスタッフをグループ化
+        staffs_by_office: Dict[UUID, List] = {office_id: [] for office_id in office_ids}
+        for staff, office_id in rows:
+            staffs_by_office[office_id].append(staff)
+
+        return staffs_by_office
 
 
 welfare_recipient_service = WelfareRecipientService()
