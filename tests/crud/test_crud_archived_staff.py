@@ -117,11 +117,12 @@ class TestCRUDArchivedStaff:
         assert "john.doe" not in archive.anonymized_email
         assert "example.com" not in archive.anonymized_email
 
-        # 匿名化IDが9文字の英数字（SHA-256の先頭9文字）
+        # 匿名化IDが9文字の16進数大文字表記（SHA-256の先頭9文字）
         anon_id = archive.anonymized_full_name.replace("スタッフ-", "")
         assert len(anon_id) == 9
         assert anon_id.isalnum()
-        assert anon_id.isupper()
+        # 16進数の大文字表記であることを確認（0-9, A-F のみ）
+        assert all(c in '0123456789ABCDEF' for c in anon_id)
 
     async def test_create_from_staff_with_office(self, db_session):
         """
