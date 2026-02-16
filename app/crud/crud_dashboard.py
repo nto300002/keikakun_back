@@ -5,9 +5,9 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
 from app.crud.base import CRUDBase
-from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient
+from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient, SupportPlanDeliverable
 from app.schemas.dashboard import DashboardSummary
-from app.models.enums import SupportPlanStep
+from app.models.enums import SupportPlanStep, DeliverableType
 import uuid
 
 
@@ -100,10 +100,27 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             SupportPlanCycle.id == cycle_info_sq.c.latest_cycle_id
         )
 
+        # --- Relationship loading with filtering (Phase 3.1 optimization) ---
         stmt = stmt.options(
-            selectinload(SupportPlanCycle.statuses),
-            selectinload(WelfareRecipient.support_plan_cycles).selectinload(SupportPlanCycle.statuses),
-            selectinload(SupportPlanCycle.deliverables)
+            # 最新ステータスのみをロード（_get_latest_step, _calculate_monitoring_due_date で使用）
+            selectinload(SupportPlanCycle.statuses).where(
+                SupportPlanStatus.is_latest_status == true()
+            ),
+            # 全サイクルをロード（ほとんどの利用者は1-2サイクルのみなので許容）
+            # ネストされたステータスは、is_latest_status=true または final_plan_signed のみ
+            # （_calculate_next_plan_start_days_remaining で前サイクルの final_plan_signed が必要）
+            selectinload(WelfareRecipient.support_plan_cycles).selectinload(
+                SupportPlanCycle.statuses
+            ).where(
+                or_(
+                    SupportPlanStatus.is_latest_status == true(),
+                    SupportPlanStatus.step_type == SupportPlanStep.final_plan_signed
+                )
+            ),
+            # アセスメントPDFのみをロード（_calculate_next_plan_start_days_remaining で使用）
+            selectinload(SupportPlanCycle.deliverables).where(
+                SupportPlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+            )
         )
 
         # --- 検索 ---
