@@ -38,10 +38,11 @@ async def get_dashboard(
         raise HTTPException(status_code=404, detail=ja.DASHBOARD_OFFICE_NOT_FOUND)
     staff, office = staff_office_info
 
-    # 2. 事業所に所属する全利用者数を取得
-    # この処理は重い可能性があるので、将来的には専用のcountメソッドをcrudに作ることを検討
-    all_recipients = await crud.office.get_recipients_by_office_id(db=db, office_id=office.id)
-    current_user_count = len(all_recipients)
+    # 2. 事業所に所属する全利用者数を取得（COUNT(*)クエリで効率的に）
+    current_user_count = await crud.dashboard.count_office_recipients(
+        db=db,
+        office_id=office.id
+    )
 
     # 3. クエリパラメータに基づいてフィルター辞書を作成
     filters = {}
