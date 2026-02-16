@@ -67,43 +67,38 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         skip: int,
         limit: int,
     ) -> list:
-        # 1. サイクル総数をカウントするサブクエリ
-        cycle_count_sq = (
+        # 1. サイクル情報を統合取得するサブクエリ（サイクル数 + 最新サイクルID）
+        cycle_info_sq = (
             select(
                 SupportPlanCycle.welfare_recipient_id,
                 func.count(SupportPlanCycle.id).label("cycle_count"),
+                func.max(
+                    func.case(
+                        (SupportPlanCycle.is_latest_cycle == true(), SupportPlanCycle.id),
+                        else_=None
+                    )
+                ).label("latest_cycle_id")
             )
             .group_by(SupportPlanCycle.welfare_recipient_id)
-            .subquery("cycle_count_sq")
+            .subquery("cycle_info_sq")
         )
 
-        # 2. 最新サイクルIDを取得するためのサブクエリ
-        latest_cycle_id_sq = (
-            select(
-                SupportPlanCycle.welfare_recipient_id,
-                func.max(SupportPlanCycle.id).label("latest_cycle_id"),
-            )
-            .where(SupportPlanCycle.is_latest_cycle == true())
-            .group_by(SupportPlanCycle.welfare_recipient_id)
-            .subquery("latest_cycle_id_sq")
-        )
-
-        # 3. メインクエリの構築
+        # 2. メインクエリの構築
         stmt = select(
             WelfareRecipient,
-            func.coalesce(cycle_count_sq.c.cycle_count, 0).label("cycle_count"),
+            func.coalesce(cycle_info_sq.c.cycle_count, 0).label("cycle_count"),
             SupportPlanCycle,
         ).join(OfficeWelfareRecipient).where(OfficeWelfareRecipient.office_id.in_(office_ids))
 
-        # --- JOINs ---
-        stmt = stmt.outerjoin(cycle_count_sq, WelfareRecipient.id == cycle_count_sq.c.welfare_recipient_id)
-
-        if sort_by == "next_renewal_deadline":
-            stmt = stmt.join(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
-            stmt = stmt.join(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
-        else:
-            stmt = stmt.outerjoin(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
-            stmt = stmt.outerjoin(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
+        # --- JOINs（常にOUTER JOINで統一） ---
+        stmt = stmt.outerjoin(
+            cycle_info_sq,
+            WelfareRecipient.id == cycle_info_sq.c.welfare_recipient_id
+        )
+        stmt = stmt.outerjoin(
+            SupportPlanCycle,
+            SupportPlanCycle.id == cycle_info_sq.c.latest_cycle_id
+        )
 
         stmt = stmt.options(
             selectinload(SupportPlanCycle.statuses),
@@ -130,7 +125,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             if filters.get("is_upcoming"):
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
             if filters.get("cycle_number"):
-                stmt = stmt.where(func.coalesce(cycle_count_sq.c.cycle_count, 0) == filters["cycle_number"])
+                stmt = stmt.where(func.coalesce(cycle_info_sq.c.cycle_count, 0) == filters["cycle_number"])
             if filters.get("status"):
                 try:
                     status_enum = SupportPlanStep[filters["status"]]
