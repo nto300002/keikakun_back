@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
 from app.crud.base import CRUDBase
-from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient, SupportPlanDeliverable
+from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient, PlanDeliverable
 from app.schemas.dashboard import DashboardSummary
 from app.models.enums import SupportPlanStep, DeliverableType
 import uuid
@@ -119,7 +119,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             ),
             # アセスメントPDFのみをロード（_calculate_next_plan_start_days_remaining で使用）
             selectinload(SupportPlanCycle.deliverables).where(
-                SupportPlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+                PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
             )
         )
 
