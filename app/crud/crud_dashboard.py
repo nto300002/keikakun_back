@@ -128,6 +128,11 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         # --- 検索 ---
         if search_term:
             search_words = re.split(r'[\s　]+', search_term.strip())
+            # セキュリティ: DoS対策として検索ワード数を制限（最大10ワード）
+            MAX_SEARCH_WORDS = 10
+            if len(search_words) > MAX_SEARCH_WORDS:
+                search_words = search_words[:MAX_SEARCH_WORDS]
+
             conditions = [or_(
                 WelfareRecipient.last_name.ilike(f"%{word}%"),
                 WelfareRecipient.first_name.ilike(f"%{word}%"),

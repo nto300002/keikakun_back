@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, List
+from typing import Optional, List, Annotated
 import logging
 
 from app import schemas, crud, models
@@ -11,20 +11,31 @@ from app.messages import ja
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# セキュリティ: 入力バリデーション定数
+MAX_SEARCH_TERM_LENGTH = 100
+MAX_LIMIT = 1000
+MIN_LIMIT = 1
+
 
 @router.get("/", response_model=schemas.dashboard.DashboardData)
 async def get_dashboard(
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.Staff = Depends(deps.get_current_user),
-    search_term: Optional[str] = None,
+    search_term: Annotated[
+        Optional[str],
+        Query(max_length=MAX_SEARCH_TERM_LENGTH, description="検索ワード（100文字以内）")
+    ] = None,
     sort_by: str = 'next_renewal_deadline',
     sort_order: str = 'asc',
     is_overdue: Optional[bool] = None,
     is_upcoming: Optional[bool] = None,
     status: Optional[str] = None,
     cycle_number: Optional[int] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: Annotated[int, Query(ge=0, description="スキップ件数")] = 0,
+    limit: Annotated[
+        int,
+        Query(ge=MIN_LIMIT, le=MAX_LIMIT, description=f"取得件数（{MIN_LIMIT}～{MAX_LIMIT}）")
+    ] = 100,
 ) -> schemas.dashboard.DashboardData:
     """
     ダッシュボード情報を取得します。
