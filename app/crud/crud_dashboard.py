@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta, date
-from sqlalchemy import select, func, and_, or_, true, exists
+from sqlalchemy import select, func, and_, or_, true, exists, case
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
@@ -73,7 +73,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
                 SupportPlanCycle.welfare_recipient_id,
                 func.count(SupportPlanCycle.id).label("cycle_count"),
                 func.max(
-                    func.case(
+                    case(
                         (SupportPlanCycle.is_latest_cycle == true(), SupportPlanCycle.id),
                         else_=None
                     )
@@ -103,23 +103,25 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         # --- Relationship loading with filtering (Phase 3.1 optimization) ---
         stmt = stmt.options(
             # 最新ステータスのみをロード（_get_latest_step, _calculate_monitoring_due_date で使用）
-            selectinload(SupportPlanCycle.statuses).where(
-                SupportPlanStatus.is_latest_status == true()
+            selectinload(
+                SupportPlanCycle.statuses.and_(SupportPlanStatus.is_latest_status == true())
             ),
             # 全サイクルをロード（ほとんどの利用者は1-2サイクルのみなので許容）
             # ネストされたステータスは、is_latest_status=true または final_plan_signed のみ
             # （_calculate_next_plan_start_days_remaining で前サイクルの final_plan_signed が必要）
             selectinload(WelfareRecipient.support_plan_cycles).selectinload(
-                SupportPlanCycle.statuses
-            ).where(
-                or_(
-                    SupportPlanStatus.is_latest_status == true(),
-                    SupportPlanStatus.step_type == SupportPlanStep.final_plan_signed
+                SupportPlanCycle.statuses.and_(
+                    or_(
+                        SupportPlanStatus.is_latest_status == true(),
+                        SupportPlanStatus.step_type == SupportPlanStep.final_plan_signed
+                    )
                 )
             ),
             # アセスメントPDFのみをロード（_calculate_next_plan_start_days_remaining で使用）
-            selectinload(SupportPlanCycle.deliverables).where(
-                PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+            selectinload(
+                SupportPlanCycle.deliverables.and_(
+                    PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+                )
             )
         )
 
