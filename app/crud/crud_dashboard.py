@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta, date
-from sqlalchemy import select, func, and_, or_, true
+from sqlalchemy import select, func, and_, or_, true, exists
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
@@ -149,14 +149,19 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
                 except KeyError:
                     pass  # 無効なステータスは無視
                 else:
-                    # is_latest_status が true のレコードから step_type を取得するサブクエリ
-                    latest_status_subq = select(
-                        SupportPlanStatus.plan_cycle_id,
-                        SupportPlanStatus.step_type.label("latest_step")
-                    ).where(SupportPlanStatus.is_latest_status == true()).subquery()
-                    
-                    stmt = stmt.join(latest_status_subq, SupportPlanCycle.id == latest_status_subq.c.plan_cycle_id)
-                    stmt = stmt.where(latest_status_subq.c.latest_step == status_enum)
+                    # EXISTS句でステータスをフィルタリング（Phase 3.2 optimization）
+                    # JOIN + サブクエリよりも効率的（マッチした時点で早期終了）
+                    stmt = stmt.where(
+                        exists(
+                            select(1).where(
+                                and_(
+                                    SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                                    SupportPlanStatus.is_latest_status == true(),
+                                    SupportPlanStatus.step_type == status_enum
+                                )
+                            )
+                        )
+                    )
 
         # --- ソート ---
         order_func = None
