@@ -54,6 +54,7 @@ class DashboardSummary(BaseModel):
 
 class DashboardData(DashboardBase):
     """ダッシュボード情報（レスポンス）"""
+    filtered_count: int = Field(..., ge=0, description="検索・フィルタリング後の利用者数")
     recipients: List[DashboardSummary]
 
     model_config = ConfigDict(from_attributes=True)

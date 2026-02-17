@@ -148,6 +148,20 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
             if filters.get("is_upcoming"):
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
+            if filters.get("has_assessment_due"):
+                # アセスメント開始期限が設定されている利用者（未完了のみ）
+                # 個別支援計画の5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング
+                assessment_exists_subq = exists(
+                    select(1).where(
+                        and_(
+                            SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                            SupportPlanStatus.step_type == SupportPlanStep.assessment,
+                            SupportPlanStatus.completed == False,
+                            SupportPlanStatus.due_date.isnot(None)
+                        )
+                    )
+                )
+                stmt = stmt.where(assessment_exists_subq)
             if filters.get("cycle_number"):
                 stmt = stmt.where(func.coalesce(cycle_info_sq.c.cycle_count, 0) == filters["cycle_number"])
             if filters.get("status"):
@@ -193,6 +207,121 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         stmt = stmt.offset(skip).limit(limit)
         result = await db.execute(stmt)
         return result.all()
+
+    async def count_filtered_summaries(
+        self,
+        db: AsyncSession,
+        *,
+        office_ids: List[uuid.UUID],
+        filters: dict,
+        search_term: Optional[str],
+    ) -> int:
+        """
+        フィルタリング後の利用者数を取得します（ページネーション前の件数）。
+
+        Args:
+            db: データベースセッション
+            office_ids: 対象事業所IDリスト
+            filters: フィルター条件辞書
+            search_term: 検索ワード
+
+        Returns:
+            フィルタリング後の利用者数
+        """
+        # 1. サイクル情報を統合取得するサブクエリ（count_filtered_summariesと同じロジック）
+        cycle_info_sq = (
+            select(
+                SupportPlanCycle.welfare_recipient_id,
+                func.count(SupportPlanCycle.id).label("cycle_count"),
+                func.max(
+                    case(
+                        (SupportPlanCycle.is_latest_cycle == true(), SupportPlanCycle.id),
+                        else_=None
+                    )
+                ).label("latest_cycle_id")
+            )
+            .group_by(SupportPlanCycle.welfare_recipient_id)
+            .subquery("cycle_info_sq")
+        )
+
+        # 2. カウント用クエリの構築（DISTINCT WelfareRecipient.id）
+        stmt = (
+            select(func.count(func.distinct(WelfareRecipient.id)))
+            .join(OfficeWelfareRecipient)
+            .where(OfficeWelfareRecipient.office_id.in_(office_ids))
+        )
+
+        # --- JOINs（get_filtered_summariesと同じロジック） ---
+        stmt = stmt.outerjoin(
+            cycle_info_sq,
+            WelfareRecipient.id == cycle_info_sq.c.welfare_recipient_id
+        )
+        stmt = stmt.outerjoin(
+            SupportPlanCycle,
+            SupportPlanCycle.id == cycle_info_sq.c.latest_cycle_id
+        )
+
+        # --- 検索条件（get_filtered_summariesと同じロジック） ---
+        if search_term:
+            search_words = re.split(r'[\s　]+', search_term.strip())
+            # セキュリティ: DoS対策として検索ワード数を制限（最大10ワード）
+            MAX_SEARCH_WORDS = 10
+            if len(search_words) > MAX_SEARCH_WORDS:
+                search_words = search_words[:MAX_SEARCH_WORDS]
+
+            conditions = [or_(
+                WelfareRecipient.last_name.ilike(f"%{word}%"),
+                WelfareRecipient.first_name.ilike(f"%{word}%"),
+                WelfareRecipient.last_name_furigana.ilike(f"%{word}%"),
+                WelfareRecipient.first_name_furigana.ilike(f"%{word}%"),
+            ) for word in search_words if word]
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+
+        # --- フィルター条件（get_filtered_summariesと同じロジック） ---
+        if filters:
+            if filters.get("is_overdue"):
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
+            if filters.get("is_upcoming"):
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
+            if filters.get("has_assessment_due"):
+                # アセスメント開始期限が設定されている利用者（未完了のみ）
+                # 個別支援計画の5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング
+                assessment_exists_subq = exists(
+                    select(1).where(
+                        and_(
+                            SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                            SupportPlanStatus.step_type == SupportPlanStep.assessment,
+                            SupportPlanStatus.completed == False,
+                            SupportPlanStatus.due_date.isnot(None)
+                        )
+                    )
+                )
+                stmt = stmt.where(assessment_exists_subq)
+            if filters.get("cycle_number"):
+                stmt = stmt.where(func.coalesce(cycle_info_sq.c.cycle_count, 0) == filters["cycle_number"])
+            if filters.get("status"):
+                try:
+                    status_enum = SupportPlanStep[filters["status"]]
+                except KeyError:
+                    pass  # 無効なステータスは無視
+                else:
+                    # EXISTS句でステータスをフィルタリング
+                    stmt = stmt.where(
+                        exists(
+                            select(1).where(
+                                and_(
+                                    SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                                    SupportPlanStatus.is_latest_status == true(),
+                                    SupportPlanStatus.step_type == status_enum
+                                )
+                            )
+                        )
+                    )
+
+        # 実行してカウントを取得
+        result = await db.execute(stmt)
+        return result.scalar_one()
 
     async def get_summary_counts(
         self,

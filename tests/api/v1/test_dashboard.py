@@ -119,6 +119,9 @@ class TestDashboardAPI:
         assert data["staff_name"] == staff.full_name
         assert data["office_name"] == dashboard_fixtures['office'].name
         assert data["current_user_count"] == 3
+        # Task #1.2: filtered_countフィールドの検証
+        assert "filtered_count" in data, "filtered_count field should be present in response"
+        assert data["filtered_count"] == 3, "filtered_count should equal current_user_count when no filters applied"
         assert len(data["recipients"]) == 3
 
         # next_plan_start_date が設定されている利用者を確認
@@ -174,6 +177,382 @@ class TestDashboardAPI:
 
         assert response.status_code == 404
         assert "事業所情報が見つかりません" in response.json()["detail"]
+
+    async def test_get_dashboard_assessment_due_filter(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        service_admin_user_factory,
+        office_factory
+    ):
+        """
+        Task #1.3: アセスメント開始期限フィルターのテスト
+
+        シナリオ:
+        - 利用者A: アセスメント期限あり（未完了）
+        - 利用者B: アセスメント期限なし
+        - 利用者C: アセスメント完了済み
+
+        期待:
+        - has_assessment_due=True → 利用者Aのみ返却
+        """
+        from datetime import timedelta
+
+        # テスト用スタッフと事業所を作成
+        staff = await service_admin_user_factory(
+            first_name="管理者",
+            last_name="アセスメント期限テスト",
+            email="assessment_filter@example.com",
+            role=StaffRole.owner
+        )
+        office = await office_factory(
+            creator=staff,
+            name="アセスメント期限テスト事業所",
+            type=OfficeType.type_A_office
+        )
+        office_staff = OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True)
+        db_session.add(office_staff)
+
+        # 利用者A: アセスメント期限あり（未完了）
+        recipient_a = WelfareRecipient(
+            first_name="太郎",
+            last_name="田中",
+            first_name_furigana="たろう",
+            last_name_furigana="たなか",
+            birth_day=date(1990, 1, 1),
+            gender=GenderType.male
+        )
+        db_session.add(recipient_a)
+        await db_session.flush()
+
+        office_recipient_a = OfficeWelfareRecipient(
+            welfare_recipient_id=recipient_a.id,
+            office_id=office.id
+        )
+        db_session.add(office_recipient_a)
+
+        cycle_a = SupportPlanCycle(
+            welfare_recipient_id=recipient_a.id,
+            office_id=office.id,
+            cycle_number=1,
+            is_latest_cycle=True,
+            plan_cycle_start_date=date.today(),
+            next_renewal_deadline=date.today() + timedelta(days=365)
+        )
+        db_session.add(cycle_a)
+        await db_session.flush()
+
+        # アセスメントステータス（未完了、期限あり）
+        status_a = SupportPlanStatus(
+            plan_cycle_id=cycle_a.id,
+            welfare_recipient_id=recipient_a.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.assessment,
+            completed=False,
+            due_date=date.today() + timedelta(days=7),  # 期限あり
+            is_latest_status=True
+        )
+        db_session.add(status_a)
+
+        # 利用者B: アセスメント期限なし
+        recipient_b = WelfareRecipient(
+            first_name="花子",
+            last_name="山田",
+            first_name_furigana="はなこ",
+            last_name_furigana="やまだ",
+            birth_day=date(1991, 2, 2),
+            gender=GenderType.female
+        )
+        db_session.add(recipient_b)
+        await db_session.flush()
+
+        office_recipient_b = OfficeWelfareRecipient(
+            welfare_recipient_id=recipient_b.id,
+            office_id=office.id
+        )
+        db_session.add(office_recipient_b)
+
+        cycle_b = SupportPlanCycle(
+            welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
+            cycle_number=1,
+            is_latest_cycle=True,
+            plan_cycle_start_date=date.today(),
+            next_renewal_deadline=date.today() + timedelta(days=365)
+        )
+        db_session.add(cycle_b)
+        await db_session.flush()
+
+        # アセスメントステータス（未完了、期限なし）
+        status_b = SupportPlanStatus(
+            plan_cycle_id=cycle_b.id,
+            welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.assessment,
+            completed=False,
+            due_date=None,  # 期限なし
+            is_latest_status=True
+        )
+        db_session.add(status_b)
+
+        # 利用者C: アセスメント完了済み
+        recipient_c = WelfareRecipient(
+            first_name="次郎",
+            last_name="佐藤",
+            first_name_furigana="じろう",
+            last_name_furigana="さとう",
+            birth_day=date(1992, 3, 3),
+            gender=GenderType.male
+        )
+        db_session.add(recipient_c)
+        await db_session.flush()
+
+        office_recipient_c = OfficeWelfareRecipient(
+            welfare_recipient_id=recipient_c.id,
+            office_id=office.id
+        )
+        db_session.add(office_recipient_c)
+
+        cycle_c = SupportPlanCycle(
+            welfare_recipient_id=recipient_c.id,
+            office_id=office.id,
+            cycle_number=1,
+            is_latest_cycle=True,
+            plan_cycle_start_date=date.today(),
+            next_renewal_deadline=date.today() + timedelta(days=365)
+        )
+        db_session.add(cycle_c)
+        await db_session.flush()
+
+        # アセスメントステータス（完了済み、期限あり）
+        status_c = SupportPlanStatus(
+            plan_cycle_id=cycle_c.id,
+            welfare_recipient_id=recipient_c.id,
+            office_id=office.id,
+            step_type=SupportPlanStep.assessment,
+            completed=True,  # 完了済み
+            due_date=date.today() + timedelta(days=7),
+            is_latest_status=True
+        )
+        db_session.add(status_c)
+
+        # Billing情報を作成
+        billing = Billing(
+            office_id=office.id,
+            billing_status=BillingStatus.free,
+            trial_start_date=date.today(),
+            trial_end_date=date.today() + timedelta(days=180),
+            current_plan_amount=6000
+        )
+        db_session.add(billing)
+
+        await db_session.commit()
+
+        # 依存性オーバーライド
+        async def override_get_current_user():
+            return staff
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        # テスト実行: has_assessment_due=True でフィルタリング
+        response = await async_client.get("/api/v1/dashboard/?has_assessment_due=true")
+
+        # オーバーライドをクリーンアップ
+        del app.dependency_overrides[get_current_user]
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # 検証: 利用者Aのみが返却される
+        assert data["current_user_count"] == 3  # 総利用者数は3人
+        assert data["filtered_count"] == 1  # フィルタリング後は1人
+        assert len(data["recipients"]) == 1  # レスポンスに含まれるのは1人
+
+        # 返却された利用者が利用者Aであることを確認
+        returned_recipient = data["recipients"][0]
+        assert returned_recipient["last_name"] == "田中"
+        assert returned_recipient["first_name"] == "太郎"
+
+    async def test_get_dashboard_compound_filters(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        service_admin_user_factory,
+        office_factory
+    ):
+        """
+        Phase 3.1: 複合条件フィルターの統合テスト
+
+        シナリオ:
+        - 利用者A: 期限切れ + アセスメント期限あり
+        - 利用者B: 期限間近 + アセスメント期限あり
+        - 利用者C: 期限切れ + アセスメント期限なし
+        - 利用者D: 正常（期限内）
+
+        テストケース:
+        1. is_overdue=True AND has_assessment_due=True → 利用者Aのみ
+        2. is_upcoming=True AND has_assessment_due=True → 利用者Bのみ
+        3. is_overdue=True → 利用者A, C
+        4. has_assessment_due=True → 利用者A, B
+        """
+        from datetime import timedelta
+
+        # テスト用スタッフと事業所を作成
+        staff = await service_admin_user_factory(
+            first_name="管理者",
+            last_name="複合条件テスト",
+            email="compound_filter@example.com",
+            role=StaffRole.owner
+        )
+        office = await office_factory(
+            creator=staff,
+            name="複合条件テスト事業所",
+            type=OfficeType.type_A_office
+        )
+        office_staff = OfficeStaff(staff_id=staff.id, office_id=office.id, is_primary=True)
+        db_session.add(office_staff)
+
+        # 利用者A: 期限切れ + アセスメント期限あり
+        recipient_a = WelfareRecipient(
+            first_name="太郎", last_name="田中",
+            first_name_furigana="たろう", last_name_furigana="たなか",
+            birth_day=date(1990, 1, 1), gender=GenderType.male
+        )
+        db_session.add(recipient_a)
+        await db_session.flush()
+
+        db_session.add(OfficeWelfareRecipient(welfare_recipient_id=recipient_a.id, office_id=office.id))
+
+        cycle_a = SupportPlanCycle(
+            welfare_recipient_id=recipient_a.id, office_id=office.id,
+            cycle_number=1, is_latest_cycle=True,
+            plan_cycle_start_date=date.today() - timedelta(days=100),
+            next_renewal_deadline=date.today() - timedelta(days=5)  # 期限切れ
+        )
+        db_session.add(cycle_a)
+        await db_session.flush()
+
+        db_session.add(SupportPlanStatus(
+            plan_cycle_id=cycle_a.id, welfare_recipient_id=recipient_a.id, office_id=office.id,
+            step_type=SupportPlanStep.assessment, completed=False,
+            due_date=date.today() + timedelta(days=7), is_latest_status=True
+        ))
+
+        # 利用者B: 期限間近 + アセスメント期限あり
+        recipient_b = WelfareRecipient(
+            first_name="花子", last_name="山田",
+            first_name_furigana="はなこ", last_name_furigana="やまだ",
+            birth_day=date(1991, 2, 2), gender=GenderType.female
+        )
+        db_session.add(recipient_b)
+        await db_session.flush()
+
+        db_session.add(OfficeWelfareRecipient(welfare_recipient_id=recipient_b.id, office_id=office.id))
+
+        cycle_b = SupportPlanCycle(
+            welfare_recipient_id=recipient_b.id, office_id=office.id,
+            cycle_number=1, is_latest_cycle=True,
+            plan_cycle_start_date=date.today() - timedelta(days=50),
+            next_renewal_deadline=date.today() + timedelta(days=15)  # 期限間近（30日以内）
+        )
+        db_session.add(cycle_b)
+        await db_session.flush()
+
+        db_session.add(SupportPlanStatus(
+            plan_cycle_id=cycle_b.id, welfare_recipient_id=recipient_b.id, office_id=office.id,
+            step_type=SupportPlanStep.assessment, completed=False,
+            due_date=date.today() + timedelta(days=10), is_latest_status=True
+        ))
+
+        # 利用者C: 期限切れ + アセスメント期限なし
+        recipient_c = WelfareRecipient(
+            first_name="次郎", last_name="佐藤",
+            first_name_furigana="じろう", last_name_furigana="さとう",
+            birth_day=date(1992, 3, 3), gender=GenderType.male
+        )
+        db_session.add(recipient_c)
+        await db_session.flush()
+
+        db_session.add(OfficeWelfareRecipient(welfare_recipient_id=recipient_c.id, office_id=office.id))
+
+        cycle_c = SupportPlanCycle(
+            welfare_recipient_id=recipient_c.id, office_id=office.id,
+            cycle_number=1, is_latest_cycle=True,
+            plan_cycle_start_date=date.today() - timedelta(days=100),
+            next_renewal_deadline=date.today() - timedelta(days=10)  # 期限切れ
+        )
+        db_session.add(cycle_c)
+        await db_session.flush()
+
+        # 利用者D: 正常（期限内）
+        recipient_d = WelfareRecipient(
+            first_name="三郎", last_name="鈴木",
+            first_name_furigana="さぶろう", last_name_furigana="すずき",
+            birth_day=date(1993, 4, 4), gender=GenderType.male
+        )
+        db_session.add(recipient_d)
+        await db_session.flush()
+
+        db_session.add(OfficeWelfareRecipient(welfare_recipient_id=recipient_d.id, office_id=office.id))
+
+        cycle_d = SupportPlanCycle(
+            welfare_recipient_id=recipient_d.id, office_id=office.id,
+            cycle_number=1, is_latest_cycle=True,
+            plan_cycle_start_date=date.today() - timedelta(days=50),
+            next_renewal_deadline=date.today() + timedelta(days=100)  # 期限内
+        )
+        db_session.add(cycle_d)
+        await db_session.flush()
+
+        # Billing情報を作成
+        billing = Billing(
+            office_id=office.id, billing_status=BillingStatus.free,
+            trial_start_date=date.today(), trial_end_date=date.today() + timedelta(days=180),
+            current_plan_amount=6000
+        )
+        db_session.add(billing)
+        await db_session.commit()
+
+        # 依存性オーバーライド
+        async def override_get_current_user():
+            return staff
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        # テストケース1: is_overdue=True AND has_assessment_due=True → 利用者Aのみ
+        response1 = await async_client.get("/api/v1/dashboard/?is_overdue=true&has_assessment_due=true")
+        assert response1.status_code == 200
+        data1 = response1.json()
+        assert data1["current_user_count"] == 4
+        assert data1["filtered_count"] == 1
+        assert len(data1["recipients"]) == 1
+        assert data1["recipients"][0]["last_name"] == "田中"
+
+        # テストケース2: is_upcoming=True AND has_assessment_due=True → 利用者Bのみ
+        response2 = await async_client.get("/api/v1/dashboard/?is_upcoming=true&has_assessment_due=true")
+        assert response2.status_code == 200
+        data2 = response2.json()
+        assert data2["current_user_count"] == 4
+        assert data2["filtered_count"] == 1
+        assert len(data2["recipients"]) == 1
+        assert data2["recipients"][0]["last_name"] == "山田"
+
+        # テストケース3: is_overdue=True → 利用者A, C
+        response3 = await async_client.get("/api/v1/dashboard/?is_overdue=true")
+        assert response3.status_code == 200
+        data3 = response3.json()
+        assert data3["current_user_count"] == 4
+        assert data3["filtered_count"] == 2
+        assert len(data3["recipients"]) == 2
+
+        # テストケース4: has_assessment_due=True → 利用者A, B
+        response4 = await async_client.get("/api/v1/dashboard/?has_assessment_due=true")
+        assert response4.status_code == 200
+        data4 = response4.json()
+        assert data4["current_user_count"] == 4
+        assert data4["filtered_count"] == 2
+        assert len(data4["recipients"]) == 2
+
+        # オーバーライドをクリーンアップ
+        del app.dependency_overrides[get_current_user]
 
     async def test_get_dashboard_next_plan_start_days_remaining(
         self,
