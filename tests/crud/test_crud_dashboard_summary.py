@@ -176,18 +176,18 @@ class TestCRUDDashboardGetFilteredSummaries:
         assert [r[0].last_name for r in results] == ["伊藤", "高橋", "田中", "鈴木", "佐藤"]
 
     async def test_sort_by_next_renewal_deadline_asc(self, db_session: AsyncSession, search_sort_filter_fixtures):
-        """ソート: 次回更新日の昇順（サイクルがない利用者は含まれない）"""
+        """ソート: 次回更新日の昇順（サイクルなし利用者はNULLで最後に表示）"""
         office_id = search_sort_filter_fixtures["office_id"]
-        
+
         results = await crud_dashboard.get_filtered_summaries(
             db=db_session, office_ids=[office_id],
             sort_by="next_renewal_deadline", sort_order="asc",
             filters={}, search_term=None, skip=0, limit=10
         )
-        
-        # サイクルを持つ4人のみ
-        assert len(results) == 4
-        assert [r[0].last_name for r in results] == ["佐藤", "鈴木", "田中", "高橋"]
+
+        # サイクルを持つ4人 + サイクルなし1人（nullslastで最後）
+        assert len(results) == 5
+        assert [r[0].last_name for r in results] == ["佐藤", "鈴木", "田中", "高橋", "伊藤"]
 
     # --- フィルター機能のテスト ---
     async def test_filter_is_overdue(self, db_session: AsyncSession, search_sort_filter_fixtures):

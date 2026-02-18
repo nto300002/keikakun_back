@@ -35,7 +35,6 @@ class TestDashboardRateLimit:
             role=StaffRole.manager,
             is_mfa_enabled=True
         )
-        # スタッフと事業所を紐付け
         db_session.add(OfficeStaff(
             staff_id=staff.id,
             office_id=office.id,
@@ -74,10 +73,16 @@ class TestDashboardRateLimit:
         office = await create_test_office(db_session)
         staff = await create_random_staff(
             db_session,
-            office_id=office.id,
-            role=StaffRole.manager,
+                        role=StaffRole.manager,
             is_mfa_enabled=True
         )
+        await db_session.flush()
+        # スタッフと事業所を紐付け
+        db_session.add(OfficeStaff(
+            staff_id=staff.id,
+            office_id=office.id,
+            is_primary=True
+        ))
         await db_session.commit()
 
         # 認証トークン取得
@@ -123,10 +128,16 @@ class TestDashboardRateLimit:
         office = await create_test_office(db_session)
         staff = await create_random_staff(
             db_session,
-            office_id=office.id,
-            role=StaffRole.manager,
+                        role=StaffRole.manager,
             is_mfa_enabled=True
         )
+        await db_session.flush()
+        # スタッフと事業所を紐付け
+        db_session.add(OfficeStaff(
+            staff_id=staff.id,
+            office_id=office.id,
+            is_primary=True
+        ))
         await db_session.commit()
 
         # 認証トークン取得
@@ -169,16 +180,26 @@ class TestDashboardRateLimit:
         office = await create_test_office(db_session)
         staff1 = await create_random_staff(
             db_session,
-            office_id=office.id,
             role=StaffRole.manager,
             is_mfa_enabled=True
         )
         staff2 = await create_random_staff(
             db_session,
-            office_id=office.id,
             role=StaffRole.manager,
             is_mfa_enabled=True
         )
+        await db_session.flush()
+        # 両スタッフと事業所を紐付け
+        db_session.add(OfficeStaff(
+            staff_id=staff1.id,
+            office_id=office.id,
+            is_primary=True
+        ))
+        db_session.add(OfficeStaff(
+            staff_id=staff2.id,
+            office_id=office.id,
+            is_primary=True
+        ))
         await db_session.commit()
 
         # スタッフ1のトークン取得
@@ -229,10 +250,16 @@ class TestDashboardRateLimit:
         office = await create_test_office(db_session)
         staff = await create_random_staff(
             db_session,
-            office_id=office.id,
-            role=StaffRole.manager,
+                        role=StaffRole.manager,
             is_mfa_enabled=True
         )
+        await db_session.flush()
+        # スタッフと事業所を紐付け
+        db_session.add(OfficeStaff(
+            staff_id=staff.id,
+            office_id=office.id,
+            is_primary=True
+        ))
         await db_session.commit()
 
         # 認証トークン取得

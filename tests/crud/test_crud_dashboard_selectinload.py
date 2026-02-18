@@ -78,17 +78,20 @@ class TestSelectinloadOptimization:
         deliverable_assessment = await create_test_deliverable(
             db_session,
             plan_cycle_id=latest_cycle.id,
+            uploaded_by=office.created_by,
             deliverable_type=DeliverableType.assessment_sheet
         )
         deliverable_draft = await create_test_deliverable(
             db_session,
             plan_cycle_id=latest_cycle.id,
-            deliverable_type=DeliverableType.draft_plan
+            uploaded_by=office.created_by,
+            deliverable_type=DeliverableType.draft_plan_pdf
         )
         deliverable_final = await create_test_deliverable(
             db_session,
             plan_cycle_id=latest_cycle.id,
-            deliverable_type=DeliverableType.final_plan
+            uploaded_by=office.created_by,
+            deliverable_type=DeliverableType.final_plan_signed_pdf
         )
 
         await db_session.commit()
@@ -207,7 +210,7 @@ class TestSelectinloadOptimization:
             cycle = await create_test_cycle(
                 db_session,
                 welfare_recipient_id=recipient.id,
-            office_id=office.id,
+                office_id=office.id,
                 cycle_number=1,
                 is_latest_cycle=True
             )

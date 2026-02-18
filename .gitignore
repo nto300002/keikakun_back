@@ -6,3 +6,5 @@ __pycache__/
 tests.log
 *.pem.coverage
 conftest_optimized_example.py
+private_key.pem
+public_key.pem

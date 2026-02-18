@@ -50,6 +50,7 @@ class TestJoinStrategy:
         await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_with_cycle.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True
         )
@@ -120,6 +121,7 @@ class TestJoinStrategy:
         cycle_with_deadline = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_with_deadline.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True,
             next_renewal_deadline="2026-03-01"
@@ -186,6 +188,7 @@ class TestJoinStrategy:
         await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_a.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True,
             next_renewal_deadline="2026-02-01"
@@ -201,6 +204,7 @@ class TestJoinStrategy:
         await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True,
             next_renewal_deadline="2026-03-01"
@@ -271,6 +275,7 @@ class TestJoinStrategy:
                 await create_test_cycle(
                     db_session,
                     welfare_recipient_id=recipient.id,
+                    office_id=office.id,
                     cycle_number=1,
                     is_latest_cycle=True
                 )

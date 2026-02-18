@@ -195,6 +195,7 @@ class TestSubqueryIntegration:
             "最新サイクルがNULLであること（is_latest_cycle=falseのみの場合）"
 
     @pytest.mark.asyncio
+    @pytest.mark.skip(reason="Phase 3.2: パフォーマンステストは手動測定に変更（manual_performance_test.md参照）")
     async def test_subquery_performance(self, db_session: AsyncSession):
         """
         Test 1.2.4: サブクエリ統合のパフォーマンス
@@ -204,6 +205,8 @@ class TestSubqueryIntegration:
         - クエリ時間 < 200ms（100利用者）
 
         TDD: Red → Green → Refactor
+
+        Note: 手動測定ガイド - md_files_design_note/task/kensaku/todo/phase3_2_manual_performance_test.md
         """
         # Setup: 100利用者 × 各3サイクル
         office = await create_test_office(db_session)

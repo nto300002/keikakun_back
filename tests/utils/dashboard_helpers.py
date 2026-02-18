@@ -353,6 +353,7 @@ async def create_test_deliverable(
     db: AsyncSession,
     *,
     plan_cycle_id: int,
+    uploaded_by: uuid.UUID,
     deliverable_type: DeliverableType = DeliverableType.assessment_sheet,
     file_path: Optional[str] = None,
     original_filename: Optional[str] = None
@@ -363,6 +364,7 @@ async def create_test_deliverable(
     Args:
         db: データベースセッション
         plan_cycle_id: サイクルID (Integer)
+        uploaded_by: アップロード者のスタッフID
         deliverable_type: デリバラブルタイプ
         file_path: ファイルパス
         original_filename: 元のファイル名
@@ -379,7 +381,8 @@ async def create_test_deliverable(
         plan_cycle_id=plan_cycle_id,
         deliverable_type=deliverable_type,
         file_path=file_path,
-        original_filename=original_filename
+        original_filename=original_filename,
+        uploaded_by=uploaded_by
     )
     db.add(deliverable)
     await db.flush()
