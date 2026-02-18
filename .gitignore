@@ -4,4 +4,5 @@ __pycache__/
 .env.test
 *.log
 tests.log
-*.pem
+*.pem.coverage
+conftest_optimized_example.py
