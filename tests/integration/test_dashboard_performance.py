@@ -45,6 +45,7 @@ class TestDashboardPerformance:
                 await create_test_cycles(
                     db_session,
                     welfare_recipient_id=recipient.id,
+                    office_id=office.id,
                     count=3
                 )
 

@@ -57,8 +57,7 @@ async def create_test_office(
     # まずスタッフを作成（created_by, last_modified_by用）
     from tests.utils.helpers import create_random_staff
     staff = await create_random_staff(db)
-    db.add(staff)
-    await db.flush()
+    # Note: create_random_staff already does db.add() and db.flush()
 
     if name is None:
         # ランダムな事業所名を生成
