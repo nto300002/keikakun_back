@@ -40,7 +40,7 @@ class TestDashboardRateLimit:
             office_id=office.id,
             is_primary=True
         ))
-        await db_session.commit()
+        await db_session.flush()  # Flush changes without committing (allows rollback)
 
         # 認証トークン取得（ログイン）
         login_response = await async_client.post(
@@ -83,7 +83,7 @@ class TestDashboardRateLimit:
             office_id=office.id,
             is_primary=True
         ))
-        await db_session.commit()
+        await db_session.flush()  # Flush changes without committing (allows rollback)
 
         # 認証トークン取得
         login_response = await async_client.post(
@@ -138,7 +138,7 @@ class TestDashboardRateLimit:
             office_id=office.id,
             is_primary=True
         ))
-        await db_session.commit()
+        await db_session.flush()  # Flush changes without committing (allows rollback)
 
         # 認証トークン取得
         login_response = await async_client.post(
@@ -200,7 +200,7 @@ class TestDashboardRateLimit:
             office_id=office.id,
             is_primary=True
         ))
-        await db_session.commit()
+        await db_session.flush()  # Flush changes without committing (allows rollback)
 
         # スタッフ1のトークン取得
         login1 = await async_client.post(
@@ -260,7 +260,7 @@ class TestDashboardRateLimit:
             office_id=office.id,
             is_primary=True
         ))
-        await db_session.commit()
+        await db_session.flush()  # Flush changes without committing (allows rollback)
 
         # 認証トークン取得
         login_response = await async_client.post(
