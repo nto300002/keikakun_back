@@ -190,6 +190,7 @@ class TestQueryPlan:
             await create_test_cycle(
                 db_session,
                 welfare_recipient_id=recipient.id,
+                office_id=office.id,
                 cycle_number=1,
                 is_latest_cycle=True
             )
@@ -283,6 +284,7 @@ class TestQueryPlan:
             cycle = await create_test_cycle(
                 db_session,
                 welfare_recipient_id=recipient.id,
+                office_id=office.id,
                 cycle_number=1,
                 is_latest_cycle=True
             )
@@ -292,6 +294,8 @@ class TestQueryPlan:
             await create_test_status(
                 db_session,
                 plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient.id,
+                office_id=office.id,
                 step_type=status_type,
                 is_latest_status=True
             )

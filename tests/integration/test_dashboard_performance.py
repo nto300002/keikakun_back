@@ -24,7 +24,7 @@ from tests.utils import (
 class TestDashboardPerformance:
     """ダッシュボード統合パフォーマンステスト"""
 
-    @pytest_asyncio.fixture(scope="class")
+    @pytest_asyncio.fixture(scope="function")
     async def setup_large_dataset(self, db_session: AsyncSession):
         """
         大規模データセット作成

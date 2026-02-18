@@ -42,12 +42,15 @@ class TestExistsClauseFilter:
         cycle_assessment = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_assessment.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle_assessment.id,
+            welfare_recipient_id=recipient_assessment.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True
         )
@@ -64,12 +67,15 @@ class TestExistsClauseFilter:
         cycle_monitoring = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_monitoring.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle_monitoring.id,
+            welfare_recipient_id=recipient_monitoring.id,
+            office_id=office.id,
             step_type=SupportPlanStep.monitoring,
             is_latest_status=True
         )
@@ -178,6 +184,7 @@ class TestExistsClauseFilter:
             cycle = await create_test_cycle(
                 db_session,
                 welfare_recipient_id=recipient.id,
+                office_id=office.id,
                 cycle_number=1,
                 is_latest_cycle=True
             )
@@ -185,6 +192,8 @@ class TestExistsClauseFilter:
             await create_test_status(
                 db_session,
                 plan_cycle_id=cycle.id,
+                welfare_recipient_id=recipient.id,
+                office_id=office.id,
                 step_type=status_type,
                 is_latest_status=True
             )
@@ -234,12 +243,15 @@ class TestExistsClauseFilter:
         cycle = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle.id,
+            welfare_recipient_id=recipient.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True
         )
@@ -285,12 +297,15 @@ class TestExistsClauseFilter:
         cycle_a = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_a.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle_a.id,
+            welfare_recipient_id=recipient_a.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True
         )
@@ -306,6 +321,7 @@ class TestExistsClauseFilter:
         await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=False
         )
@@ -313,12 +329,15 @@ class TestExistsClauseFilter:
         cycle_b = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
             cycle_number=2,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle_b.id,
+            welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
             step_type=SupportPlanStep.monitoring,
             is_latest_status=True
         )

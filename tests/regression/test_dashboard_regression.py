@@ -52,12 +52,15 @@ class TestDashboardRegression:
         cycle1 = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient1.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle1.id,
+            welfare_recipient_id=recipient1.id,
+            office_id=office.id,
             step_type=SupportPlanStep.assessment,
             is_latest_status=True
         )
@@ -75,6 +78,7 @@ class TestDashboardRegression:
         await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient2.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=False
         )
@@ -82,12 +86,15 @@ class TestDashboardRegression:
         cycle2 = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient2.id,
+            office_id=office.id,
             cycle_number=2,
             is_latest_cycle=True
         )
         await create_test_status(
             db_session,
             plan_cycle_id=cycle2.id,
+            welfare_recipient_id=recipient2.id,
+            office_id=office.id,
             step_type=SupportPlanStep.monitoring,
             is_latest_status=True
         )
@@ -180,6 +187,7 @@ class TestDashboardRegression:
         cycle_a = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_a.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True,
             next_renewal_deadline="2026-03-01"
@@ -197,6 +205,7 @@ class TestDashboardRegression:
         cycle_b = await create_test_cycle(
             db_session,
             welfare_recipient_id=recipient_b.id,
+            office_id=office.id,
             cycle_number=1,
             is_latest_cycle=True,
             next_renewal_deadline="2026-02-01"
