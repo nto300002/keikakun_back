@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     # レート制限設定 - Phase 5運用設計に基づく
     RATE_LIMIT_FORGOT_PASSWORD: str = "5/10minute"
     RATE_LIMIT_RESEND_EMAIL: str = "3/10minute"
+    RATE_LIMIT_DASHBOARD: str = "60/minute"  # ダッシュボードAPI: 1分間に60リクエスト
 
     # --- Stripe決済設定 ---
     STRIPE_SECRET_KEY: Optional[SecretStr] = None

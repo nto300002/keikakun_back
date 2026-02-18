@@ -8,6 +8,7 @@ from app.api import deps
 from app.services.dashboard_service import DashboardService
 from app.messages import ja
 from app.core.limiter import limiter
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ MIN_LIMIT = 1
 
 
 @router.get("/", response_model=schemas.dashboard.DashboardData)
-@limiter.limit("60/minute")  # レート制限: 60リクエスト/分（DoS対策）
+@limiter.limit(settings.RATE_LIMIT_DASHBOARD)  # レート制限: 設定ファイルから読み込み（DoS対策）
 async def get_dashboard(
     request: Request,
     db: AsyncSession = Depends(deps.get_db),
