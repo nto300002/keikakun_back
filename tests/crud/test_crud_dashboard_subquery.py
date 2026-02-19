@@ -273,7 +273,9 @@ class TestSubqueryIntegration:
             db_session,
             office_id=office.id,
             last_name="あいうえお",
-            first_name="A"
+            first_name="A",
+            last_name_furigana="あいうえお",
+            first_name_furigana="えー"
         )
         await create_test_cycle(
             db_session,
@@ -288,7 +290,9 @@ class TestSubqueryIntegration:
             db_session,
             office_id=office.id,
             last_name="かきくけこ",
-            first_name="B"
+            first_name="B",
+            last_name_furigana="かきくけこ",
+            first_name_furigana="びー"
         )
         for j in range(3):
             await create_test_cycle(
@@ -304,7 +308,9 @@ class TestSubqueryIntegration:
             db_session,
             office_id=office.id,
             last_name="さしすせそ",
-            first_name="C"
+            first_name="C",
+            last_name_furigana="さしすせそ",
+            first_name_furigana="しー"
         )
         for j in range(5):
             await create_test_cycle(

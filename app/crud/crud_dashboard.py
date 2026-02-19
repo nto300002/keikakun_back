@@ -186,7 +186,8 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
 
         # --- ソート ---
         order_func = None
-        if sort_by == "name_phonetic":
+        if sort_by in ("furigana", "name_phonetic"):
+            # ふりがな（姓+名の連結）でソート
             sort_column = func.concat(WelfareRecipient.last_name_furigana, WelfareRecipient.first_name_furigana)
             order_func = sort_column.desc() if sort_order == "desc" else sort_column.asc()
         elif sort_by == "created_at":
@@ -196,7 +197,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             sort_column = SupportPlanCycle.next_renewal_deadline
             # 昇順の場合も nullslast() を使用して、期限がある利用者を優先表示
             order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullslast()
-        
+
         if order_func is not None:
             stmt = stmt.order_by(order_func)
         else:
