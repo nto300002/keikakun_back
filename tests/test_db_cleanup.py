@@ -368,29 +368,35 @@ class TestDatabaseCleanup:
         """
         外部キー制約のある関連データが正しくロールバックされることを確認
         """
+        import uuid as _uuid
         from app.models.staff import Staff
         from app.models.office import Office
         from app.models.office import OfficeStaff
         from app.models.enums import StaffRole, OfficeType
 
-        # テスト開始時のファクトリデータ数を取得
+        # 並列テスト実行でも衝突しないよう、このテスト固有の識別子を使用
+        unique_id = _uuid.uuid4().hex[:8]
+        unique_email = f"fk_test_{unique_id}@example.com"
+        unique_office_name = f"テスト事業所_FK_{unique_id}"
+
+        # テスト開始時点でこの固有メールが存在しないことを確認（ベースラインは0）
         initial_staff_result = await db_session.execute(
             select(func.count()).select_from(Staff).where(
-                Staff.email.like('%@example.com')
+                Staff.email == unique_email
             )
         )
         initial_staff_count = initial_staff_result.scalar()
 
         initial_office_result = await db_session.execute(
             select(func.count()).select_from(Office).where(
-                Office.name.like('%テスト%')
+                Office.name == unique_office_name
             )
         )
         initial_office_count = initial_office_result.scalar()
 
         # ファクトリパターンのスタッフを作成
         owner = Staff(
-            email="fk_test_owner@example.com",
+            email=unique_email,
             first_name="FK テスト",
             last_name="オーナー",
             full_name="オーナー FK テスト",
@@ -402,7 +408,7 @@ class TestDatabaseCleanup:
 
         # ファクトリパターンのオフィスを作成（外部キー: created_by）
         office = Office(
-            name="テスト事業所_FK",
+            name=unique_office_name,
             created_by=owner.id,
             last_modified_by=owner.id,
             type=OfficeType.transition_to_employment,
@@ -418,17 +424,17 @@ class TestDatabaseCleanup:
         db_session.add(office_staff)
         await db_session.flush()
 
-        # すべてのファクトリデータが作成されたことを確認
+        # 固有キーで絞り込んだカウントでアサート（並列テストの影響を受けない）
         staff_count = await db_session.execute(
             select(func.count()).select_from(Staff).where(
-                Staff.email.like('%@example.com')
+                Staff.email == unique_email
             )
         )
         assert staff_count.scalar() == initial_staff_count + 1
 
         office_count = await db_session.execute(
             select(func.count()).select_from(Office).where(
-                Office.name.like('%テスト%')
+                Office.name == unique_office_name
             )
         )
         assert office_count.scalar() == initial_office_count + 1
