@@ -822,3 +822,143 @@ async def test_reject_request_updates_requester_notification_type(
     # role_change_rejected が存在するはず
     rejected_notices = [n for n in employee_notices_after if n.type == NoticeType.role_change_rejected.value]
     assert len(rejected_notices) >= 1, "却下後はrole_change_rejected通知が存在するべき"
+
+
+# ===== TDD: rollbackテスト (Issue #02) =====
+
+async def test_create_request_rollback_on_error(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    create_request で例外発生時、ApprovalRequestがDBに残らないことを確認
+
+    Red → try-except-rollbackがなければ例外時にロールバック処理が保証されない
+    """
+    from unittest.mock import patch, AsyncMock
+    from sqlalchemy import select
+    from app.models.approval_request import ApprovalRequest as ApprovalRequestModel
+
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # 通知作成時に例外を発生させる（commitの直前で失敗するシナリオ）
+    with patch(
+        "app.services.role_change_service.crud_notice.create",
+        side_effect=Exception("通知作成で意図的なエラー")
+    ):
+        with pytest.raises(Exception, match="通知作成で意図的なエラー"):
+            await role_change_service.create_request(
+                db=db,
+                requester_staff_id=employee_id,
+                office_id=office_id,
+                obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager)
+            )
+
+    # 例外発生後、DBにApprovalRequestが残っていないことを確認（rollbackされていること）
+    result = await db.execute(
+        select(ApprovalRequestModel).where(
+            ApprovalRequestModel.requester_staff_id == employee_id
+        )
+    )
+    remaining = result.scalars().all()
+    assert len(remaining) == 0, (
+        f"例外発生後にApprovalRequestが{len(remaining)}件残っています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )
+
+
+async def test_approve_request_rollback_on_error(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    approve_request で例外発生時、ロール変更がDBに残らないことを確認
+
+    Red → try-except-rollbackがなければ例外時にロールバック処理が保証されない
+    """
+    from unittest.mock import patch
+    from sqlalchemy import select
+    from app.models.staff import Staff
+
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # 事前にリクエストを作成
+    request = await role_change_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager)
+    )
+
+    # 承認通知作成時に例外を発生させる（roleは変更済みだがcommit前で失敗するシナリオ）
+    with patch(
+        "app.services.role_change_service.crud_notice.update_type_by_link_url",
+        side_effect=Exception("通知更新で意図的なエラー")
+    ):
+        with pytest.raises(Exception, match="通知更新で意図的なエラー"):
+            await role_change_service.approve_request(
+                db=db,
+                request_id=request.id,
+                reviewer_staff_id=owner_id,
+            )
+
+    # 例外発生後、スタッフのroleがemployeeのままであることを確認（rollbackされていること）
+    result = await db.execute(
+        select(Staff).where(Staff.id == employee_id)
+    )
+    employee = result.scalar_one()
+    assert employee.role == StaffRole.employee, (
+        f"例外発生後にroleが{employee.role}に変更されています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )
+
+
+async def test_reject_request_rollback_on_error(
+    db: AsyncSession,
+    setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID]
+):
+    """
+    reject_request で例外発生時、却下状態がDBに残らないことを確認
+
+    Red → try-except-rollbackがなければ例外時にロールバック処理が保証されない
+    """
+    from unittest.mock import patch
+    from sqlalchemy import select
+    from app.models.approval_request import ApprovalRequest as ApprovalRequestModel
+    from app.models.enums import RequestStatus
+
+    office_id, owner_id, manager_id, employee_id = setup_office_with_staff
+
+    # 事前にリクエストを作成
+    request = await role_change_service.create_request(
+        db=db,
+        requester_staff_id=employee_id,
+        office_id=office_id,
+        obj_in=RoleChangeRequestCreate(requested_role=StaffRole.manager)
+    )
+    request_id = request.id
+
+    # 却下通知作成時に例外を発生させる
+    with patch(
+        "app.services.role_change_service.crud_notice.create",
+        side_effect=Exception("却下通知作成で意図的なエラー")
+    ):
+        with pytest.raises(Exception, match="却下通知作成で意図的なエラー"):
+            await role_change_service.reject_request(
+                db=db,
+                request_id=request_id,
+                reviewer_staff_id=owner_id,
+            )
+
+    # 例外発生後、リクエストのステータスがpendingのままであることを確認
+    result = await db.execute(
+        select(ApprovalRequestModel).where(
+            ApprovalRequestModel.id == request_id
+        )
+    )
+    req = result.scalar_one_or_none()
+    assert req is not None
+    assert req.status == RequestStatus.pending, (
+        f"例外発生後にステータスが{req.status}に変更されています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )
