@@ -901,6 +901,11 @@ class TestOfficeWithdrawalBillingCancellation:
         assert billing_after.stripe_subscription_id is None
 
     @pytest.mark.asyncio
+    @pytest.mark.skip(
+        reason="並列テスト実行時にデッドロックが発生する。"
+        "setup_office_with_staffフィクスチャがDBにcommitするため、"
+        "同時実行のsafe_cleanupテストとoffice行のロック競合が起きる"
+    )
     async def test_office_withdrawal_cancels_billing_with_stripe_ids(
         self,
         db: AsyncSession,

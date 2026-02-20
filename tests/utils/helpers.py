@@ -99,6 +99,7 @@ async def create_random_staff(
     )
 
     db.add(staff)
+    await db.flush()  # IDを取得するためにflush
     # Note: commitは呼び出し元で行う
     return staff
 

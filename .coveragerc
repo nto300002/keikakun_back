@@ -1,0 +1,64 @@
+# カバレッジ測定の設定ファイル
+
+[run]
+# 測定対象のソースディレクトリ
+source = app
+
+# 除外するファイル・ディレクトリ
+omit =
+    */tests/*
+    */test_*.py
+    */__init__.py
+    */migrations/*
+    */alembic/*
+    app/core/config.py
+    app/main.py
+
+# ブランチカバレッジも測定
+branch = True
+
+[report]
+# レポートから除外する行のパターン
+exclude_lines =
+    # 標準の除外パターン
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+
+    # カスタム除外パターン
+    # 型チェック用のインポート
+    if typing.TYPE_CHECKING:
+
+    # デバッグ用コード
+    if settings.DEBUG:
+
+    # 未実装の機能
+    pass
+
+# レポートの精度（小数点以下の桁数）
+precision = 2
+
+# カバレッジ80%未満のファイルを失敗扱い
+fail_under = 80
+
+# レポート表示時にスキップする空ファイル
+skip_empty = True
+
+# レポートをソートする基準（name, stmts, miss, cover）
+sort = Cover
+
+[html]
+# HTMLレポートの出力ディレクトリ
+directory = htmlcov
+
+# HTMLレポートのタイトル
+title = Keikakun Test Coverage Report
+
+[xml]
+# XML形式のレポート出力先（CI/CD用）
+output = coverage.xml

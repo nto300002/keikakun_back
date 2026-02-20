@@ -17,6 +17,16 @@ from .helpers import (
     TEST_EMPLOYEE_EMAIL,
     TEST_MANAGER_EMAIL,
 )
+from .dashboard_helpers import (
+    create_test_office,
+    create_test_offices,
+    create_test_recipient,
+    create_test_recipients,
+    create_test_cycle,
+    create_test_cycles,
+    create_test_status,
+    create_test_deliverable,
+)
 
 __all__ = [
     "DatabaseCleanup",
@@ -37,4 +47,13 @@ __all__ = [
     "TEST_ADMIN_EMAIL",
     "TEST_EMPLOYEE_EMAIL",
     "TEST_MANAGER_EMAIL",
+    # ダッシュボードテスト用ヘルパー
+    "create_test_office",
+    "create_test_offices",
+    "create_test_recipient",
+    "create_test_recipients",
+    "create_test_cycle",
+    "create_test_cycles",
+    "create_test_status",
+    "create_test_deliverable",
 ]

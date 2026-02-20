@@ -1,13 +1,13 @@
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta, date
-from sqlalchemy import select, func, and_, or_, true
+from sqlalchemy import select, func, and_, or_, true, exists, case
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
 from app.crud.base import CRUDBase
-from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient
+from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient, PlanDeliverable
 from app.schemas.dashboard import DashboardSummary
-from app.models.enums import SupportPlanStep
+from app.models.enums import SupportPlanStep, DeliverableType
 import uuid
 
 
@@ -67,53 +67,72 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         skip: int,
         limit: int,
     ) -> list:
-        # 1. サイクル総数をカウントするサブクエリ
-        cycle_count_sq = (
+        # 1. サイクル情報を統合取得するサブクエリ（サイクル数 + 最新サイクルID）
+        cycle_info_sq = (
             select(
                 SupportPlanCycle.welfare_recipient_id,
                 func.count(SupportPlanCycle.id).label("cycle_count"),
+                func.max(
+                    case(
+                        (SupportPlanCycle.is_latest_cycle == true(), SupportPlanCycle.id),
+                        else_=None
+                    )
+                ).label("latest_cycle_id")
             )
             .group_by(SupportPlanCycle.welfare_recipient_id)
-            .subquery("cycle_count_sq")
+            .subquery("cycle_info_sq")
         )
 
-        # 2. 最新サイクルIDを取得するためのサブクエリ
-        latest_cycle_id_sq = (
-            select(
-                SupportPlanCycle.welfare_recipient_id,
-                func.max(SupportPlanCycle.id).label("latest_cycle_id"),
-            )
-            .where(SupportPlanCycle.is_latest_cycle == true())
-            .group_by(SupportPlanCycle.welfare_recipient_id)
-            .subquery("latest_cycle_id_sq")
-        )
-
-        # 3. メインクエリの構築
+        # 2. メインクエリの構築
         stmt = select(
             WelfareRecipient,
-            func.coalesce(cycle_count_sq.c.cycle_count, 0).label("cycle_count"),
+            func.coalesce(cycle_info_sq.c.cycle_count, 0).label("cycle_count"),
             SupportPlanCycle,
         ).join(OfficeWelfareRecipient).where(OfficeWelfareRecipient.office_id.in_(office_ids))
 
-        # --- JOINs ---
-        stmt = stmt.outerjoin(cycle_count_sq, WelfareRecipient.id == cycle_count_sq.c.welfare_recipient_id)
+        # --- JOINs（常にOUTER JOINで統一） ---
+        stmt = stmt.outerjoin(
+            cycle_info_sq,
+            WelfareRecipient.id == cycle_info_sq.c.welfare_recipient_id
+        )
+        stmt = stmt.outerjoin(
+            SupportPlanCycle,
+            SupportPlanCycle.id == cycle_info_sq.c.latest_cycle_id
+        )
 
-        if sort_by == "next_renewal_deadline":
-            stmt = stmt.join(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
-            stmt = stmt.join(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
-        else:
-            stmt = stmt.outerjoin(latest_cycle_id_sq, WelfareRecipient.id == latest_cycle_id_sq.c.welfare_recipient_id)
-            stmt = stmt.outerjoin(SupportPlanCycle, SupportPlanCycle.id == latest_cycle_id_sq.c.latest_cycle_id)
-
+        # --- Relationship loading with filtering (Phase 3.1 optimization) ---
         stmt = stmt.options(
-            selectinload(SupportPlanCycle.statuses),
-            selectinload(WelfareRecipient.support_plan_cycles).selectinload(SupportPlanCycle.statuses),
-            selectinload(SupportPlanCycle.deliverables)
+            # 最新ステータスのみをロード（_get_latest_step, _calculate_monitoring_due_date で使用）
+            selectinload(
+                SupportPlanCycle.statuses.and_(SupportPlanStatus.is_latest_status == true())
+            ),
+            # 全サイクルをロード（ほとんどの利用者は1-2サイクルのみなので許容）
+            # ネストされたステータスは、is_latest_status=true または final_plan_signed のみ
+            # （_calculate_next_plan_start_days_remaining で前サイクルの final_plan_signed が必要）
+            selectinload(WelfareRecipient.support_plan_cycles).selectinload(
+                SupportPlanCycle.statuses.and_(
+                    or_(
+                        SupportPlanStatus.is_latest_status == true(),
+                        SupportPlanStatus.step_type == SupportPlanStep.final_plan_signed
+                    )
+                )
+            ),
+            # アセスメントPDFのみをロード（_calculate_next_plan_start_days_remaining で使用）
+            selectinload(
+                SupportPlanCycle.deliverables.and_(
+                    PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+                )
+            )
         )
 
         # --- 検索 ---
         if search_term:
             search_words = re.split(r'[\s　]+', search_term.strip())
+            # セキュリティ: DoS対策として検索ワード数を制限（最大10ワード）
+            MAX_SEARCH_WORDS = 10
+            if len(search_words) > MAX_SEARCH_WORDS:
+                search_words = search_words[:MAX_SEARCH_WORDS]
+
             conditions = [or_(
                 WelfareRecipient.last_name.ilike(f"%{word}%"),
                 WelfareRecipient.first_name.ilike(f"%{word}%"),
@@ -129,26 +148,46 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
             if filters.get("is_upcoming"):
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
+            if filters.get("has_assessment_due"):
+                # アセスメント開始期限が設定されている利用者（未完了のみ）
+                # 個別支援計画の5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング
+                assessment_exists_subq = exists(
+                    select(1).where(
+                        and_(
+                            SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                            SupportPlanStatus.step_type == SupportPlanStep.assessment,
+                            SupportPlanStatus.completed == False,
+                            SupportPlanStatus.due_date.isnot(None)
+                        )
+                    )
+                )
+                stmt = stmt.where(assessment_exists_subq)
             if filters.get("cycle_number"):
-                stmt = stmt.where(func.coalesce(cycle_count_sq.c.cycle_count, 0) == filters["cycle_number"])
+                stmt = stmt.where(func.coalesce(cycle_info_sq.c.cycle_count, 0) == filters["cycle_number"])
             if filters.get("status"):
                 try:
                     status_enum = SupportPlanStep[filters["status"]]
                 except KeyError:
                     pass  # 無効なステータスは無視
                 else:
-                    # is_latest_status が true のレコードから step_type を取得するサブクエリ
-                    latest_status_subq = select(
-                        SupportPlanStatus.plan_cycle_id,
-                        SupportPlanStatus.step_type.label("latest_step")
-                    ).where(SupportPlanStatus.is_latest_status == true()).subquery()
-                    
-                    stmt = stmt.join(latest_status_subq, SupportPlanCycle.id == latest_status_subq.c.plan_cycle_id)
-                    stmt = stmt.where(latest_status_subq.c.latest_step == status_enum)
+                    # EXISTS句でステータスをフィルタリング（Phase 3.2 optimization）
+                    # JOIN + サブクエリよりも効率的（マッチした時点で早期終了）
+                    stmt = stmt.where(
+                        exists(
+                            select(1).where(
+                                and_(
+                                    SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                                    SupportPlanStatus.is_latest_status == true(),
+                                    SupportPlanStatus.step_type == status_enum
+                                )
+                            )
+                        )
+                    )
 
         # --- ソート ---
         order_func = None
-        if sort_by == "name_phonetic":
+        if sort_by in ("furigana", "name_phonetic"):
+            # ふりがな（姓+名の連結）でソート
             sort_column = func.concat(WelfareRecipient.last_name_furigana, WelfareRecipient.first_name_furigana)
             order_func = sort_column.desc() if sort_order == "desc" else sort_column.asc()
         elif sort_by == "created_at":
@@ -158,7 +197,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             sort_column = SupportPlanCycle.next_renewal_deadline
             # 昇順の場合も nullslast() を使用して、期限がある利用者を優先表示
             order_func = sort_column.desc().nullslast() if sort_order == "desc" else sort_column.asc().nullslast()
-        
+
         if order_func is not None:
             stmt = stmt.order_by(order_func)
         else:
@@ -169,6 +208,121 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         stmt = stmt.offset(skip).limit(limit)
         result = await db.execute(stmt)
         return result.all()
+
+    async def count_filtered_summaries(
+        self,
+        db: AsyncSession,
+        *,
+        office_ids: List[uuid.UUID],
+        filters: dict,
+        search_term: Optional[str],
+    ) -> int:
+        """
+        フィルタリング後の利用者数を取得します（ページネーション前の件数）。
+
+        Args:
+            db: データベースセッション
+            office_ids: 対象事業所IDリスト
+            filters: フィルター条件辞書
+            search_term: 検索ワード
+
+        Returns:
+            フィルタリング後の利用者数
+        """
+        # 1. サイクル情報を統合取得するサブクエリ（count_filtered_summariesと同じロジック）
+        cycle_info_sq = (
+            select(
+                SupportPlanCycle.welfare_recipient_id,
+                func.count(SupportPlanCycle.id).label("cycle_count"),
+                func.max(
+                    case(
+                        (SupportPlanCycle.is_latest_cycle == true(), SupportPlanCycle.id),
+                        else_=None
+                    )
+                ).label("latest_cycle_id")
+            )
+            .group_by(SupportPlanCycle.welfare_recipient_id)
+            .subquery("cycle_info_sq")
+        )
+
+        # 2. カウント用クエリの構築（DISTINCT WelfareRecipient.id）
+        stmt = (
+            select(func.count(func.distinct(WelfareRecipient.id)))
+            .join(OfficeWelfareRecipient)
+            .where(OfficeWelfareRecipient.office_id.in_(office_ids))
+        )
+
+        # --- JOINs（get_filtered_summariesと同じロジック） ---
+        stmt = stmt.outerjoin(
+            cycle_info_sq,
+            WelfareRecipient.id == cycle_info_sq.c.welfare_recipient_id
+        )
+        stmt = stmt.outerjoin(
+            SupportPlanCycle,
+            SupportPlanCycle.id == cycle_info_sq.c.latest_cycle_id
+        )
+
+        # --- 検索条件（get_filtered_summariesと同じロジック） ---
+        if search_term:
+            search_words = re.split(r'[\s　]+', search_term.strip())
+            # セキュリティ: DoS対策として検索ワード数を制限（最大10ワード）
+            MAX_SEARCH_WORDS = 10
+            if len(search_words) > MAX_SEARCH_WORDS:
+                search_words = search_words[:MAX_SEARCH_WORDS]
+
+            conditions = [or_(
+                WelfareRecipient.last_name.ilike(f"%{word}%"),
+                WelfareRecipient.first_name.ilike(f"%{word}%"),
+                WelfareRecipient.last_name_furigana.ilike(f"%{word}%"),
+                WelfareRecipient.first_name_furigana.ilike(f"%{word}%"),
+            ) for word in search_words if word]
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+
+        # --- フィルター条件（get_filtered_summariesと同じロジック） ---
+        if filters:
+            if filters.get("is_overdue"):
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
+            if filters.get("is_upcoming"):
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
+            if filters.get("has_assessment_due"):
+                # アセスメント開始期限が設定されている利用者（未完了のみ）
+                # 個別支援計画の5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング
+                assessment_exists_subq = exists(
+                    select(1).where(
+                        and_(
+                            SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                            SupportPlanStatus.step_type == SupportPlanStep.assessment,
+                            SupportPlanStatus.completed == False,
+                            SupportPlanStatus.due_date.isnot(None)
+                        )
+                    )
+                )
+                stmt = stmt.where(assessment_exists_subq)
+            if filters.get("cycle_number"):
+                stmt = stmt.where(func.coalesce(cycle_info_sq.c.cycle_count, 0) == filters["cycle_number"])
+            if filters.get("status"):
+                try:
+                    status_enum = SupportPlanStep[filters["status"]]
+                except KeyError:
+                    pass  # 無効なステータスは無視
+                else:
+                    # EXISTS句でステータスをフィルタリング
+                    stmt = stmt.where(
+                        exists(
+                            select(1).where(
+                                and_(
+                                    SupportPlanStatus.plan_cycle_id == SupportPlanCycle.id,
+                                    SupportPlanStatus.is_latest_status == true(),
+                                    SupportPlanStatus.step_type == status_enum
+                                )
+                            )
+                        )
+                    )
+
+        # 実行してカウントを取得
+        result = await db.execute(stmt)
+        return result.scalar_one()
 
     async def get_summary_counts(
         self,

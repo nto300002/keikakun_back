@@ -219,6 +219,7 @@ class TestDashboardDataSchema:
             "office_id": str(uuid.uuid4()),
             "office_name": "テスト事業所",
             "current_user_count": 2,
+            "filtered_count": 2,  # ← 追加: フィルタリングなしなので総数と同じ
             "max_user_count": 10,
             "billing_status": BillingStatus.free,
             "recipients": recipients
@@ -246,6 +247,7 @@ class TestDashboardDataSchema:
             "office_id": str(uuid.uuid4()),
             "office_name": "空の事業所",
             "current_user_count": 0,
+            "filtered_count": 0,  # ← 追加: 0人なので0
             "max_user_count": 10,
             "billing_status": BillingStatus.active,
             "recipients": []
@@ -330,6 +332,7 @@ class TestDashboardDataSchema:
             "office_id": str(uuid.uuid4()),
             "office_name": "テスト事業所",
             "current_user_count": 15,  # 上限を超過
+            "filtered_count": 15,  # ← 追加: フィルタリングなし
             "max_user_count": 10,
             "billing_status": BillingStatus.free,
             "recipients": []
@@ -385,6 +388,62 @@ class TestDashboardDataSchema:
         errors = exc_info.value.errors()
         assert any("office_id" in str(error["loc"]) for error in errors)
 
+    def test_dashboard_data_with_filtered_count(self):
+        """
+        Task #1.1: filtered_count フィールドが存在し、正しくバリデーションされる
+
+        - filtered_count フィールドが必須
+        - 0以上の整数
+        - current_user_count とは独立した値
+        """
+        # Arrange: テストデータ
+        test_data = {
+            "staff_name": "テストスタッフ",
+            "staff_role": StaffRole.manager,  # ✅ 修正: admin → manager
+            "office_id": str(uuid.uuid4()),
+            "office_name": "テスト事業所",
+            "current_user_count": 100,      # 総利用者数
+            "filtered_count": 25,            # ← 新規追加: 検索結果数
+            "max_user_count": 1000,
+            "billing_status": BillingStatus.active,
+            "recipients": []
+        }
+
+        # Act: スキーマのインスタンス化
+        dashboard_data = DashboardData(**test_data)
+
+        # Assert: フィールドが正しく設定される
+        assert dashboard_data.current_user_count == 100
+        assert dashboard_data.filtered_count == 25
+        assert dashboard_data.filtered_count != dashboard_data.current_user_count
+
+    def test_dashboard_data_filtered_count_required(self):
+        """
+        Task #1.1: filtered_count フィールドが必須であることを確認
+
+        filtered_count が欠けている場合、ValidationError が発生する
+        """
+        # Arrange: filtered_count が欠けているデータ
+        test_data = {
+            "staff_name": "テストスタッフ",
+            "staff_role": StaffRole.manager,  # ✅ 修正: admin → manager
+            "office_id": str(uuid.uuid4()),
+            "office_name": "テスト事業所",
+            "current_user_count": 100,
+            # filtered_count が欠けている
+            "max_user_count": 1000,
+            "billing_status": BillingStatus.active,
+            "recipients": []
+        }
+
+        # Act & Assert: ValidationError が発生
+        with pytest.raises(ValidationError) as exc_info:
+            DashboardData(**test_data)
+
+        # エラーメッセージに "filtered_count" が含まれることを確認
+        errors = exc_info.value.errors()
+        assert any("filtered_count" in str(error) for error in errors)
+
 
 class TestDashboardSchemaEdgeCases:
     """ダッシュボードスキーマのエッジケーステスト"""
@@ -437,6 +496,7 @@ class TestDashboardSchemaEdgeCases:
             "office_id": str(uuid.uuid4()),
             "office_name": "大規模テスト事業所",
             "current_user_count": 1000,
+            "filtered_count": 1000,  # ← 追加: フィルタリングなし
             "max_user_count": 999999,
             "billing_status": BillingStatus.active,
             "recipients": recipients
@@ -479,6 +539,7 @@ class TestDashboardSchemaEdgeCases:
             "office_id": str(uuid.uuid4()),
             "office_name": "🏢事業所🌸",  # 絵文字を含む
             "current_user_count": 1,
+            "filtered_count": 1,  # ← 追加: フィルタリングなし
             "max_user_count": 10,
             "billing_status": BillingStatus.free,
             "recipients": []
@@ -602,11 +663,12 @@ class TestDashboardSchemaValidation:
             "office_id": str(uuid.uuid4()),
             "office_name": "テスト事業所",
             "current_user_count": 1,
+            "filtered_count": 1,  # ← 追加: フィルタリングなし
             "max_user_count": 10,
             "billing_status": BillingStatus.free,
             "recipients": recipients
         }
-        
+
         # スキーマ作成
         dashboard = DashboardData(**dashboard_data)
         

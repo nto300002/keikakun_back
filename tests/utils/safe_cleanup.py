@@ -127,16 +127,16 @@ class SafeTestDataCleanup:
             if r.rowcount > 0:
                 result["office_welfare_recipients"] = r.rowcount
 
-            # office_staffs: is_test_dataフラグ + テストoffice_id紐付けで削除
-            # （過去のis_test_data=FALSEレコードにも対応）
-            if test_office_ids:
-                r = await db.execute(text("""
-                    DELETE FROM office_staffs
-                    WHERE is_test_data = true
-                       OR office_id = ANY(:office_ids)
-                """), {"office_ids": test_office_ids})
-                if r.rowcount > 0:
-                    result["office_staffs"] = r.rowcount
+            # office_staffs: サブクエリで削除対象officeと同期させる
+            # （事前取得のIDリストではなくサブクエリを使うことで、SELECT→DELETE間の
+            #   他テストによるコミットによるTOCTOU競合を防ぐ）
+            r = await db.execute(text("""
+                DELETE FROM office_staffs
+                WHERE is_test_data = true
+                   OR office_id IN (SELECT id FROM offices WHERE is_test_data = true)
+            """))
+            if r.rowcount > 0:
+                result["office_staffs"] = r.rowcount
 
             # ========================================
             # STEP 4: 親テーブルの削除（created_by対策あり）
