@@ -6,7 +6,6 @@ import uuid
 from app import crud, models, schemas
 from app.api import deps
 from app.core.security import (
-    create_access_token,
     verify_password,
     generate_totp_secret,
     generate_totp_uri,
@@ -53,10 +52,7 @@ async def enroll_mfa(
         )
 
     mfa_service = MfaService(db)
-    mfa_enrollment_data = await mfa_service.enroll(user=current_user)
-
-    # トランザクション管理: エンドポイント層でコミット
-    await db.commit()
+    mfa_enrollment_data = await mfa_service.enroll_mfa(user=current_user)
 
     return schemas.MfaEnrollmentResponse(
         secret_key=mfa_enrollment_data["secret_key"],
@@ -100,9 +96,7 @@ async def verify_mfa(
 
     mfa_service = MfaService(db)
 
-    # オプション2: トランザクション境界をエンドポイント層で管理
-    # サービス層では検証のみ行い、コミットはエンドポイント層で実行
-    is_valid = await mfa_service.verify_totp_code(
+    is_valid = await mfa_service.verify_mfa(
         user=current_user, totp_code=code_data.totp_code
     )
 
@@ -110,11 +104,6 @@ async def verify_mfa(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=ja.MFA_INVALID_CODE
         )
-
-    # 検証成功後、エンドポイント層でMFAを有効化してコミット
-    current_user.is_mfa_enabled = True
-    current_user.is_mfa_verified_by_user = True  # ← 追加: ユーザー自身が検証完了
-    await db.commit()
 
     return {"message": ja.MFA_VERIFICATION_SUCCESS}
 
@@ -155,8 +144,7 @@ async def disable_mfa(
         )
 
     # MFAを無効化
-    await current_user.disable_mfa(db)
-    await db.commit()
+    await MfaService(db).disable_mfa(user=current_user)
 
     return {"message": ja.MFA_DISABLED_SUCCESS}
 
@@ -213,13 +201,11 @@ async def admin_enable_staff_mfa(
     staff_id = target_staff.id
 
     # MFAを有効化（暗号化とリカバリーコード保存を含む）
-    await target_staff.enable_mfa(db, secret, recovery_codes)
-
-    # 管理者による有効化なので、ユーザー検証は未完了
-    target_staff.is_mfa_verified_by_user = False
-
-    db.add(target_staff)
-    await db.commit()
+    await MfaService(db).admin_enable_staff_mfa(
+        target_staff=target_staff,
+        secret=secret,
+        recovery_codes=recovery_codes,
+    )
 
     # QRコードURIを生成（スタッフがTOTPアプリに登録するため）
     qr_code_uri = generate_totp_uri(staff_email, secret)
@@ -272,8 +258,7 @@ async def admin_disable_staff_mfa(
         )
 
     # MFAを無効化
-    await target_staff.disable_mfa(db)
-    await db.commit()
+    await MfaService(db).admin_disable_staff_mfa(target_staff=target_staff)
 
     return {"message": ja.MFA_DISABLED_SUCCESS}
 
@@ -338,17 +323,9 @@ async def disable_all_office_mfa(
     all_staffs = result_staffs.scalars().all()
 
     # MFAが有効なスタッフのみ無効化
-    disabled_count = 0
     try:
-        for staff in all_staffs:
-            if staff.is_mfa_enabled:
-                await staff.disable_mfa(db)
-                disabled_count += 1
-
-        await db.commit()
+        disabled_count = await MfaService(db).disable_all_office_mfa(all_staffs=all_staffs)
     except Exception as e:
-        # エラー発生時はロールバック
-        await db.rollback()
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"[DISABLE ALL MFA] Failed to disable MFA for office {office.id}: {str(e)}")
@@ -424,37 +401,11 @@ async def enable_all_office_mfa(
     all_staffs = result_staffs.scalars().all()
 
     # MFAが無効なスタッフのみ有効化し、設定情報を収集
-    staff_mfa_data = []
-    enabled_count = 0
-
     try:
-        for staff in all_staffs:
-            if not staff.is_mfa_enabled:
-                # MFAシークレットとリカバリーコードを生成
-                secret = generate_totp_secret()
-                totp_uri = generate_totp_uri(staff.email, secret)
-                recovery_codes = generate_recovery_codes()
-
-                # MFAを有効化（暗号化して保存）
-                await staff.enable_mfa(db, secret, recovery_codes)
-
-                # 管理者による有効化なので、ユーザー検証は未完了
-                staff.is_mfa_verified_by_user = False
-                enabled_count += 1
-
-                # スタッフごとのMFA設定情報を収集
-                staff_mfa_data.append({
-                    "staff_id": str(staff.id),
-                    "staff_name": staff.full_name,
-                    "qr_code_uri": totp_uri,
-                    "secret_key": secret,
-                    "recovery_codes": recovery_codes
-                })
-
-        await db.commit()
+        enabled_count, staff_mfa_data = await MfaService(db).enable_all_office_mfa(
+            all_staffs=all_staffs
+        )
     except Exception as e:
-        # エラー発生時はロールバック
-        await db.rollback()
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"[ENABLE ALL MFA] Failed to enable MFA for office {office.id}: {str(e)}")

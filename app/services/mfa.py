@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import (
     generate_totp_secret,
     generate_totp_uri,
+    generate_recovery_codes,
     verify_totp,
     decrypt_mfa_secret,
 )
@@ -112,3 +113,154 @@ class MfaService:
             logger.warning(f"[MFA VERIFY TOTP] Verification failed for user {user.email}")
 
         return is_valid
+
+    async def enroll_mfa(self, user: models.Staff) -> dict[str, str]:
+        """
+        MFAシークレットを生成・保存してコミットする
+
+        Args:
+            user: 対象スタッフ
+
+        Returns:
+            {"secret_key": 平文シークレット, "qr_code_uri": TOTP URI}
+        """
+        result = await self.enroll(user=user)
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return result
+
+    async def verify_mfa(self, user: models.Staff, totp_code: str) -> bool:
+        """
+        TOTPコードを検証してMFA有効化フラグをコミットする
+
+        Args:
+            user: 対象スタッフ
+            totp_code: 検証するTOTPコード
+
+        Returns:
+            検証成功時True、失敗時False
+        """
+        is_valid = await self.verify_totp_code(user=user, totp_code=totp_code)
+        if not is_valid:
+            return False
+
+        user.is_mfa_enabled = True
+        user.is_mfa_verified_by_user = True
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return True
+
+    async def disable_mfa(self, user: models.Staff) -> None:
+        """
+        MFAを無効化してコミットする
+
+        Args:
+            user: 対象スタッフ
+        """
+        await user.disable_mfa(self.db)
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+
+    async def admin_enable_staff_mfa(
+        self,
+        target_staff: models.Staff,
+        secret: str,
+        recovery_codes: list[str],
+    ) -> None:
+        """
+        管理者によるMFA有効化をコミットする
+
+        Args:
+            target_staff: 対象スタッフ
+            secret: 平文のTOTPシークレット
+            recovery_codes: リカバリーコードのリスト
+        """
+        await target_staff.enable_mfa(self.db, secret, recovery_codes)
+        target_staff.is_mfa_verified_by_user = False
+        self.db.add(target_staff)
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+
+    async def admin_disable_staff_mfa(self, target_staff: models.Staff) -> None:
+        """
+        管理者によるMFA無効化をコミットする
+
+        Args:
+            target_staff: 対象スタッフ
+        """
+        await target_staff.disable_mfa(self.db)
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+
+    async def disable_all_office_mfa(self, all_staffs: list[models.Staff]) -> int:
+        """
+        全スタッフのMFAを一括無効化してコミットする
+
+        Args:
+            all_staffs: 対象スタッフのリスト
+
+        Returns:
+            無効化されたスタッフ数
+        """
+        disabled_count = 0
+        try:
+            for staff in all_staffs:
+                if staff.is_mfa_enabled:
+                    await staff.disable_mfa(self.db)
+                    disabled_count += 1
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return disabled_count
+
+    async def enable_all_office_mfa(
+        self, all_staffs: list[models.Staff]
+    ) -> tuple[int, list[dict]]:
+        """
+        全スタッフのMFAを一括有効化してコミットする
+
+        Args:
+            all_staffs: 対象スタッフのリスト
+
+        Returns:
+            (有効化されたスタッフ数, 各スタッフのMFA設定情報リスト)
+        """
+        staff_mfa_data = []
+        enabled_count = 0
+        try:
+            for staff in all_staffs:
+                if not staff.is_mfa_enabled:
+                    secret = generate_totp_secret()
+                    totp_uri = generate_totp_uri(staff.email, secret)
+                    recovery_codes = generate_recovery_codes()
+                    await staff.enable_mfa(self.db, secret, recovery_codes)
+                    staff.is_mfa_verified_by_user = False
+                    enabled_count += 1
+                    staff_mfa_data.append({
+                        "staff_id": str(staff.id),
+                        "staff_name": staff.full_name,
+                        "qr_code_uri": totp_uri,
+                        "secret_key": secret,
+                        "recovery_codes": recovery_codes,
+                    })
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return enabled_count, staff_mfa_data
