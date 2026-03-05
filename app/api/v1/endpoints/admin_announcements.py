@@ -13,7 +13,6 @@ from app.models.staff import Staff
 from app.models.message import Message
 from app.models.enums import MessageType
 from app.schemas.message import MessageResponse, MessageAnnouncementCreate, MessageDetailResponse
-from app.crud.crud_message import crud_message
 from app import crud
 
 router = APIRouter()
@@ -127,7 +126,7 @@ async def send_announcement_to_all(
         "content": message_in.content
     }
 
-    message = await crud_message.create_announcement(db=db, obj_in=message_data)
+    message = await crud.message.create_announcement(db=db, obj_in=message_data)
     await db.commit()
     await db.refresh(message, ["sender", "recipients"])
 

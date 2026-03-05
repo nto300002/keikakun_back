@@ -8,7 +8,7 @@ from psycopg import errors as psycopg_errors
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
-from app.crud.crud_welfare_recipient import crud_welfare_recipient
+from app import crud
 from app.models.staff import Staff
 from app.models.enums import ResourceType, ActionType
 from app.schemas.welfare_recipient import (
@@ -164,7 +164,7 @@ async def list_welfare_recipients(
     office_id = office_associations[0].office_id
 
     if search:
-        welfare_recipients = await crud_welfare_recipient.search_by_name(
+        welfare_recipients = await crud.welfare_recipient.search_by_name(
             db=db,
             office_id=office_id,
             search_term=search.strip(),
@@ -172,7 +172,7 @@ async def list_welfare_recipients(
             limit=limit
         )
     else:
-        welfare_recipients = await crud_welfare_recipient.get_by_office(
+        welfare_recipients = await crud.welfare_recipient.get_by_office(
             db=db,
             office_id=office_id,
             skip=skip,
@@ -181,7 +181,7 @@ async def list_welfare_recipients(
 
     # For pagination, we need the total count
     # Note: In production, you might want to implement this more efficiently
-    all_recipients = await crud_welfare_recipient.get_by_office(db=db, office_id=office_id, skip=0, limit=10000)
+    all_recipients = await crud.welfare_recipient.get_by_office(db=db, office_id=office_id, skip=0, limit=10000)
     total = len(all_recipients)
 
     return WelfareRecipientListResponse(
@@ -254,7 +254,7 @@ async def get_welfare_recipient(
     全ての職員が利用者の詳細情報を参照できます。
     """
 
-    welfare_recipient = await crud_welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
+    welfare_recipient = await crud.welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
         raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
@@ -288,7 +288,7 @@ async def update_welfare_recipient(
     受給者情報の更新はownerおよびmanagerのみが可能です。
     """
     # Get existing recipient
-    welfare_recipient = await crud_welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
+    welfare_recipient = await crud.welfare_recipient.get_with_details(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
         raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
@@ -326,7 +326,7 @@ async def update_welfare_recipient(
         )
 
     try:
-        updated_recipient = await crud_welfare_recipient.update_comprehensive(
+        updated_recipient = await crud.welfare_recipient.update_comprehensive(
             db=db,
             recipient_id=recipient_id,
             registration_data=registration_data
@@ -361,7 +361,7 @@ async def delete_welfare_recipient(
     """
 
     # Get existing recipient with only office associations (lightweight query for delete)
-    welfare_recipient = await crud_welfare_recipient.get_with_office_associations(db=db, recipient_id=recipient_id)
+    welfare_recipient = await crud.welfare_recipient.get_with_office_associations(db=db, recipient_id=recipient_id)
     if not welfare_recipient:
         raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
@@ -395,7 +395,7 @@ async def delete_welfare_recipient(
         )
 
     try:
-        success = await crud_welfare_recipient.delete_with_cascade(db=db, recipient_id=recipient_id)
+        success = await crud.welfare_recipient.delete_with_cascade(db=db, recipient_id=recipient_id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -431,7 +431,7 @@ async def repair_support_plan(
     if current_staff.role.value not in ["manager", "owner"]:
         raise ForbiddenException(ja.RECIPIENT_REPAIR_PERMISSION_DENIED)
 
-    welfare_recipient = await crud_welfare_recipient.get(db=db, id=recipient_id)
+    welfare_recipient = await crud.welfare_recipient.get(db=db, id=recipient_id)
     if not welfare_recipient:
         raise NotFoundException(ja.RECIPIENT_NOT_FOUND)
 
@@ -447,7 +447,7 @@ async def repair_support_plan(
 
     try:
         # Recreate support plan data
-        await crud_welfare_recipient._create_initial_support_plan(db, recipient_id, office_id)
+        await crud.welfare_recipient._create_initial_support_plan(db, recipient_id, office_id)
         await db.commit()
 
         return {

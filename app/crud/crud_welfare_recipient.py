@@ -322,13 +322,14 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
         from app.models.enums import SupportPlanStep
         from datetime import date, timedelta
+        from app.core.config import settings
 
         cycle = SupportPlanCycle(
             welfare_recipient_id=recipient_id,
             office_id=office_id,
             is_latest_cycle=True,
             plan_cycle_start_date=date.today(),
-            next_renewal_deadline=date.today() + timedelta(days=180)
+            next_renewal_deadline=date.today() + timedelta(days=settings.SUPPORT_PLAN_RENEWAL_DAYS)
         )
         db.add(cycle)
         await db.flush()  # cycle.id を取得するため

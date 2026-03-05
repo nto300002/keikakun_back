@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy import select, func, and_, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.crud.base import CRUDBase
 from app.models.staff_profile import AuditLog
 
@@ -450,7 +451,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
         for policy in RETENTION_POLICIES.values():
             all_categorized_actions.extend(policy["actions"])
 
-        standard_cutoff = now - datetime.timedelta(days=365)
+        standard_cutoff = now - datetime.timedelta(days=settings.AUDIT_LOG_RETENTION_DAYS)
 
         uncategorized_count_query = (
             select(func.count())

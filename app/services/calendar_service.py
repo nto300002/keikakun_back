@@ -18,8 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException, status
 
-from app.crud.crud_office_calendar_account import crud_office_calendar_account
-from app.crud.crud_calendar_event import crud_calendar_event
+from app import crud
 from app.schemas.calendar_account import (
     CalendarSetupRequest,
     OfficeCalendarAccountCreate,
@@ -65,7 +64,7 @@ class CalendarService:
             ValueError: 既に設定が存在する場合
         """
         # 既に設定が存在するかチェック
-        existing = await crud_office_calendar_account.get_by_office_id(
+        existing = await crud.office_calendar_account.get_by_office_id(
             db=db,
             office_id=request.office_id
         )
@@ -93,7 +92,7 @@ class CalendarService:
         )
 
         # CRUDレイヤーで暗号化して保存
-        account = await crud_office_calendar_account.create_with_encryption(
+        account = await crud.office_calendar_account.create_with_encryption(
             db=db,
             obj_in=create_data
         )
@@ -124,7 +123,7 @@ class CalendarService:
             HTTPException: アカウントが存在しない場合
         """
         # 既存のアカウントを取得
-        existing = await crud_office_calendar_account.get(db=db, id=account_id)
+        existing = await crud.office_calendar_account.get(db=db, id=account_id)
         if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -147,7 +146,7 @@ class CalendarService:
         )
 
         # CRUDレイヤーで暗号化して更新
-        account = await crud_office_calendar_account.update_with_encryption(
+        account = await crud.office_calendar_account.update_with_encryption(
             db=db,
             db_obj=existing,
             obj_in=update_data
@@ -173,7 +172,7 @@ class CalendarService:
         Returns:
             OfficeCalendarAccount または None
         """
-        return await crud_office_calendar_account.get_by_office_id(
+        return await crud.office_calendar_account.get_by_office_id(
             db=db,
             office_id=office_id
         )
@@ -192,7 +191,7 @@ class CalendarService:
         Returns:
             OfficeCalendarAccount または None
         """
-        return await crud_office_calendar_account.get(db=db, id=account_id)
+        return await crud.office_calendar_account.get(db=db, id=account_id)
 
     async def update_connection_status(
         self,
@@ -212,7 +211,7 @@ class CalendarService:
         Returns:
             更新されたOfficeCalendarAccount または None
         """
-        return await crud_office_calendar_account.update_connection_status(
+        return await crud.office_calendar_account.update_connection_status(
             db=db,
             account_id=account_id,
             status=status,
@@ -264,7 +263,7 @@ class CalendarService:
             HTTPException: アカウントが存在しない場合
         """
         # カレンダーアカウントを取得
-        account = await crud_office_calendar_account.get(db=db, id=account_id)
+        account = await crud.office_calendar_account.get(db=db, id=account_id)
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -318,7 +317,7 @@ class CalendarService:
             logger.info("テストイベント削除成功")
 
             # 接続ステータスを更新
-            await crud_office_calendar_account.update_connection_status(
+            await crud.office_calendar_account.update_connection_status(
                 db=db,
                 account_id=account_id,
                 status=CalendarConnectionStatus.connected,
@@ -338,7 +337,7 @@ class CalendarService:
             logger.error(f"  エラー: {error_message}")
             logger.error("=" * 80)
 
-            await crud_office_calendar_account.update_connection_status(
+            await crud.office_calendar_account.update_connection_status(
                 db=db,
                 account_id=account_id,
                 status=CalendarConnectionStatus.error,
@@ -391,7 +390,7 @@ class CalendarService:
             return []
 
         # カレンダーアカウントを取得
-        account = await crud_office_calendar_account.get_by_office_id(
+        account = await crud.office_calendar_account.get_by_office_id(
             db=db,
             office_id=office_id
         )
@@ -521,7 +520,7 @@ class CalendarService:
             return []
 
         # カレンダーアカウントを取得
-        account = await crud_office_calendar_account.get_by_office_id(
+        account = await crud.office_calendar_account.get_by_office_id(
             db=db,
             office_id=office_id
         )
@@ -631,7 +630,7 @@ class CalendarService:
             return None
 
         # カレンダーアカウントを取得
-        account = await crud_office_calendar_account.get_by_office_id(
+        account = await crud.office_calendar_account.get_by_office_id(
             db=db,
             office_id=office_id
         )
@@ -712,7 +711,7 @@ class CalendarService:
             sync_status=CalendarSyncStatus.pending
         )
 
-        event = await crud_calendar_event.create(db=db, obj_in=event_data)
+        event = await crud.calendar_event.create(db=db, obj_in=event_data)
         await db.flush()
 
         return event.id
@@ -732,7 +731,7 @@ class CalendarService:
             HTTPException: アカウントが存在しない場合
         """
         # 既存のアカウントを取得
-        existing = await crud_office_calendar_account.get(db=db, id=account_id)
+        existing = await crud.office_calendar_account.get(db=db, id=account_id)
         if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -740,7 +739,7 @@ class CalendarService:
             )
 
         # アカウントを削除
-        await crud_office_calendar_account.remove(db=db, id=account_id)
+        await crud.office_calendar_account.remove(db=db, id=account_id)
 
     async def sync_pending_events(
         self,
@@ -760,7 +759,7 @@ class CalendarService:
         failed_count = 0
 
         # 未同期イベントを取得
-        pending_events = await crud_calendar_event.get_pending_sync_events(db=db)
+        pending_events = await crud.calendar_event.get_pending_sync_events(db=db)
 
         # office_idが指定されている場合はフィルタ
         if office_id:
@@ -779,7 +778,7 @@ class CalendarService:
         # 事業所ごとに同期
         for office_id, events in events_by_office.items():
             # カレンダーアカウントを取得
-            account = await crud_office_calendar_account.get_by_office_id(
+            account = await crud.office_calendar_account.get_by_office_id(
                 db=db,
                 office_id=office_id
             )
@@ -792,7 +791,7 @@ class CalendarService:
                         last_error_message="Calendar account not found",
                         last_sync_at=datetime.now()
                     )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
+                    await crud.calendar_event.update(db=db, db_obj=event, obj_in=update_data)
                     failed_count += 1
                 continue
 
@@ -807,7 +806,7 @@ class CalendarService:
                         last_error_message="Calendar account not connected",
                         last_sync_at=datetime.now()
                     )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
+                    await crud.calendar_event.update(db=db, db_obj=event, obj_in=update_data)
                     failed_count += 1
                 continue
 
@@ -832,7 +831,7 @@ class CalendarService:
                         last_error_message=f"Authentication failed: {str(e)}",
                         last_sync_at=datetime.now()
                     )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
+                    await crud.calendar_event.update(db=db, db_obj=event, obj_in=update_data)
                     failed_count += 1
                 continue
 
@@ -855,7 +854,7 @@ class CalendarService:
                         last_sync_at=datetime.now(),
                         last_error_message=None
                     )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
+                    await crud.calendar_event.update(db=db, db_obj=event, obj_in=update_data)
 
                     synced_count += 1
 
@@ -866,7 +865,7 @@ class CalendarService:
                         last_error_message=str(e),
                         last_sync_at=datetime.now()
                     )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
+                    await crud.calendar_event.update(db=db, db_obj=event, obj_in=update_data)
                     failed_count += 1
 
         return {"synced": synced_count, "failed": failed_count}
@@ -906,7 +905,7 @@ class CalendarService:
         if event.google_event_id:
             try:
                 # カレンダーアカウントを取得
-                account = await crud_office_calendar_account.get_by_office_id(
+                account = await crud.office_calendar_account.get_by_office_id(
                     db=db,
                     office_id=event.office_id
                 )
@@ -966,7 +965,7 @@ class CalendarService:
         if event.google_event_id:
             try:
                 # カレンダーアカウントを取得
-                account = await crud_office_calendar_account.get_by_office_id(
+                account = await crud.office_calendar_account.get_by_office_id(
                     db=db,
                     office_id=event.office_id
                 )

@@ -17,11 +17,6 @@ from fastapi import HTTPException, status
 import stripe
 
 from app import crud
-from app.crud.crud_approval_request import approval_request as crud_approval_request
-from app.crud.crud_archived_staff import crud_archived_staff
-from app.crud.crud_audit_log import audit_log as crud_audit_log
-from app.crud.crud_office import crud_office
-from app.crud.crud_staff import staff as crud_staff
 from app.models.approval_request import ApprovalRequest
 from app.models.office import Office, OfficeStaff
 from app.models.staff import Staff
@@ -70,7 +65,7 @@ class WithdrawalService:
             HTTPException: 既存の承認待ちリクエストがある場合
         """
         # 既存の承認待ちリクエストがないか確認
-        has_pending = await crud_approval_request.has_pending_withdrawal(
+        has_pending = await crud.approval_request.has_pending_withdrawal(
             db,
             office_id=office_id,
             withdrawal_type="staff",
@@ -83,7 +78,7 @@ class WithdrawalService:
             )
 
         # リクエスト作成
-        request = await crud_approval_request.create_withdrawal_request(
+        request = await crud.approval_request.create_withdrawal_request(
             db,
             requester_staff_id=requester_staff_id,
             office_id=office_id,
@@ -93,7 +88,7 @@ class WithdrawalService:
         )
 
         # 監査ログ記録
-        await crud_audit_log.create_log(
+        await crud.audit_log.create_log(
             db,
             actor_id=requester_staff_id,
             action="withdrawal.requested",
@@ -144,7 +139,7 @@ class WithdrawalService:
             HTTPException: 既存の承認待ちリクエストがある場合、権限がない場合
         """
         # リクエスト作成者がownerか確認
-        requester = await crud_staff.get(db, id=requester_staff_id)
+        requester = await crud.staff.get(db, id=requester_staff_id)
         if not requester or requester.role != StaffRole.owner:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -152,7 +147,7 @@ class WithdrawalService:
             )
 
         # 既存の承認待ちリクエストがないか確認
-        has_pending = await crud_approval_request.has_pending_withdrawal(
+        has_pending = await crud.approval_request.has_pending_withdrawal(
             db,
             office_id=office_id,
             withdrawal_type="office"
@@ -164,10 +159,10 @@ class WithdrawalService:
             )
 
         # 影響を受けるスタッフIDを取得
-        affected_staff_ids = await crud_office.get_staff_ids_by_office(db, office_id)
+        affected_staff_ids = await crud.office.get_staff_ids_by_office(db, office_id)
 
         # リクエスト作成
-        request = await crud_approval_request.create_withdrawal_request(
+        request = await crud.approval_request.create_withdrawal_request(
             db,
             requester_staff_id=requester_staff_id,
             office_id=office_id,
@@ -177,7 +172,7 @@ class WithdrawalService:
         )
 
         # 監査ログ記録
-        await crud_audit_log.create_log(
+        await crud.audit_log.create_log(
             db,
             actor_id=requester_staff_id,
             action="withdrawal.requested",
@@ -232,7 +227,7 @@ class WithdrawalService:
             HTTPException: リクエストが見つからない、権限がない場合
         """
         # 承認者がapp_adminか確認
-        reviewer = await crud_staff.get(db, id=reviewer_staff_id)
+        reviewer = await crud.staff.get(db, id=reviewer_staff_id)
         if not reviewer or reviewer.role != StaffRole.app_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -240,7 +235,7 @@ class WithdrawalService:
             )
 
         # リクエスト取得
-        request = await crud_approval_request.get_by_id_with_relations(db, request_id)
+        request = await crud.approval_request.get_by_id_with_relations(db, request_id)
         if not request:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -254,7 +249,7 @@ class WithdrawalService:
             )
 
         # 承認処理
-        approved_request = await crud_approval_request.approve(
+        approved_request = await crud.approval_request.approve(
             db,
             request_id=request_id,
             reviewer_staff_id=reviewer_staff_id,
@@ -272,14 +267,14 @@ class WithdrawalService:
         )
 
         # 実行結果を記録
-        await crud_approval_request.set_execution_result(
+        await crud.approval_request.set_execution_result(
             db,
             request_id=request_id,
             execution_result=execution_result
         )
 
         # 監査ログ記録
-        await crud_audit_log.create_log(
+        await crud.audit_log.create_log(
             db,
             actor_id=reviewer_staff_id,
             action="withdrawal.approved",
@@ -329,7 +324,7 @@ class WithdrawalService:
             HTTPException: リクエストが見つからない、権限がない場合
         """
         # 却下者がapp_adminか確認
-        reviewer = await crud_staff.get(db, id=reviewer_staff_id)
+        reviewer = await crud.staff.get(db, id=reviewer_staff_id)
         if not reviewer or reviewer.role != StaffRole.app_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -337,7 +332,7 @@ class WithdrawalService:
             )
 
         # リクエスト取得
-        request = await crud_approval_request.get_by_id_with_relations(db, request_id)
+        request = await crud.approval_request.get_by_id_with_relations(db, request_id)
         if not request:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -351,7 +346,7 @@ class WithdrawalService:
             )
 
         # 却下処理
-        rejected_request = await crud_approval_request.reject(
+        rejected_request = await crud.approval_request.reject(
             db,
             request_id=request_id,
             reviewer_staff_id=reviewer_staff_id,
@@ -360,7 +355,7 @@ class WithdrawalService:
 
         # 監査ログ記録
         withdrawal_type = request.request_data.get("withdrawal_type") if request.request_data else None
-        await crud_audit_log.create_log(
+        await crud.audit_log.create_log(
             db,
             actor_id=reviewer_staff_id,
             action="withdrawal.rejected",
@@ -466,7 +461,7 @@ class WithdrawalService:
         target_staff_id = UUID(request.request_data.get("target_staff_id"))
 
         # 対象スタッフを取得（リレーションシップをロード）
-        target_staff = await crud_staff.get(db, id=target_staff_id)
+        target_staff = await crud.staff.get(db, id=target_staff_id)
         if not target_staff:
             return {
                 "success": False,
@@ -482,7 +477,7 @@ class WithdrawalService:
         }
 
         # 1. アーカイブ作成（法定保存義務対応）
-        archive = await crud_archived_staff.create_from_staff(
+        archive = await crud.archived_staff.create_from_staff(
             db,
             staff=target_staff,
             reason="staff_withdrawal",
@@ -496,7 +491,7 @@ class WithdrawalService:
         )
 
         # 2. 監査ログ記録（削除前に記録）
-        await crud_audit_log.create_log(
+        await crud.audit_log.create_log(
             db,
             actor_id=executor_id,
             action="staff.soft_deleted",
@@ -515,7 +510,7 @@ class WithdrawalService:
         )
 
         # 3. スタッフを論理削除
-        await crud_staff.soft_delete(
+        await crud.staff.soft_delete(
             db,
             staff_id=target_staff_id,
             deleted_by=executor_id
@@ -563,7 +558,7 @@ class WithdrawalService:
         office_id = request.office_id
 
         # 事務所を取得
-        office = await crud_office.get(db, id=office_id)
+        office = await crud.office.get(db, id=office_id)
         if not office:
             return {
                 "success": False,
@@ -578,12 +573,12 @@ class WithdrawalService:
         }
 
         # 所属スタッフIDを取得
-        staff_ids = await crud_office.get_staff_ids_by_office(db, office_id)
+        staff_ids = await crud.office.get_staff_ids_by_office(db, office_id)
 
         # 所属スタッフの情報を取得（監査ログ用）
         deleted_staff_info = []
         for staff_id in staff_ids:
-            staff = await crud_staff.get(db, id=staff_id)
+            staff = await crud.staff.get(db, id=staff_id)
             if staff:
                 deleted_staff_info.append({
                     "id": str(staff.id),
@@ -593,7 +588,7 @@ class WithdrawalService:
                 })
 
         # 監査ログ記録（削除前に記録）
-        await crud_audit_log.create_log(
+        await crud.audit_log.create_log(
             db,
             actor_id=executor_id,
             action="office.deleted",
@@ -630,13 +625,13 @@ class WithdrawalService:
         archived_staff_ids = []
         for staff_id in staff_ids:
             # スタッフを取得（リレーションシップをロード）
-            staff = await crud_staff.get(db, id=staff_id)
+            staff = await crud.staff.get(db, id=staff_id)
             if not staff:
                 logger.warning(f"Staff not found during office withdrawal: staff_id={staff_id}")
                 continue
 
             # 1. アーカイブ作成（法定保存義務対応）
-            archive = await crud_archived_staff.create_from_staff(
+            archive = await crud.archived_staff.create_from_staff(
                 db,
                 staff=staff,
                 reason="office_withdrawal",
@@ -651,7 +646,7 @@ class WithdrawalService:
             )
 
             # 2. 各スタッフの削除ログを記録
-            await crud_audit_log.create_log(
+            await crud.audit_log.create_log(
                 db,
                 actor_id=executor_id,
                 action="staff.soft_deleted",
@@ -671,14 +666,14 @@ class WithdrawalService:
             )
 
             # 3. スタッフを論理削除
-            await crud_staff.soft_delete(
+            await crud.staff.soft_delete(
                 db,
                 staff_id=staff_id,
                 deleted_by=executor_id
             )
 
         # 事務所を論理削除
-        await crud_office.soft_delete(
+        await crud.office.soft_delete(
             db,
             office_id=office_id,
             deleted_by=executor_id
@@ -724,7 +719,7 @@ class WithdrawalService:
         Returns:
             退会リクエストリスト
         """
-        return await crud_approval_request.get_pending_withdrawal_requests(
+        return await crud.approval_request.get_pending_withdrawal_requests(
             db,
             include_test_data=include_test_data
         )
@@ -744,7 +739,7 @@ class WithdrawalService:
         Returns:
             退会リクエスト（見つからない場合はNone）
         """
-        return await crud_approval_request.get_by_id_with_relations(db, request_id)
+        return await crud.approval_request.get_by_id_with_relations(db, request_id)
 
     # =====================================================
     # 課金キャンセル処理
@@ -835,7 +830,7 @@ class WithdrawalService:
             )
 
             # 4. 監査ログを記録
-            await crud_audit_log.create_log(
+            await crud.audit_log.create_log(
                 db=db,
                 actor_id=executor_id,
                 action="billing.canceled_on_withdrawal",

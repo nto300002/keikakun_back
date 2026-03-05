@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
 from app.models.enums import InquiryStatus, InquiryPriority
-from app.crud.crud_inquiry import crud_inquiry
+from app import crud
 from app.schemas.inquiry import (
     InquiryListResponse,
     InquiryListItem,
@@ -71,7 +71,7 @@ async def get_inquiries(
         )
 
     # CRUD層から取得
-    inquiries, total = await crud_inquiry.get_inquiries(
+    inquiries, total = await crud.inquiry.get_inquiries(
         db=db,
         status=status,
         assigned_staff_id=assigned,
@@ -130,7 +130,7 @@ async def get_inquiry(
 
     - **inquiry_id**: 問い合わせID
     """
-    inquiry = await crud_inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
+    inquiry = await crud.inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
 
     if not inquiry:
         raise HTTPException(
@@ -176,7 +176,7 @@ async def update_inquiry(
     - **admin_notes**: 管理者メモ
     """
     try:
-        await crud_inquiry.update_inquiry(
+        await crud.inquiry.update_inquiry(
             db=db,
             inquiry_id=inquiry_id,
             status=inquiry_in.status,
@@ -228,7 +228,7 @@ async def reply_to_inquiry(
         # メール送信用にcommit前に問い合わせ情報を取得
         email_data = None
         if reply_in.send_email:
-            inquiry = await crud_inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
+            inquiry = await crud.inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
             if inquiry and inquiry.sender_email:
                 # メール送信に必要な情報を事前に取得
                 original_message = inquiry.message
@@ -240,7 +240,7 @@ async def reply_to_inquiry(
                     "reply_content": reply_in.body,
                 }
 
-        reply_message = await crud_inquiry.create_reply(
+        reply_message = await crud.inquiry.create_reply(
             db=db,
             inquiry_id=inquiry_id,
             reply_staff_id=current_user.id,
@@ -310,7 +310,7 @@ async def delete_inquiry(
         InquiryDetailを削除すると、CASCADEによりMessageとMessageRecipientも削除されます
     """
     try:
-        result = await crud_inquiry.delete_inquiry(db=db, inquiry_id=inquiry_id)
+        result = await crud.inquiry.delete_inquiry(db=db, inquiry_id=inquiry_id)
 
         if not result:
             raise HTTPException(

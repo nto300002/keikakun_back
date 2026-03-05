@@ -26,7 +26,6 @@ from app.schemas.message import (
     MessageBulkMarkAsReadRequest,
     MessageBulkOperationResponse
 )
-from app.crud.crud_message import crud_message
 from app import crud
 
 router = APIRouter()
@@ -94,7 +93,7 @@ async def send_personal_message(
         "content": message_in.content
     }
 
-    message = await crud_message.create_personal_message(db=db, obj_in=message_data)
+    message = await crud.message.create_personal_message(db=db, obj_in=message_data)
     await db.commit()
     await db.refresh(message, ["sender", "recipients"])
 
@@ -160,7 +159,7 @@ async def send_announcement(
         "content": message_in.content
     }
 
-    message = await crud_message.create_announcement(db=db, obj_in=message_data)
+    message = await crud.message.create_announcement(db=db, obj_in=message_data)
     await db.commit()
     await db.refresh(message, ["sender", "recipients"])
 
@@ -191,7 +190,7 @@ async def get_inbox_messages(
     - limit: 取得数上限（最大100）
     """
     # 受信箱のメッセージを取得
-    messages = await crud_message.get_inbox_messages(
+    messages = await crud.message.get_inbox_messages(
         db=db,
         recipient_staff_id=current_user.id,
         message_type=message_type,
@@ -201,7 +200,7 @@ async def get_inbox_messages(
     )
 
     # 未読件数を取得
-    unread_count = await crud_message.get_unread_count(
+    unread_count = await crud.message.get_unread_count(
         db=db,
         recipient_staff_id=current_user.id
     )
@@ -266,7 +265,7 @@ async def mark_message_as_read(
     - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
     try:
-        recipient = await crud_message.mark_as_read(
+        recipient = await crud.message.mark_as_read(
             db=db,
             message_id=message_id,
             recipient_staff_id=current_user.id
@@ -296,7 +295,7 @@ async def get_message_stats(
     - 送信者のみアクセス可能
     """
     # メッセージを取得
-    message = await crud_message.get_message_by_id(db=db, message_id=message_id)
+    message = await crud.message.get_message_by_id(db=db, message_id=message_id)
     if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -311,7 +310,7 @@ async def get_message_stats(
         )
 
     # 統計情報を取得
-    stats = await crud_message.get_message_stats(db=db, message_id=message_id)
+    stats = await crud.message.get_message_stats(db=db, message_id=message_id)
 
     return MessageStatsResponse(
         message_id=message_id,
@@ -331,7 +330,7 @@ async def get_unread_count(
     """
     未読メッセージ件数を取得（通知バッジ用）
     """
-    unread_count = await crud_message.get_unread_count(
+    unread_count = await crud.message.get_unread_count(
         db=db,
         recipient_staff_id=current_user.id
     )
@@ -351,7 +350,7 @@ async def mark_all_as_read(
     全未読メッセージを既読にする
     - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
-    updated_count = await crud_message.mark_all_as_read(
+    updated_count = await crud.message.mark_all_as_read(
         db=db,
         recipient_staff_id=current_user.id
     )
@@ -374,7 +373,7 @@ async def archive_message(
     - 自分宛のメッセージのみアーカイブできる
     """
     try:
-        recipient = await crud_message.archive_message(
+        recipient = await crud.message.archive_message(
             db=db,
             message_id=message_id,
             recipient_staff_id=current_user.id,

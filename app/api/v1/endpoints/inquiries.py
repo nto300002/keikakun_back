@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.api.deps import get_db, get_current_user
 from app.models.staff import Staff
 from app.models.enums import StaffRole, InquiryPriority
-from app.crud.crud_inquiry import crud_inquiry
+from app import crud
 from app.schemas.inquiry import InquiryCreate, InquiryCreateResponse
 from app.core.limiter import limiter
 from app.utils.sanitization import sanitize_inquiry_input
@@ -171,7 +171,7 @@ async def create_inquiry(
 
     try:
         # 問い合わせ作成（サニタイズされた値を使用）
-        inquiry_detail = await crud_inquiry.create_inquiry(
+        inquiry_detail = await crud.inquiry.create_inquiry(
             db=db,
             sender_staff_id=current_user.id if current_user else None,
             office_id=office_id,

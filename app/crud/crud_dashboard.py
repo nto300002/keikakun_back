@@ -4,6 +4,7 @@ from sqlalchemy import select, func, and_, or_, true, exists, case
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
+from app.core.config import settings
 from app.crud.base import CRUDBase
 from app.models import SupportPlanCycle, SupportPlanStatus, Staff, Office, OfficeStaff, WelfareRecipient, OfficeWelfareRecipient, PlanDeliverable
 from app.schemas.dashboard import DashboardSummary
@@ -147,7 +148,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             if filters.get("is_overdue"):
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
             if filters.get("is_upcoming"):
-                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=settings.DASHBOARD_DEADLINE_WARNING_DAYS)))
             if filters.get("has_assessment_due"):
                 # アセスメント開始期限が設定されている利用者（未完了のみ）
                 # 個別支援計画の5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング
@@ -284,7 +285,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
             if filters.get("is_overdue"):
                 stmt = stmt.where(SupportPlanCycle.next_renewal_deadline < date.today())
             if filters.get("is_upcoming"):
-                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=30)))
+                stmt = stmt.where(SupportPlanCycle.next_renewal_deadline.between(date.today(), date.today() + timedelta(days=settings.DASHBOARD_DEADLINE_WARNING_DAYS)))
             if filters.get("has_assessment_due"):
                 # アセスメント開始期限が設定されている利用者（未完了のみ）
                 # 個別支援計画の5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング
@@ -337,7 +338,7 @@ class CRUDDashboard(CRUDBase[WelfareRecipient, DashboardSummary, DashboardSummar
         - サイクル未作成 (No Cycle)
         """
         today = date.today()
-        upcoming_deadline = today + timedelta(days=30)
+        upcoming_deadline = today + timedelta(days=settings.DASHBOARD_DEADLINE_WARNING_DAYS)
 
         # ベースクエリ: 対象事業所の利用者
         base_query = (

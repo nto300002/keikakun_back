@@ -16,9 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
-from app.crud.crud_approval_request import approval_request
-from app.crud.crud_welfare_recipient import crud_welfare_recipient
-from app.crud.crud_notice import crud_notice
+from app import crud
 from app.models.approval_request import ApprovalRequest
 from app.models.welfare_recipient import (
     WelfareRecipient,
@@ -106,7 +104,7 @@ class EmployeeActionService:
         )
 
         # ApprovalRequestを作成（employee_action種別）
-        request = await approval_request.create_employee_action_request(
+        request = await crud.approval_request.create_employee_action_request(
             db=db,
             requester_staff_id=requester_staff_id,
             office_id=office_id,
@@ -170,7 +168,7 @@ class EmployeeActionService:
             承認されたEmployee制限リクエスト
         """
         # リクエストを取得
-        request = await approval_request.get(db, id=request_id)
+        request = await crud.approval_request.get(db, id=request_id)
         if not request:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -189,7 +187,7 @@ class EmployeeActionService:
             execution_result = await self._execute_action(db, request)
 
             # 承認処理
-            approved_request = await approval_request.approve(
+            approved_request = await crud.approval_request.approve(
                 db=db,
                 request_id=request_id,
                 reviewer_staff_id=reviewer_staff_id,
@@ -197,7 +195,7 @@ class EmployeeActionService:
             )
 
             # 実行結果を設定
-            approved_request = await approval_request.set_execution_result(
+            approved_request = await crud.approval_request.set_execution_result(
                 db=db,
                 request_id=request_id,
                 execution_result=execution_result
@@ -225,7 +223,7 @@ class EmployeeActionService:
             }
 
             # エラーがあっても承認処理は実行（エラー情報を記録）
-            approved_request = await approval_request.approve(
+            approved_request = await crud.approval_request.approve(
                 db=db,
                 request_id=request_id,
                 reviewer_staff_id=reviewer_staff_id,
@@ -233,7 +231,7 @@ class EmployeeActionService:
             )
 
             # 実行結果を設定（エラー情報）
-            approved_request = await approval_request.set_execution_result(
+            approved_request = await crud.approval_request.set_execution_result(
                 db=db,
                 request_id=request_id,
                 execution_result=execution_result
@@ -269,9 +267,9 @@ class EmployeeActionService:
         link_url = f"/approval-requests/{approved_request.id}"
 
         # 1つのクエリで両方のタイプの通知を取得（デッドロック対策）
-        delete_stmt = select(crud_notice.model).where(
-            crud_notice.model.link_url == link_url,
-            crud_notice.model.type.in_([
+        delete_stmt = select(crud.notice.model).where(
+            crud.notice.model.link_url == link_url,
+            crud.notice.model.type.in_([
                 NoticeType.employee_action_pending.value,
                 NoticeType.employee_action_request_sent.value
             ])
@@ -293,7 +291,7 @@ class EmployeeActionService:
             content=f"あなたの{detail_info}リクエストが承認されました。",
             link_url=link_url
         )
-        await crud_notice.create(db, obj_in=sender_notice_data)
+        await crud.notice.create(db, obj_in=sender_notice_data)
 
         # 承認者向けの通知を再作成
         for approver_id in approver_staff_ids:
@@ -305,7 +303,7 @@ class EmployeeActionService:
                 content=f"{requester_full_name}さんの{detail_info}リクエストを承認しました。",
                 link_url=link_url
             )
-            await crud_notice.create(db, obj_in=approver_notice_data)
+            await crud.notice.create(db, obj_in=approver_notice_data)
 
         # 最後に1回だけcommit
         await db.commit()
@@ -350,7 +348,7 @@ class EmployeeActionService:
         )
 
         # リクエストを却下
-        rejected_request = await approval_request.reject(
+        rejected_request = await crud.approval_request.reject(
             db=db,
             request_id=request_id,
             reviewer_staff_id=reviewer_staff_id,
@@ -387,9 +385,9 @@ class EmployeeActionService:
         link_url = f"/approval-requests/{rejected_request.id}"
 
         # 1つのクエリで両方のタイプの通知を取得（デッドロック対策）
-        delete_stmt = select(crud_notice.model).where(
-            crud_notice.model.link_url == link_url,
-            crud_notice.model.type.in_([
+        delete_stmt = select(crud.notice.model).where(
+            crud.notice.model.link_url == link_url,
+            crud.notice.model.type.in_([
                 NoticeType.employee_action_pending.value,
                 NoticeType.employee_action_request_sent.value
             ])
@@ -411,7 +409,7 @@ class EmployeeActionService:
             content=f"あなたの{detail_info}リクエストが却下されました。",
             link_url=link_url
         )
-        await crud_notice.create(db, obj_in=sender_notice_data)
+        await crud.notice.create(db, obj_in=sender_notice_data)
 
         # 承認者向けの通知を再作成
         for approver_id in approver_staff_ids:
@@ -423,7 +421,7 @@ class EmployeeActionService:
                 content=f"{requester_full_name}さんの{detail_info}リクエストを却下しました。",
                 link_url=link_url
             )
-            await crud_notice.create(db, obj_in=approver_notice_data)
+            await crud.notice.create(db, obj_in=approver_notice_data)
 
         # 最後に1回だけcommit
         await db.commit()
@@ -674,7 +672,7 @@ class EmployeeActionService:
                     detail=ja.SERVICE_RESOURCE_ID_REQUIRED_FOR_UPDATE
                 )
 
-            recipient = await crud_welfare_recipient.get(db, id=recipient_id)
+            recipient = await crud.welfare_recipient.get(db, id=recipient_id)
             if not recipient:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -732,7 +730,7 @@ class EmployeeActionService:
                     detail=ja.SERVICE_RESOURCE_ID_REQUIRED_FOR_DELETE
                 )
 
-            recipient = await crud_welfare_recipient.get(db, id=recipient_id)
+            recipient = await crud.welfare_recipient.get(db, id=recipient_id)
             if not recipient:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -854,7 +852,7 @@ class EmployeeActionService:
                 content=f"{requester_full_name}さんが{detail_info}リクエストしました。",
                 link_url=f"/approval-requests/{request_id}"
             )
-            await crud_notice.create(db, obj_in=notice_data)
+            await crud.notice.create(db, obj_in=notice_data)
 
         # 2. リクエスト作成者（送信者）にも通知を作成
         requester_notice_data = NoticeCreate(
@@ -865,10 +863,10 @@ class EmployeeActionService:
             content=f"あなたの{detail_info}リクエストを送信しました。承認をお待ちください。",
             link_url=f"/approval-requests/{request_id}"
         )
-        await crud_notice.create(db, obj_in=requester_notice_data)
+        await crud.notice.create(db, obj_in=requester_notice_data)
 
         # 3. 事務所の通知数が50件を超えた場合、古いものから削除
-        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+        await crud.notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 
@@ -903,10 +901,10 @@ class EmployeeActionService:
             content=f"あなたの{detail_info}リクエストが承認されました。",
             link_url=f"/approval-requests/{request_id}"
         )
-        await crud_notice.create(db, obj_in=notice_data)
+        await crud.notice.create(db, obj_in=notice_data)
 
         # 事務所の通知数が50件を超えた場合、古いものから削除
-        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+        await crud.notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 
@@ -941,10 +939,10 @@ class EmployeeActionService:
             content=f"あなたの{detail_info}リクエストが却下されました。",
             link_url=f"/approval-requests/{request_id}"
         )
-        await crud_notice.create(db, obj_in=notice_data)
+        await crud.notice.create(db, obj_in=notice_data)
 
         # 事務所の通知数が50件を超えた場合、古いものから削除
-        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+        await crud.notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 

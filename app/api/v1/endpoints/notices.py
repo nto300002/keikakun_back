@@ -12,7 +12,7 @@ from uuid import UUID
 from app.api import deps
 from app.models.staff import Staff
 from app.schemas.notice import NoticeResponse, NoticeListResponse
-from app.crud.crud_notice import crud_notice
+from app import crud
 from app.messages import ja
 
 router = APIRouter()
@@ -39,20 +39,20 @@ async def get_notices(
     # 自分宛の通知を取得
     if is_read is False:
         # 未読のみ
-        notices = await crud_notice.get_unread_by_staff_id(
+        notices = await crud.notice.get_unread_by_staff_id(
             db=db,
             staff_id=current_user.id
         )
     elif type:
         # タイプでフィルタリング
-        notices = await crud_notice.get_by_type(
+        notices = await crud.notice.get_by_type(
             db=db,
             staff_id=current_user.id,
             notice_type=type
         )
     else:
         # 全て取得
-        notices = await crud_notice.get_by_staff_id(
+        notices = await crud.notice.get_by_staff_id(
             db=db,
             staff_id=current_user.id
         )
@@ -62,7 +62,7 @@ async def get_notices(
         notices = [n for n in notices if n.is_read]
 
     # 未読件数を計算
-    unread_notices = await crud_notice.get_unread_by_staff_id(
+    unread_notices = await crud.notice.get_unread_by_staff_id(
         db=db,
         staff_id=current_user.id
     )
@@ -88,7 +88,7 @@ async def get_unread_count(
     """
     未読通知の件数を取得
     """
-    unread_notices = await crud_notice.get_unread_by_staff_id(
+    unread_notices = await crud.notice.get_unread_by_staff_id(
         db=db,
         staff_id=current_user.id
     )
@@ -109,7 +109,7 @@ async def get_notice_detail(
     - 取得時に自動的に既読にする
     """
     # 通知を取得
-    notice = await crud_notice.get(db=db, id=notice_id)
+    notice = await crud.notice.get(db=db, id=notice_id)
     if not notice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -125,7 +125,7 @@ async def get_notice_detail(
 
     # 未読の場合は自動的に既読にする
     if not notice.is_read:
-        notice = await crud_notice.mark_as_read(db=db, notice_id=notice_id)
+        notice = await crud.notice.mark_as_read(db=db, notice_id=notice_id)
 
     return notice
 
@@ -143,7 +143,7 @@ async def mark_notice_as_read(
     - 自分宛の通知のみ既読化可能
     """
     # 通知を取得
-    notice = await crud_notice.get(db=db, id=notice_id)
+    notice = await crud.notice.get(db=db, id=notice_id)
     if not notice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -158,7 +158,7 @@ async def mark_notice_as_read(
         )
 
     # 既読にする
-    updated_notice = await crud_notice.mark_as_read(db=db, notice_id=notice_id)
+    updated_notice = await crud.notice.mark_as_read(db=db, notice_id=notice_id)
     return updated_notice
 
 
@@ -173,7 +173,7 @@ async def mark_all_notices_as_read(
 
     - 自分宛の全未読通知を既読化
     """
-    marked_count = await crud_notice.mark_all_as_read(
+    marked_count = await crud.notice.mark_all_as_read(
         db=db,
         staff_id=current_user.id
     )
@@ -193,7 +193,7 @@ async def delete_notice(
     - 自分宛の通知のみ削除可能
     """
     # 通知を取得
-    notice = await crud_notice.get(db=db, id=notice_id)
+    notice = await crud.notice.get(db=db, id=notice_id)
     if not notice:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -208,5 +208,5 @@ async def delete_notice(
         )
 
     # 削除
-    await crud_notice.remove(db=db, id=notice_id)
+    await crud.notice.remove(db=db, id=notice_id)
     await db.commit()

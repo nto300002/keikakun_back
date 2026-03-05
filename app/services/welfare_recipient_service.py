@@ -14,13 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 import uuid
 
-from app.crud.crud_welfare_recipient import crud_welfare_recipient
+from app import crud
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
 from app.models.enums import SupportPlanStep, CYCLE_STEPS
 from app.schemas.welfare_recipient import UserRegistrationRequest
 from app.schemas.deadline_alert import DeadlineAlertResponse, DeadlineAlertItem
 from app.core.exceptions import BadRequestException, InternalServerException
+from app.core.config import settings
 from datetime import timedelta
 import logging
 import inspect
@@ -78,8 +79,8 @@ class WelfareRecipientService:
             logger.debug(f"[SERVICE DEBUG] WelfareRecipient created with id={recipient_id}")
 
             # 3. 関連データの作成
-            logger.debug("[SERVICE DEBUG] Calling crud_welfare_recipient.create_related_data...")
-            await crud_welfare_recipient.create_related_data(
+            logger.debug("[SERVICE DEBUG] Calling crud.welfare_recipient.create_related_data...")
+            await crud.welfare_recipient.create_related_data(
                 db=db,
                 welfare_recipient=welfare_recipient,
                 registration_data=registration_data,
@@ -151,7 +152,7 @@ class WelfareRecipientService:
             is_latest_cycle=True,
             cycle_number=new_cycle_number,
             plan_cycle_start_date=date.today(),
-            next_renewal_deadline=date.today() + timedelta(days=180)
+            next_renewal_deadline=date.today() + timedelta(days=settings.SUPPORT_PLAN_RENEWAL_DAYS)
         )
         db.add(cycle)
         logger.debug("[DEBUG] Flushing cycle...")
@@ -239,7 +240,7 @@ class WelfareRecipientService:
             is_latest_cycle=True,
             cycle_number=new_cycle_number,
             plan_cycle_start_date=date.today(),
-            next_renewal_deadline=date.today() + timedelta(days=180)
+            next_renewal_deadline=date.today() + timedelta(days=settings.SUPPORT_PLAN_RENEWAL_DAYS)
         )
         db.add(cycle)
         db.flush()  # cycle.id を取得するため
@@ -278,7 +279,7 @@ class WelfareRecipientService:
 
         try:
             # 利用者情報の存在確認
-            welfare_recipient = crud_welfare_recipient.get(db, welfare_recipient_id)
+            welfare_recipient = crud.welfare_recipient.get(db, welfare_recipient_id)
             if not welfare_recipient:
                 result["is_valid"] = False
                 result["issues"].append("利用者情報が見つかりません")
@@ -587,7 +588,6 @@ class WelfareRecipientService:
 
         # 1. 利用者に紐づくカレンダーイベントを取得
         from app.models.calendar_events import CalendarEvent
-        from app.crud.crud_office_calendar_account import crud_office_calendar_account
 
         stmt = select(CalendarEvent).where(
             CalendarEvent.welfare_recipient_id == recipient_id
@@ -609,7 +609,7 @@ class WelfareRecipientService:
                     logger.debug(f"[DEBUG-DELETE] Processing event {event_id} with google_event_id={google_event_id}, office_id={office_id}")
 
                     # カレンダーアカウント取得
-                    account = await crud_office_calendar_account.get_by_office_id(
+                    account = await crud.office_calendar_account.get_by_office_id(
                         db=db,
                         office_id=office_id
                     )

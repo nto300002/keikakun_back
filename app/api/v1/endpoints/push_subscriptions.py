@@ -76,7 +76,7 @@ async def subscribe_push(
 
     except Exception as e:
         logger.error(f"[PUSH_SUBSCRIPTION] Failed to subscribe: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to subscribe push notifications")
+        raise HTTPException(status_code=500, detail="プッシュ通知の登録に失敗しました")
 
 
 @router.delete("/unsubscribe")
@@ -108,15 +108,15 @@ async def unsubscribe_push(
         existing = await crud.push_subscription.get_by_endpoint(db=db, endpoint=endpoint)
 
         if not existing:
-            raise HTTPException(status_code=404, detail="Subscription not found")
+            raise HTTPException(status_code=404, detail="サブスクリプションが見つかりません")
 
         if existing.staff_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not authorized to delete this subscription")
+            raise HTTPException(status_code=403, detail="このサブスクリプションを削除する権限がありません")
 
         deleted = await crud.push_subscription.delete_by_endpoint(db=db, endpoint=endpoint)
 
         if not deleted:
-            raise HTTPException(status_code=404, detail="Subscription not found")
+            raise HTTPException(status_code=404, detail="サブスクリプションが見つかりません")
 
         logger.info(
             f"[PUSH_SUBSCRIPTION] Staff {current_user.email} unsubscribed "
@@ -129,7 +129,7 @@ async def unsubscribe_push(
         raise
     except Exception as e:
         logger.error(f"[PUSH_SUBSCRIPTION] Failed to unsubscribe: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to unsubscribe push notifications")
+        raise HTTPException(status_code=500, detail="プッシュ通知の解除に失敗しました")
 
 
 @router.get("/my-subscriptions", response_model=List[PushSubscriptionResponse])
@@ -162,6 +162,6 @@ async def get_my_subscriptions(
 
     except Exception as e:
         logger.error(f"[PUSH_SUBSCRIPTION] Failed to get subscriptions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to retrieve subscriptions")
+        raise HTTPException(status_code=500, detail="サブスクリプション一覧の取得に失敗しました")
 
 

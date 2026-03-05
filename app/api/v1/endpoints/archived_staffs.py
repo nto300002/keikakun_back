@@ -10,9 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from uuid import UUID
 
-from app import schemas
+from app import schemas, crud
 from app.api import deps
-from app.crud.crud_archived_staff import crud_archived_staff as archived_staff
 from app.models.staff import Staff
 from app.messages import ja
 
@@ -50,7 +49,7 @@ async def list_archived_staffs(
         limit = 100
 
     # アーカイブリスト取得
-    archives, total = await archived_staff.get_multi(
+    archives, total = await crud.archived_staff.get_multi(
         db,
         skip=skip,
         limit=limit,
@@ -95,7 +94,7 @@ async def get_archived_staff(
     権限: app_admin のみアクセス可能
     """
     # アーカイブ取得
-    archive = await archived_staff.get(db, archive_id=archive_id)
+    archive = await crud.archived_staff.get(db, archive_id=archive_id)
 
     if not archive:
         raise HTTPException(

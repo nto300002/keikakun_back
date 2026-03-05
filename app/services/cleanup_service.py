@@ -10,6 +10,7 @@ from sqlalchemy import select, delete, and_
 from typing import Dict, Any
 import logging
 
+from app import crud
 from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
 
@@ -204,10 +205,8 @@ class CleanupService:
         Returns:
             削除されたレコード数
         """
-        from app.crud.crud_archived_staff import crud_archived_staff as archived_staff
-
         # 削除対象のアーカイブを取得
-        count = await archived_staff.delete_expired_archives(
+        count = await crud.archived_staff.delete_expired_archives(
             db,
             exclude_test_data=True
         )

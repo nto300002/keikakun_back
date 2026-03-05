@@ -16,11 +16,10 @@ from typing import Optional
 from uuid import UUID
 
 from app.api import deps
+from app import crud
 from app.models.staff import Staff
 from app.models.enums import StaffRole, RequestStatus, ApprovalResourceType
 from app.models.approval_request import ApprovalRequest
-from app.crud.crud_approval_request import approval_request as crud_approval_request
-from app.crud.crud_audit_log import audit_log as crud_audit_log
 from app.services.withdrawal_service import withdrawal_service
 from app.schemas.withdrawal_request import (
     WithdrawalRequestCreate,
@@ -93,7 +92,7 @@ async def create_withdrawal_request(
     office_id = current_user.office_associations[0].office_id
 
     # 既存の承認待ちリクエストがないか確認
-    has_pending = await crud_approval_request.has_pending_withdrawal(
+    has_pending = await crud.approval_request.has_pending_withdrawal(
         db,
         office_id=office_id,
         withdrawal_type="office"
@@ -105,7 +104,7 @@ async def create_withdrawal_request(
         )
 
     # CRUD層を使用してリクエスト作成
-    approval_req = await crud_approval_request.create_request(
+    approval_req = await crud.approval_request.create_request(
         db,
         requester_staff_id=current_user.id,
         office_id=office_id,
@@ -123,7 +122,7 @@ async def create_withdrawal_request(
 
     # 監査ログを記録
     ip_address, user_agent = _get_client_info(request)
-    await crud_audit_log.create_log(
+    await crud.audit_log.create_log(
         db,
         actor_id=current_user.id,
         action="withdrawal.requested",
@@ -141,7 +140,7 @@ async def create_withdrawal_request(
     )
 
     # commit前にリレーションをロード
-    loaded_request = await crud_approval_request.get_by_id_with_relations(db, request_id)
+    loaded_request = await crud.approval_request.get_by_id_with_relations(db, request_id)
 
     # commit前にレスポンスデータを生成（MissingGreenletエラー対策）
     response_data = _to_withdrawal_response(loaded_request)
@@ -189,7 +188,7 @@ async def get_withdrawal_requests(
 
     # CRUD層を使用して取得
     if office_id:
-        requests, total = await crud_approval_request.get_by_office(
+        requests, total = await crud.approval_request.get_by_office(
             db,
             office_id=office_id,
             resource_type=ApprovalResourceType.withdrawal,
@@ -259,7 +258,7 @@ async def approve_withdrawal_request(
         )
 
     # リクエスト取得
-    approval_req = await crud_approval_request.get_by_id_with_relations(db, request_id)
+    approval_req = await crud.approval_request.get_by_id_with_relations(db, request_id)
 
     if not approval_req or approval_req.resource_type != ApprovalResourceType.withdrawal:
         raise HTTPException(
@@ -338,7 +337,7 @@ async def reject_withdrawal_request(
         )
 
     # リクエスト取得
-    approval_req = await crud_approval_request.get_by_id_with_relations(db, request_id)
+    approval_req = await crud.approval_request.get_by_id_with_relations(db, request_id)
 
     if not approval_req or approval_req.resource_type != ApprovalResourceType.withdrawal:
         raise HTTPException(

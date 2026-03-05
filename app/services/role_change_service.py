@@ -15,9 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
-from app.crud.crud_approval_request import approval_request
-from app.crud.crud_staff import staff as crud_staff
-from app.crud.crud_notice import crud_notice
+from app import crud
 from app.models.approval_request import ApprovalRequest
 from app.models.enums import StaffRole, RequestStatus, NoticeType, ApprovalResourceType
 from app.schemas.role_change_request import RoleChangeRequestCreate
@@ -77,7 +75,7 @@ class RoleChangeService:
             ValueError: スタッフが見つからない場合
         """
         # リクエスト作成者の現在のroleを取得
-        requester = await crud_staff.get(db, id=requester_staff_id)
+        requester = await crud.staff.get(db, id=requester_staff_id)
         if not requester:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -98,49 +96,55 @@ class RoleChangeService:
             f"from_role={from_role}, requested_role={obj_in.requested_role}"
         )
 
-        # リクエスト作成
-        request = await approval_request.create_role_change_request(
-            db=db,
-            requester_staff_id=requester_staff_id,
-            office_id=office_id,
-            from_role=from_role,
-            requested_role=obj_in.requested_role,
-            request_notes=obj_in.request_notes if hasattr(obj_in, 'request_notes') else None
-        )
-
-        # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
-        request_id = request.id
-
-        # 通知作成用に一時的にリレーションシップを含めて取得
-        result = await db.execute(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == request_id)
-            .options(
-                selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.office)
+        try:
+            # リクエスト作成
+            request = await crud.approval_request.create_role_change_request(
+                db=db,
+                requester_staff_id=requester_staff_id,
+                office_id=office_id,
+                from_role=from_role,
+                requested_role=obj_in.requested_role,
+                request_notes=obj_in.request_notes if hasattr(obj_in, 'request_notes') else None
             )
-        )
-        request = result.scalar_one()
 
-        # 通知を作成（承認者に送信）※commitはしない
-        await self._create_request_notification(db, request)
+            # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
+            request_id = request.id
 
-        # 最後に1回だけcommit
-        await db.commit()
-
-        # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
-        # refresh()ではリレーションシップは再ロードされないため、selectinloadで明示的に再取得
-        result = await db.execute(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == request_id)
-            .options(
-                selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.office)
+            # 通知作成用に一時的にリレーションシップを含めて取得
+            result = await db.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == request_id)
+                .options(
+                    selectinload(ApprovalRequest.requester),
+                    selectinload(ApprovalRequest.office)
+                )
             )
-        )
-        request = result.scalar_one()
+            request = result.scalar_one()
 
-        return request
+            # 通知を作成（承認者に送信）※commitはしない
+            await self._create_request_notification(db, request)
+
+            # 最後に1回だけcommit
+            await db.commit()
+
+            # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
+            # refresh()ではリレーションシップは再ロードされないため、selectinloadで明示的に再取得
+            result = await db.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == request_id)
+                .options(
+                    selectinload(ApprovalRequest.requester),
+                    selectinload(ApprovalRequest.office)
+                )
+            )
+            request = result.scalar_one()
+
+            return request
+
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Role変更リクエスト作成に失敗しました: {e}")
+            raise
 
     async def approve_request(
         self,
@@ -166,7 +170,7 @@ class RoleChangeService:
             ValueError: リクエストが見つからない、または権限がない場合
         """
         # リクエストを取得
-        request = await approval_request.get(db, id=request_id)
+        request = await crud.approval_request.get(db, id=request_id)
         if not request:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -174,7 +178,7 @@ class RoleChangeService:
             )
 
         # 承認者の情報を取得
-        reviewer = await crud_staff.get(db, id=reviewer_staff_id)
+        reviewer = await crud.staff.get(db, id=reviewer_staff_id)
         if not reviewer:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -193,68 +197,74 @@ class RoleChangeService:
             f"reviewer={reviewer_staff_id}, target_role={_get_requested_role(request)}"
         )
 
-        # 1. リクエストを承認
-        approved_request = await approval_request.approve(
-            db=db,
-            request_id=request_id,
-            reviewer_staff_id=reviewer_staff_id,
-            reviewer_notes=reviewer_notes
-        )
-
-        # 2. スタッフのroleを変更
-        requester = await crud_staff.get(db, id=request.requester_staff_id)
-        if requester:
-            requester.role = _get_requested_role(request)
-            await db.flush()
-
-            logger.info(
-                f"Staff role changed: staff_id={requester.id}, "
-                f"new_role={_get_requested_role(request)}"
+        try:
+            # 1. リクエストを承認
+            approved_request = await crud.approval_request.approve(
+                db=db,
+                request_id=request_id,
+                reviewer_staff_id=reviewer_staff_id,
+                reviewer_notes=reviewer_notes
             )
 
-        # 3. commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
-        approved_request_id = request_id
+            # 2. スタッフのroleを変更
+            requester = await crud.staff.get(db, id=request.requester_staff_id)
+            if requester:
+                requester.role = _get_requested_role(request)
+                await db.flush()
 
-        # 4. 通知作成用に一時的にリレーションシップを含めて取得
-        result = await db.execute(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == approved_request_id)
-            .options(
-                selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.reviewer),
-                selectinload(ApprovalRequest.office)
+                logger.info(
+                    f"Staff role changed: staff_id={requester.id}, "
+                    f"new_role={_get_requested_role(request)}"
+                )
+
+            # 3. commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
+            approved_request_id = request_id
+
+            # 4. 通知作成用に一時的にリレーションシップを含めて取得
+            result = await db.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == approved_request_id)
+                .options(
+                    selectinload(ApprovalRequest.requester),
+                    selectinload(ApprovalRequest.reviewer),
+                    selectinload(ApprovalRequest.office)
+                )
             )
-        )
-        approved_request = result.scalar_one()
+            approved_request = result.scalar_one()
 
-        # 既存の承認待ち通知のtypeを更新（承認済みに変更）※commitはしない
-        link_url = f"/role-change-requests/{approved_request.id}"
-        await crud_notice.update_type_by_link_url(
-            db=db,
-            link_url=link_url,
-            new_type=NoticeType.role_change_approved.value
-        )
-
-        # 通知を作成（リクエスト作成者に送信）※commitはしない
-        await self._create_approval_notification(db, approved_request)
-
-        # 5. 最後に1回だけcommit
-        await db.commit()
-
-        # 6. commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
-        # refresh()ではリレーションシップは再ロードされないため、selectinloadで明示的に再取得
-        result = await db.execute(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == approved_request_id)
-            .options(
-                selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.reviewer),
-                selectinload(ApprovalRequest.office)
+            # 既存の承認待ち通知のtypeを更新（承認済みに変更）※commitはしない
+            link_url = f"/role-change-requests/{approved_request.id}"
+            await crud.notice.update_type_by_link_url(
+                db=db,
+                link_url=link_url,
+                new_type=NoticeType.role_change_approved.value
             )
-        )
-        approved_request = result.scalar_one()
 
-        return approved_request
+            # 通知を作成（リクエスト作成者に送信）※commitはしない
+            await self._create_approval_notification(db, approved_request)
+
+            # 5. 最後に1回だけcommit
+            await db.commit()
+
+            # 6. commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
+            # refresh()ではリレーションシップは再ロードされないため、selectinloadで明示的に再取得
+            result = await db.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == approved_request_id)
+                .options(
+                    selectinload(ApprovalRequest.requester),
+                    selectinload(ApprovalRequest.reviewer),
+                    selectinload(ApprovalRequest.office)
+                )
+            )
+            approved_request = result.scalar_one()
+
+            return approved_request
+
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Role変更リクエスト承認に失敗しました: {e}")
+            raise
 
     async def reject_request(
         self,
@@ -284,56 +294,62 @@ class RoleChangeService:
             f"reviewer={reviewer_staff_id}"
         )
 
-        # リクエストを却下
-        rejected_request = await approval_request.reject(
-            db=db,
-            request_id=request_id,
-            reviewer_staff_id=reviewer_staff_id,
-            reviewer_notes=reviewer_notes
-        )
-
-        # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
-        rejected_request_id = request_id
-
-        # 通知作成用に一時的にリレーションシップを含めて取得
-        result = await db.execute(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == rejected_request_id)
-            .options(
-                selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.reviewer),
-                selectinload(ApprovalRequest.office)
+        try:
+            # リクエストを却下
+            rejected_request = await crud.approval_request.reject(
+                db=db,
+                request_id=request_id,
+                reviewer_staff_id=reviewer_staff_id,
+                reviewer_notes=reviewer_notes
             )
-        )
-        rejected_request = result.scalar_one()
 
-        # 既存の承認待ち通知のtypeを更新（却下済みに変更）※commitはしない
-        link_url = f"/role-change-requests/{rejected_request.id}"
-        await crud_notice.update_type_by_link_url(
-            db=db,
-            link_url=link_url,
-            new_type=NoticeType.role_change_rejected.value
-        )
+            # commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
+            rejected_request_id = request_id
 
-        # 通知を作成（リクエスト作成者に送信）※commitはしない
-        await self._create_rejection_notification(db, rejected_request)
-
-        # 最後に1回だけcommit
-        await db.commit()
-
-        # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
-        result = await db.execute(
-            select(ApprovalRequest)
-            .where(ApprovalRequest.id == rejected_request_id)
-            .options(
-                selectinload(ApprovalRequest.requester),
-                selectinload(ApprovalRequest.reviewer),
-                selectinload(ApprovalRequest.office)
+            # 通知作成用に一時的にリレーションシップを含めて取得
+            result = await db.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == rejected_request_id)
+                .options(
+                    selectinload(ApprovalRequest.requester),
+                    selectinload(ApprovalRequest.reviewer),
+                    selectinload(ApprovalRequest.office)
+                )
             )
-        )
-        rejected_request = result.scalar_one()
+            rejected_request = result.scalar_one()
 
-        return rejected_request
+            # 既存の承認待ち通知のtypeを更新（却下済みに変更）※commitはしない
+            link_url = f"/role-change-requests/{rejected_request.id}"
+            await crud.notice.update_type_by_link_url(
+                db=db,
+                link_url=link_url,
+                new_type=NoticeType.role_change_rejected.value
+            )
+
+            # 通知を作成（リクエスト作成者に送信）※commitはしない
+            await self._create_rejection_notification(db, rejected_request)
+
+            # 最後に1回だけcommit
+            await db.commit()
+
+            # commit()後にリレーションシップも含めて再取得（MissingGreenlet対策）
+            result = await db.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == rejected_request_id)
+                .options(
+                    selectinload(ApprovalRequest.requester),
+                    selectinload(ApprovalRequest.reviewer),
+                    selectinload(ApprovalRequest.office)
+                )
+            )
+            rejected_request = result.scalar_one()
+
+            return rejected_request
+
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Role変更リクエスト却下に失敗しました: {e}")
+            raise
 
     @staticmethod
     def validate_approval_permission(
@@ -413,7 +429,7 @@ class RoleChangeService:
                 content=content,
                 link_url=f"/role-change-requests/{request_id}"
             )
-            await crud_notice.create(db, obj_in=notice_data)
+            await crud.notice.create(db, obj_in=notice_data)
 
         # 2. リクエスト作成者（送信者）にも通知を作成
         requester_notice_data = NoticeCreate(
@@ -424,10 +440,10 @@ class RoleChangeService:
             content=f"あなたの{from_role.value}から{requested_role.value}への変更リクエストを送信しました。承認をお待ちください。",
             link_url=f"/role-change-requests/{request_id}"
         )
-        await crud_notice.create(db, obj_in=requester_notice_data)
+        await crud.notice.create(db, obj_in=requester_notice_data)
 
         # 3. 事務所の通知数が50件を超えた場合、古いものから削除
-        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+        await crud.notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 
@@ -461,10 +477,10 @@ class RoleChangeService:
             content=f"あなたの{from_role.value}から{requested_role.value}への変更リクエストが承認されました。",
             link_url=f"/role-change-requests/{request_id}"
         )
-        await crud_notice.create(db, obj_in=notice_data)
+        await crud.notice.create(db, obj_in=notice_data)
 
         # 事務所の通知数が50件を超えた場合、古いものから削除
-        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+        await crud.notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 
@@ -498,10 +514,10 @@ class RoleChangeService:
             content=f"あなたの{from_role.value}から{requested_role.value}への変更リクエストが却下されました。",
             link_url=f"/role-change-requests/{request_id}"
         )
-        await crud_notice.create(db, obj_in=notice_data)
+        await crud.notice.create(db, obj_in=notice_data)
 
         # 事務所の通知数が50件を超えた場合、古いものから削除
-        await crud_notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
+        await crud.notice.delete_old_notices_over_limit(db, office_id=office_id, limit=50)
 
         # commitしない（親メソッドで最後に1回だけcommitする）
 

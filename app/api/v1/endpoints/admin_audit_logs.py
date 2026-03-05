@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
-from app.crud.crud_audit_log import audit_log as crud_audit_log
+from app import crud
 from app.schemas.audit_log import AuditLogListResponse, AuditLogResponse
 
 router = APIRouter()
@@ -30,7 +30,7 @@ async def get_audit_logs(
     - **limit**: 取得件数（デフォルト50件、最大50件）
     """
     # 監査ログを取得
-    logs, total = await crud_audit_log.get_logs(
+    logs, total = await crud.audit_log.get_logs(
         db=db,
         target_type=target_type,
         skip=skip,

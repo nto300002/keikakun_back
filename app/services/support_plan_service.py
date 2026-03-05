@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from app import crud
+from app.core.config import settings
 from app.schemas.support_plan import PlanDeliverableCreate
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,7 @@ class SupportPlanService:
             welfare_recipient_id=old_cycle.welfare_recipient_id,
             office_id=old_cycle.office_id,
             plan_cycle_start_date=today,
-            next_renewal_deadline=today + datetime.timedelta(days=180),
+            next_renewal_deadline=today + datetime.timedelta(days=settings.SUPPORT_PLAN_RENEWAL_DAYS),
             is_latest_cycle=True,
             cycle_number=old_cycle.cycle_number + 1
         )
@@ -197,10 +198,13 @@ class SupportPlanService:
             existing_deliverable.uploaded_at = datetime.datetime.now(datetime.timezone.utc)
             existing_deliverable.uploaded_by = uploaded_by_staff_id
 
-            await db.commit()
-            await db.refresh(existing_deliverable)
-
-            return existing_deliverable
+            try:
+                await db.commit()
+                await db.refresh(existing_deliverable)
+                return existing_deliverable
+            except Exception as e:
+                await db.rollback()
+                raise
 
         target_step_type = DELIVERABLE_TO_STEP_MAP.get(deliverable_in.deliverable_type)
         if not target_step_type:
@@ -247,7 +251,7 @@ class SupportPlanService:
             today = datetime.date.today()
             cycle.plan_cycle_start_date = today
             # 6ヶ月後を期限とする（簡易的に180日）
-            cycle.next_renewal_deadline = today + datetime.timedelta(days=180)
+            cycle.next_renewal_deadline = today + datetime.timedelta(days=settings.SUPPORT_PLAN_RENEWAL_DAYS)
 
         current_status = next((s for s in cycle.statuses if s.step_type == target_step_type), None)
         if not current_status:
@@ -369,6 +373,7 @@ class SupportPlanService:
             await db.commit()
             logger.info(f"[COMMIT] db.commit() completed successfully")
         except Exception as commit_error:
+            await db.rollback()
             logger.error(f"[COMMIT] db.commit() FAILED: {type(commit_error).__name__}: {commit_error}")
             import traceback
             logger.error(f"[COMMIT] Traceback:\n{traceback.format_exc()}")
@@ -412,8 +417,12 @@ class SupportPlanService:
         # （既に完了しているので、ステータス更新はスキップ）
         # 新サイクルも既に作成されているので何もしない
 
-        await db.commit()
-        await db.refresh(deliverable)
+        try:
+            await db.commit()
+            await db.refresh(deliverable)
+        except Exception as e:
+            await db.rollback()
+            raise
 
         logger.info(f"[DELIVERABLE_UPDATE] Update completed - deliverable_id: {deliverable_id}")
 
@@ -486,9 +495,12 @@ class SupportPlanService:
             pass
 
         # 成果物を削除
-        await db.delete(deliverable)
-
-        await db.commit()
+        try:
+            await db.delete(deliverable)
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            raise
 
         logger.info(f"[DELIVERABLE_DELETE] Delete completed - deliverable_id: {deliverable_id}")
 

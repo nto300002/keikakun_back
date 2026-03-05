@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[SecretStr] = None
     STRIPE_PRICE_ID: Optional[str] = None  # 月額6,000円プランのPrice ID
 
+    # --- ビジネスロジック定数 ---
+    SUPPORT_PLAN_RENEWAL_DAYS: int = 180      # 個別支援計画の次回更新期限
+    DASHBOARD_DEADLINE_WARNING_DAYS: int = 30  # 期限切れ間近の警告閾値
+    AUDIT_LOG_RETENTION_DAYS: int = 365        # 監査ログ保持期間
+
     # --- Web Push通知設定 (VAPID) ---
     VAPID_PRIVATE_KEY_DER: Optional[str] = None  # VAPID秘密鍵（Base64エンコード済みDER形式）
     VAPID_PRIVATE_KEY: Optional[str] = None  # VAPID秘密鍵（pywebpush用、DER形式Base64文字列）
