@@ -65,24 +65,12 @@ async def register_admin(
             detail=ja.AUTH_EMAIL_ALREADY_EXISTS,
         )
 
-    user = await staff_crud.create_admin(db=db, obj_in=staff_in)
-
-    # コミットするとuserオブジェクトが期限切れになり、user.emailにアクセスできなくなるため
-    # 先にメールアドレスとIDを変数に格納しておく
-    user_email = user.email
-    user_id = user.id
-    await db.commit()
-
-    # DBから最新の状態を読み込み、office_associationsもeager loadする
-    stmt = select(models.Staff).options(
-        selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
-    ).where(models.Staff.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one()
+    from app.services.auth_service import auth_service
+    user = await auth_service.register_admin(db=db, staff_in=staff_in)
 
     # メール確認トークンを生成して送信
-    token = create_email_verification_token(email=user_email)
-    await send_verification_email(recipient_email=user_email, token=token)
+    token = create_email_verification_token(email=user.email)
+    await send_verification_email(recipient_email=user.email, token=token)
 
     return user
 
@@ -110,21 +98,11 @@ async def register_staff(
 
     # staff_in.role は StaffCreate スキーマのバリデーターによって
     # `owner` でないことが保証されている
-    user = await staff_crud.create_staff(db=db, obj_in=staff_in)
+    from app.services.auth_service import auth_service
+    user = await auth_service.register_staff(db=db, staff_in=staff_in)
 
-    user_email = user.email
-    user_id = user.id
-    await db.commit()
-
-    # DBから最新の状態を読み込み、office_associationsもeager loadする
-    stmt = select(models.Staff).options(
-        selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
-    ).where(models.Staff.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one()
-
-    token = create_email_verification_token(email=user_email)
-    await send_verification_email(recipient_email=user_email, token=token)
+    token = create_email_verification_token(email=user.email)
+    await send_verification_email(recipient_email=user.email, token=token)
 
     return user
 
@@ -155,11 +133,8 @@ async def verify_email(
     if user.is_email_verified:
         return {"message": ja.AUTH_EMAIL_ALREADY_VERIFIED, "role": user.role}
 
-    # commit前にroleを保存
-    user_role = user.role
-    user.is_email_verified = True
-    db.add(user)
-    await db.commit()
+    from app.services.auth_service import auth_service
+    user_role = await auth_service.verify_email(db=db, user=user)
 
     return {"message": ja.AUTH_EMAIL_VERIFIED, "role": user_role}
 
@@ -518,27 +493,14 @@ async def verify_mfa_for_login(
 
     if mfa_data.recovery_code and not verification_successful:
         logger.info(f"[MFA VERIFY] Attempting recovery code verification")
-        from app.core.security import verify_recovery_code
-        from app.models.mfa import MFABackupCode
-        from sqlalchemy import select
-
-        # データベースから未使用のリカバリーコードを取得
-        stmt = select(MFABackupCode).where(
-            MFABackupCode.staff_id == user.id,
-            MFABackupCode.is_used == False
+        from app.services.auth_service import auth_service
+        verification_successful = await auth_service.use_recovery_code(
+            db=db,
+            user_id=user.id,
+            recovery_code=mfa_data.recovery_code,
         )
-        result = await db.execute(stmt)
-        backup_codes = result.scalars().all()
-
-        # 各リカバリーコードと照合
-        for backup_code in backup_codes:
-            if verify_recovery_code(mfa_data.recovery_code, backup_code.code_hash):
-                # マッチした場合、使用済みとしてマーク
-                backup_code.mark_as_used()
-                await db.commit()
-                verification_successful = True
-                logger.info(f"[MFA VERIFY] Recovery code verified successfully")
-                break
+        if verification_successful:
+            logger.info(f"[MFA VERIFY] Recovery code verified successfully")
 
     if not verification_successful:
         logger.error(f"[MFA VERIFY] Verification failed")
@@ -697,9 +659,8 @@ async def verify_mfa_first_time(
         )
 
     # 検証成功: is_mfa_verified_by_user フラグを True に設定
-    user.is_mfa_verified_by_user = True
-    await db.commit()
-    await db.refresh(user)
+    from app.services.auth_service import auth_service
+    user = await auth_service.set_mfa_verified_by_user(db=db, user=user)
     logger.info(f"[MFA FIRST TIME VERIFY] User verification flag set to True")
 
     # アクセストークンとリフレッシュトークンを生成
@@ -802,8 +763,6 @@ async def forgot_password(
 
     Phase 4: データベース統合実装完了
     """
-    from app.crud import password_reset as crud_password_reset
-
     # スタッフを検索
     staff = await crud.staff.get_by_email(db, email=data.email)
 
@@ -815,32 +774,15 @@ async def forgot_password(
         staff_full_name = f"{staff.last_name} {staff.first_name}"
 
         try:
-            # TXN-01: 単一トランザクションでトークン作成と監査ログを記録
-            # 既存の未使用トークンを無効化
-            await crud_password_reset.invalidate_existing_tokens(db, staff_id=staff_id)
-
-            # 新しいトークンを生成
-            token = str(uuid.uuid4())
-            await crud_password_reset.create_token(
-                db,
+            from app.services.auth_service import auth_service
+            # TXN-01: サービス層でトークン作成と監査ログを単一トランザクションで記録
+            token = await auth_service.create_password_reset_token(
+                db=db,
                 staff_id=staff_id,
-                token=token
-                # デフォルトで30分（CRUD関数のデフォルト値を使用）
-            )
-
-            # 監査ログを記録（同一トランザクション内）
-            await crud_password_reset.create_audit_log(
-                db,
-                staff_id=staff_id,
-                action='requested',
                 email=data.email,
                 ip_address=request.client.host if request.client else None,
                 user_agent=request.headers.get('user-agent'),
-                success=True
             )
-
-            # 単一のコミットでアトミックに実行
-            await db.commit()
 
             # パスワードリセットメールを送信（トランザクション外）
             # セキュリティレビュー対応: メール送信失敗はログに記録するが、ユーザーには成功を返す
@@ -852,16 +794,10 @@ async def forgot_password(
                     token=token
                 )
             except Exception as e:
-                # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.error(f"Failed to send password reset email to {staff_email}: {str(e)}")
 
         except Exception as e:
-            # DB処理失敗時はロールバック
-            await db.rollback()
-            import logging
-            logger = logging.getLogger(__name__)
+            # ロールバックはサービス層で実行済み
             logger.error(f"Failed to create password reset token for {staff_email}: {str(e)}")
             # エラーは飲み込んで、セキュリティのため成功メッセージを返す
             # （メールアドレスの存在を漏らさない）
@@ -923,7 +859,6 @@ async def reset_password(
     Phase 4: データベース統合実装完了
     """
     from app.crud import password_reset as crud_password_reset
-    from datetime import datetime, timezone
 
     # トークンの有効性を確認
     db_token = await crud_password_reset.get_valid_token(db, token=data.token)
@@ -960,32 +895,16 @@ async def reset_password(
             detail=ja.AUTH_PASSWORD_BREACHED,
         )
 
-    # トランザクション開始
     try:
-        # TXN-02: 単一トランザクションでパスワード更新と監査ログを記録
-        # トークンを使用済みにマーク（楽観的ロック）
-        marked_token = await crud_password_reset.mark_as_used(db, token_id=db_token.id)
-        if not marked_token:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ja.AUTH_RESET_TOKEN_ALREADY_USED,
-            )
-
-        # パスワードを更新
-        staff.hashed_password = get_password_hash(data.new_password)
-        staff.password_changed_at = datetime.now(timezone.utc)
-
-        # 監査ログを記録（同一トランザクション内）
-        await crud_password_reset.create_audit_log(
-            db,
-            staff_id=staff_id,
-            action='completed',
+        from app.services.auth_service import auth_service
+        # TXN-02: サービス層でパスワード更新と監査ログを単一トランザクションで記録
+        await auth_service.reset_password(
+            db=db,
+            token_id=db_token.id,
+            staff=staff,
+            new_password=data.new_password,
             email=staff_email,
-            success=True
         )
-
-        # 単一のコミットでアトミックに実行
-        await db.commit()
 
         # パスワード変更通知メールを送信（トランザクション外）
         from app.core.mail import send_password_changed_notification
@@ -995,7 +914,6 @@ async def reset_password(
                 staff_name=staff_full_name
             )
         except Exception as e:
-            # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
             logger.error(f"Failed to send password changed notification to {staff_email}: {str(e)}")
 
         return schemas.token.PasswordResetResponse(
@@ -1003,10 +921,10 @@ async def reset_password(
         )
 
     except HTTPException:
-        await db.rollback()
+        # ロールバックはサービス層で実行済み
         raise
     except Exception as e:
-        await db.rollback()
+        # ロールバックはサービス層で実行済み
         logger.error(f"Password reset failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
