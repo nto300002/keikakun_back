@@ -843,7 +843,7 @@ async def test_create_request_rollback_on_error(
 
     # 通知作成時に例外を発生させる（commitの直前で失敗するシナリオ）
     with patch(
-        "app.services.role_change_service.crud_notice.create",
+        "app.crud.crud_notice.crud_notice.create",
         side_effect=Exception("通知作成で意図的なエラー")
     ):
         with pytest.raises(Exception, match="通知作成で意図的なエラー"):
@@ -892,7 +892,7 @@ async def test_approve_request_rollback_on_error(
 
     # 承認通知作成時に例外を発生させる（roleは変更済みだがcommit前で失敗するシナリオ）
     with patch(
-        "app.services.role_change_service.crud_notice.update_type_by_link_url",
+        "app.crud.crud_notice.crud_notice.update_type_by_link_url",
         side_effect=Exception("通知更新で意図的なエラー")
     ):
         with pytest.raises(Exception, match="通知更新で意図的なエラー"):
@@ -940,7 +940,7 @@ async def test_reject_request_rollback_on_error(
 
     # 却下通知作成時に例外を発生させる
     with patch(
-        "app.services.role_change_service.crud_notice.create",
+        "app.crud.crud_notice.crud_notice.create",
         side_effect=Exception("却下通知作成で意図的なエラー")
     ):
         with pytest.raises(Exception, match="却下通知作成で意図的なエラー"):

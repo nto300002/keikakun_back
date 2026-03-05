@@ -4,13 +4,17 @@ import pytest
 import pytest_asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from app.services.staff_profile_service import StaffProfileService
+from app.db.session import AsyncSessionLocal
+from app.services.staff_profile_service import StaffProfileService, staff_profile_service
 from app.schemas.staff_profile import StaffNameUpdate, PasswordChange
 from app.models.staff import Staff
 from app.models.staff_profile import AuditLog, PasswordHistory
+from app.models.enums import StaffRole
+from app.core.security import get_password_hash
 
 # Pytestに非同期テストであることを認識させる
 pytestmark = pytest.mark.asyncio
@@ -413,3 +417,241 @@ class TestStaffProfileServiceEdgeCases:
         # Assert - エラーなく完了することを確認
         assert mock_staff.full_name == "山田 太郎"
         mock_db.commit.assert_called_once()
+
+
+# ===== TDD: rollbackテスト (Issue #02) =====
+
+@pytest.fixture(scope="function")
+async def db() -> AsyncSession:
+    """実DBセッションを提供するフィクスチャ（rollbackテスト用）"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+
+
+@pytest.fixture(scope="function")
+async def setup_staff(db: AsyncSession):
+    """
+    テスト用スタッフを実DBに作成
+    Returns: (staff_id, original_last_name)
+    """
+    staff = Staff(
+        first_name="太郎",
+        last_name="田中",
+        full_name="田中 太郎",
+        email=f"staff_{uuid4().hex[:8]}@example.com",
+        hashed_password=get_password_hash("password"),
+        role=StaffRole.employee,
+    )
+    db.add(staff)
+    await db.flush()
+
+    staff_id = staff.id
+    original_last_name = staff.last_name
+
+    await db.commit()
+
+    return staff_id, original_last_name
+
+
+async def test_update_name_rollback_on_error(
+    db: AsyncSession,
+    setup_staff,
+    staff_profile_service: StaffProfileService
+):
+    """
+    update_name で例外発生時、名前変更がDBに残らないことを確認
+
+    Red → try-except-rollbackがなければ、flush()済みの変更がセッション内で
+          見えたまま（rollbackされない）になるか、セッションが壊れた状態になる。
+    """
+    staff_id, original_last_name = setup_staff
+
+    # _log_name_change で例外を発生させる（flush後、commit前で失敗するシナリオ）
+    with patch.object(
+        StaffProfileService,
+        '_log_name_change',
+        new=AsyncMock(side_effect=Exception("監査ログ作成で意図的なエラー"))
+    ):
+        with pytest.raises(Exception, match="監査ログ作成で意図的なエラー"):
+            await staff_profile_service.update_name(
+                db=db,
+                staff_id=str(staff_id),
+                name_data=StaffNameUpdate(
+                    last_name="山田",
+                    first_name="次郎",
+                    last_name_furigana="やまだ",
+                    first_name_furigana="じろう"
+                )
+            )
+
+    # 例外発生後、DBのスタッフ名が元のままであることを確認（rollbackされていること）
+    result = await db.execute(
+        select(Staff).where(Staff.id == staff_id)
+    )
+    staff = result.scalar_one()
+    assert staff.last_name == original_last_name, (
+        f"例外発生後にlast_nameが'{staff.last_name}'に変更されています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )
+
+
+async def test_change_password_rollback_on_error(
+    db: AsyncSession,
+    setup_staff,
+    staff_profile_service: StaffProfileService
+):
+    """
+    change_password でflush後に例外発生時、パスワード変更がDBに残らないことを確認
+
+    Red → 現在のtry-finallyは例外時でもfinallyでcommitしてしまうため、
+          flush済みのパスワード変更が意図せずcommitされる。
+    """
+    from sqlalchemy import select as sa_select
+    from app.core.security import verify_password
+
+    staff_id, _ = setup_staff
+
+    # 現在のパスワードハッシュを取得
+    result = await db.execute(sa_select(Staff).where(Staff.id == staff_id))
+    staff_before = result.scalar_one()
+    original_hashed_password = staff_before.hashed_password
+
+    # _cleanup_password_history で例外を発生させる
+    # （flush後のステップで失敗 → 変更がrollbackされるべき）
+    with patch.object(
+        StaffProfileService,
+        '_cleanup_password_history',
+        new=AsyncMock(side_effect=Exception("履歴クリーンアップで意図的なエラー"))
+    ):
+        with pytest.raises(Exception, match="履歴クリーンアップで意図的なエラー"):
+            await staff_profile_service.change_password(
+                db=db,
+                staff_id=str(staff_id),
+                password_change=PasswordChange(
+                    current_password="password",
+                    new_password="NewPassword123!",
+                    new_password_confirm="NewPassword123!"
+                )
+            )
+
+    # 例外発生後、パスワードが変更されていないことを確認（rollbackされていること）
+    result = await db.execute(sa_select(Staff).where(Staff.id == staff_id))
+    staff_after = result.scalar_one()
+    assert staff_after.hashed_password == original_hashed_password, (
+        "例外発生後にパスワードが変更されています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )
+
+
+async def test_request_email_change_rollback_on_error(
+    db: AsyncSession,
+    setup_staff,
+    staff_profile_service: StaffProfileService
+):
+    """
+    request_email_change でcommit時に例外発生した場合、
+    flush済みのEmailChangeRequestがセッション内に残らないことを確認
+
+    Red → try-except-rollbackがなければ、flush済みの変更がrollbackされず
+          同セッション内でクエリすると残ったままになる。
+    """
+    from sqlalchemy import select as sa_select
+    from app.models.staff_profile import EmailChangeRequest as EmailChangeRequestModel
+    from app.schemas.staff_profile import EmailChangeRequest
+
+    staff_id, _ = setup_staff
+
+    # db.commit で例外を発生させる（flush後・commit前で失敗するシナリオ）
+    with patch.object(db, 'commit', side_effect=Exception("commitで意図的なエラー")):
+        with pytest.raises(Exception, match="commitで意図的なエラー"):
+            await staff_profile_service.request_email_change(
+                db=db,
+                staff_id=str(staff_id),
+                email_request=EmailChangeRequest(
+                    new_email="new@example.com",
+                    password="password"
+                )
+            )
+
+    # 例外発生後、同セッションでクエリしてEmailChangeRequestが残っていないことを確認
+    # without rollback: flush済みレコードがセッション内で見える → テスト失敗
+    # with rollback: セッションはクリーン → 0件
+    result = await db.execute(
+        sa_select(EmailChangeRequestModel).where(
+            EmailChangeRequestModel.staff_id == str(staff_id)
+        )
+    )
+    remaining = result.scalars().all()
+    assert len(remaining) == 0, (
+        f"例外発生後にEmailChangeRequestが{len(remaining)}件残っています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )
+
+
+async def test_verify_email_change_rollback_on_error(
+    db: AsyncSession,
+    setup_staff,
+    staff_profile_service: StaffProfileService
+):
+    """
+    verify_email_change で例外発生時、メールアドレス変更がDBに残らないことを確認
+
+    Red → try-except-rollbackがなければ、flush済みのメール変更がcommitされる可能性がある。
+    """
+    from sqlalchemy import select as sa_select
+    from app.models.staff_profile import EmailChangeRequest as EmailChangeRequestModel
+    import secrets
+    from datetime import timezone
+
+    staff_id, _ = setup_staff
+
+    # 事前にEmailChangeRequestを作成
+    token = secrets.token_urlsafe(32)
+    email_request = EmailChangeRequestModel(
+        staff_id=str(staff_id),
+        old_email="staff@example.com",
+        new_email="changed@example.com",
+        verification_token=token,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+        status="pending"
+    )
+    db.add(email_request)
+    await db.flush()
+    await db.commit()
+
+    # AuditLog の flush 後に例外を発生させる（メール変更flush後）
+    original_flush = db.flush
+    flush_call_count = 0
+
+    async def fail_on_second_flush():
+        nonlocal flush_call_count
+        flush_call_count += 1
+        if flush_call_count >= 2:
+            raise Exception("監査ログflushで意図的なエラー")
+        await original_flush()
+
+    # 現在のスタッフのメールアドレスを取得
+    result = await db.execute(sa_select(Staff).where(Staff.id == staff_id))
+    staff_before = result.scalar_one()
+    original_email = staff_before.email
+
+    with patch.object(db, 'flush', side_effect=fail_on_second_flush):
+        with pytest.raises(Exception, match="監査ログflushで意図的なエラー"):
+            await staff_profile_service.verify_email_change(
+                db=db,
+                verification_token=token
+            )
+
+    # 例外発生後、スタッフのメールアドレスが変更されていないことを確認
+    result = await db.execute(sa_select(Staff).where(Staff.id == staff_id))
+    staff_after = result.scalar_one()
+    assert staff_after.email == original_email, (
+        f"例外発生後にemailが'{staff_after.email}'に変更されています。"
+        "try-except-rollbackが正しく実装されていません。"
+    )

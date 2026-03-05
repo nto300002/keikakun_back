@@ -1033,3 +1033,182 @@ class TestCalendarEventDeletionHooks:
         # イベントが削除されたことを確認
         event_after = (await db.execute(event_stmt)).scalar_one_or_none()
         assert event_after is None
+
+
+# ============================
+# 1-3: ロールバックテスト
+# ============================
+
+@pytest.mark.asyncio
+async def test_handle_deliverable_upload_reupload_rollback_on_commit_error(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID],
+):
+    """【rollback】handle_deliverable_upload (再アップロード): commit失敗時にfile_pathがロールバックされること"""
+    from sqlalchemy import select
+    from app.models.support_plan_cycle import PlanDeliverable
+
+    recipient_id, cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # 再アップロードのケースを作る: 既存のdeliverableをDB上に作成
+    existing_deliverable = PlanDeliverable(
+        plan_cycle_id=cycle_id,
+        deliverable_type=DeliverableType.assessment_sheet,
+        file_path="/original.pdf",
+        original_filename="original.pdf",
+        uploaded_by=staff_id,
+    )
+    db.add(existing_deliverable)
+    await db.commit()
+    deliverable_id = existing_deliverable.id
+
+    # db.commitをモックして失敗させる
+    with patch.object(db, "commit", side_effect=Exception("commitで意図的なエラー")):
+        with pytest.raises(Exception, match="commitで意図的なエラー"):
+            deliverable_in = PlanDeliverableCreate(
+                plan_cycle_id=cycle_id,
+                deliverable_type=DeliverableType.assessment_sheet,  # 同じtypeで再アップロード
+                file_path="/new.pdf",
+                original_filename="new.pdf",
+            )
+            await support_plan_service.handle_deliverable_upload(
+                db=db,
+                deliverable_in=deliverable_in,
+                uploaded_by_staff_id=staff_id,
+            )
+
+    # ロールバック後、file_pathが元に戻っていること
+    result = await db.execute(
+        select(PlanDeliverable).where(PlanDeliverable.id == deliverable_id)
+    )
+    refreshed = result.scalar_one()
+    assert refreshed.file_path == "/original.pdf"
+
+
+@pytest.mark.asyncio
+async def test_handle_deliverable_upload_new_upload_rollback_on_commit_error(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID],
+):
+    """【rollback】handle_deliverable_upload (新規アップロード): commit失敗時にステータス変更がロールバックされること"""
+    from sqlalchemy import select
+
+    recipient_id, cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # db.commitをモックして失敗させる
+    with patch.object(db, "commit", side_effect=Exception("commitで意図的なエラー")):
+        with pytest.raises(Exception, match="commitで意図的なエラー"):
+            deliverable_in = PlanDeliverableCreate(
+                plan_cycle_id=cycle_id,
+                deliverable_type=DeliverableType.assessment_sheet,
+                file_path="/new.pdf",
+                original_filename="new.pdf",
+            )
+            await support_plan_service.handle_deliverable_upload(
+                db=db,
+                deliverable_in=deliverable_in,
+                uploaded_by_staff_id=staff_id,
+            )
+
+    # ロールバック後、assessmentステータスのcompletedがFalseのままであること
+    stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == cycle_id).options(
+        selectinload(SupportPlanCycle.statuses)
+    )
+    cycle = (await db.execute(stmt)).scalar_one()
+    assessment_status = next(
+        (s for s in cycle.statuses if s.step_type == SupportPlanStep.assessment), None
+    )
+    assert assessment_status is not None
+    assert assessment_status.completed is False
+
+
+@pytest.mark.asyncio
+async def test_handle_deliverable_update_rollback_on_commit_error(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID],
+):
+    """【rollback】handle_deliverable_update: commit失敗時にfile_pathがロールバックされること"""
+    from sqlalchemy import select
+    from app.models.support_plan_cycle import PlanDeliverable
+
+    recipient_id, cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # 更新対象のdeliverableをDB上に作成
+    deliverable = PlanDeliverable(
+        plan_cycle_id=cycle_id,
+        deliverable_type=DeliverableType.assessment_sheet,
+        file_path="/original.pdf",
+        original_filename="original.pdf",
+        uploaded_by=staff_id,
+    )
+    db.add(deliverable)
+    await db.commit()
+    deliverable_id = deliverable.id
+
+    # db.commitをモックして失敗させる
+    with patch.object(db, "commit", side_effect=Exception("commitで意図的なエラー")):
+        with pytest.raises(Exception, match="commitで意図的なエラー"):
+            await support_plan_service.handle_deliverable_update(
+                db=db,
+                deliverable_id=deliverable_id,
+                new_file_path="/new.pdf",
+                new_filename="new.pdf",
+            )
+
+    # ロールバック後、file_pathが元に戻っていること
+    result = await db.execute(
+        select(PlanDeliverable).where(PlanDeliverable.id == deliverable_id)
+    )
+    refreshed = result.scalar_one()
+    assert refreshed.file_path == "/original.pdf"
+
+
+@pytest.mark.asyncio
+async def test_handle_deliverable_delete_rollback_on_commit_error(
+    db: AsyncSession,
+    setup_recipient_with_initial_cycle: Tuple[UUID, int, UUID],
+):
+    """【rollback】handle_deliverable_delete: commit失敗時にステータス復元がロールバックされること"""
+    from sqlalchemy import select
+    from app.models.support_plan_cycle import PlanDeliverable
+
+    recipient_id, cycle_id, staff_id = setup_recipient_with_initial_cycle
+
+    # assessmentステータスをcompletedにする（削除対象を作るため）
+    stmt = select(SupportPlanCycle).where(SupportPlanCycle.id == cycle_id).options(
+        selectinload(SupportPlanCycle.statuses)
+    )
+    cycle = (await db.execute(stmt)).scalar_one()
+    assessment_status = next(
+        (s for s in cycle.statuses if s.step_type == SupportPlanStep.assessment), None
+    )
+    assert assessment_status is not None
+    assessment_status.completed = True
+    assessment_status_id = assessment_status.id
+
+    # 対応するdeliverableをDB上に作成
+    deliverable = PlanDeliverable(
+        plan_cycle_id=cycle_id,
+        deliverable_type=DeliverableType.assessment_sheet,
+        file_path="/test.pdf",
+        original_filename="test.pdf",
+        uploaded_by=staff_id,
+    )
+    db.add(deliverable)
+    await db.commit()
+    deliverable_id = deliverable.id
+
+    # db.commitをモックして失敗させる
+    with patch.object(db, "commit", side_effect=Exception("commitで意図的なエラー")):
+        with pytest.raises(Exception, match="commitで意図的なエラー"):
+            await support_plan_service.handle_deliverable_delete(
+                db=db,
+                deliverable_id=deliverable_id,
+            )
+
+    # ロールバック後、assessment_statusのcompletedがTrueのままであること
+    result = await db.execute(
+        select(SupportPlanStatus).where(SupportPlanStatus.id == assessment_status_id)
+    )
+    refreshed_status = result.scalar_one()
+    assert refreshed_status.completed is True
