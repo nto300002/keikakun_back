@@ -4,6 +4,7 @@ Billing API エンドポイント (Phase 2)
 from typing import Annotated
 from datetime import datetime, timezone
 from uuid import UUID
+import json
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -310,10 +311,12 @@ async def stripe_webhook(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ja.BILLING_WEBHOOK_INVALID_SIGNATURE)
 
     # イベントタイプによって処理を分岐
-    # StripeObject は .get() を持たないため属性アクセスまたはキーアクセスを使用する
     event_type = event['type']
-    event_data = event['data']['object']
     event_id = event['id']
+    event_data_raw = event['data']['object']
+    # StripeObject は .get() を持たないため、dict でない場合は payload を再パースして dict に変換する
+    # テスト時はモックが plain dict を返すためそのまま使用する
+    event_data = event_data_raw if isinstance(event_data_raw, dict) else json.loads(payload)['data']['object']
 
     # 【Phase 7】冪等性チェック: 既に処理済みのイベントはスキップ
     is_processed = await crud.webhook_event.is_event_processed(db=db, event_id=event_id)

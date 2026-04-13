@@ -319,6 +319,7 @@ async def test_webhook_customer_subscription_created(
 
     # Webhookイベントモックの設定
     mock_event = {
+        'id': 'evt_test_12345',
         'type': 'customer.subscription.created',
         'data': {
             'object': {
