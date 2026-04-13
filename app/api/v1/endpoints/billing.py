@@ -310,9 +310,10 @@ async def stripe_webhook(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ja.BILLING_WEBHOOK_INVALID_SIGNATURE)
 
     # イベントタイプによって処理を分岐
+    # StripeObject は .get() を持たないため属性アクセスまたはキーアクセスを使用する
     event_type = event['type']
     event_data = event['data']['object']
-    event_id = event.get('id', 'unknown')
+    event_id = event['id']
 
     # 【Phase 7】冪等性チェック: 既に処理済みのイベントはスキップ
     is_processed = await crud.webhook_event.is_event_processed(db=db, event_id=event_id)
@@ -324,7 +325,7 @@ async def stripe_webhook(
     try:
         if event_type == 'invoice.payment_succeeded':
             # 支払い成功 → active
-            customer_id = event_data.get('customer')
+            customer_id = event_data['customer']
             await billing_service.process_payment_succeeded(
                 db=db,
                 event_id=event_id,
@@ -333,7 +334,7 @@ async def stripe_webhook(
 
         elif event_type == 'invoice.payment_failed':
             # 支払い失敗 → past_due
-            customer_id = event_data.get('customer')
+            customer_id = event_data['customer']
             await billing_service.process_payment_failed(
                 db=db,
                 event_id=event_id,
@@ -358,7 +359,7 @@ async def stripe_webhook(
 
         elif event_type == 'customer.subscription.deleted':
             # サブスクキャンセル → canceled
-            customer_id = event_data.get('customer')
+            customer_id = event_data['customer']
             await billing_service.process_subscription_deleted(
                 db=db,
                 event_id=event_id,
