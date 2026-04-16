@@ -27,6 +27,7 @@ from app.api.v1.endpoints import (
     inquiries,
     billing,
     push_subscriptions,
+    e2e_cleanup,
 )
 
 api_router = APIRouter()
@@ -58,3 +59,4 @@ api_router.include_router(archived_staffs.router, prefix="/admin/archived-staffs
 api_router.include_router(inquiries.router, prefix="/inquiries", tags=["inquiries"])
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(push_subscriptions.router, prefix="/push-subscriptions", tags=["push-subscriptions"])
+api_router.include_router(e2e_cleanup.router, prefix="/e2e", tags=["e2e-cleanup"])

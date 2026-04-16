@@ -125,13 +125,18 @@ async def create_e2e_owner(email: str, password: str) -> bool:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("使用方法: python scripts/create_e2e_owner.py <email> <password>")
-        print("例:       python scripts/create_e2e_owner.py e2e_owner@example.com 'E2ePass123!'")
-        sys.exit(1)
+    # CLI 引数優先、なければ環境変数から取得（CI での秘密情報漏洩防止）
+    if len(sys.argv) == 3:
+        email = sys.argv[1]
+        password = sys.argv[2]
+    else:
+        email = os.environ.get("E2E_OWNER_EMAIL", "")
+        password = os.environ.get("E2E_OWNER_PASSWORD", "")
 
-    email = sys.argv[1]
-    password = sys.argv[2]
+    if not email or not password:
+        print("使用方法 (引数): python scripts/create_e2e_owner.py <email> <password>")
+        print("使用方法 (env):  E2E_OWNER_EMAIL=... E2E_OWNER_PASSWORD=... python scripts/create_e2e_owner.py")
+        sys.exit(1)
 
     success = asyncio.run(create_e2e_owner(email, password))
     sys.exit(0 if success else 1)
