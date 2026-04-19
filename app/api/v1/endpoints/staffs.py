@@ -292,8 +292,11 @@ async def delete_staff(
             )
 
         # 同一事務所チェック
+        # 事業所未所属（メール未確認・未承認状態）のスタッフは事務所チェックをスキップする。
+        # 未所属スタッフはいかなる事業所のデータにもアクセスできないため、
+        # どの事業所の owner も削除可能とする（E2Eテスト後クリーンアップを含む）。
         target_staff_office_ids = {assoc.office_id for assoc in target_staff.office_associations}
-        if current_user_office.id not in target_staff_office_ids:
+        if target_staff_office_ids and current_user_office.id not in target_staff_office_ids:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=ja.STAFF_DIFFERENT_OFFICE

@@ -4,6 +4,7 @@ Billing API エンドポイント (Phase 2)
 from typing import Annotated
 from datetime import datetime, timezone
 from uuid import UUID
+import json
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -295,7 +296,9 @@ async def stripe_webhook(
     # リクエストボディを取得
     payload = await request.body()
 
-    # Stripe署名を検証
+    # Stripe署名を検証し、イベントオブジェクトを取得する
+    # stripe-python v5+ の StripeObject は .get() を持たないため、
+    # dict に変換してからサービス層に渡すことで後方互換性を維持する。
     try:
         event = stripe.Webhook.construct_event(
             payload,
@@ -309,10 +312,16 @@ async def stripe_webhook(
         logger.error("Invalid signature")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ja.BILLING_WEBHOOK_INVALID_SIGNATURE)
 
-    # イベントタイプによって処理を分岐
-    event_type = event['type']
-    event_data = event['data']['object']
-    event_id = event.get('id', 'unknown')
+    # 署名検証済みのイベントを plain dict として取得する
+    #
+    # 変換方針:
+    #   - テスト環境: @patch により construct_event が plain dict を返す → そのまま使用
+    #   - 本番環境: stripe.Event オブジェクトが返る → json.loads(payload) で変換
+    #     (署名検証済みのペイロードを再度解析するため安全)
+    event_dict: dict = event if isinstance(event, dict) else json.loads(payload)
+    event_type: str = event_dict['type']
+    event_data: dict = event_dict['data']['object']
+    event_id: str = event_dict.get('id', 'unknown')
 
     # 【Phase 7】冪等性チェック: 既に処理済みのイベントはスキップ
     is_processed = await crud.webhook_event.is_event_processed(db=db, event_id=event_id)
