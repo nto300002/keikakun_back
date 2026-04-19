@@ -175,9 +175,12 @@ else:
     ]
 
 # CORSミドルウェアの設定
+# allow_origin_regex: Vercel Preview デプロイの動的 URL（keikakun-front-*.vercel.app）を許可する。
+# allow_credentials=True 時は allow_origins=["*"] が使えないため正規表現で対応する。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://keikakun-front[^.]*\.vercel\.app",
     allow_credentials=True,  # Cookie送信のために必要
     allow_methods=allowed_methods,
     allow_headers=allowed_headers,
