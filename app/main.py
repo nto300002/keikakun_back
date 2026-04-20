@@ -158,6 +158,7 @@ if is_production:
         "X-Requested-With",
         "Accept",
         "X-CSRF-Token",  # CSRF保護用ヘッダー
+        "x-vercel-protection-bypass",  # Vercel Preview E2E テスト用バイパスヘッダー
     ]
 else:
     # 開発環境: localhost + 本番確認用
@@ -172,6 +173,7 @@ else:
         "X-Requested-With",
         "Accept",
         "X-CSRF-Token",  # CSRF保護用ヘッダー
+        "x-vercel-protection-bypass",  # Vercel Preview E2E テスト用バイパスヘッダー
     ]
 
 # CORSミドルウェアの設定
