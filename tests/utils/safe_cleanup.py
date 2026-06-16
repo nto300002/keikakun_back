@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+TEST_CLEANUP_ADVISORY_LOCK_ID = 2026061501
+
 
 class SafeTestDataCleanup:
     """ファクトリ関数で生成されたテストデータのみを安全に削除"""
@@ -61,6 +63,11 @@ class SafeTestDataCleanup:
         result = {}
 
         try:
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"),
+                {"lock_id": TEST_CLEANUP_ADVISORY_LOCK_ID},
+            )
+
             # ========================================
             # STEP 1: テストデータのIDを収集
             # ========================================
@@ -207,6 +214,11 @@ class SafeTestDataCleanup:
         result = {}
 
         try:
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"),
+                {"lock_id": TEST_CLEANUP_ADVISORY_LOCK_ID},
+            )
+
             # 1. テスト事業所のIDを先に取得
             # 解決策C: is_test_dataフラグも条件に含める（後でofficesを削除する際の条件と一致させる）
             office_ids_query = text("""
