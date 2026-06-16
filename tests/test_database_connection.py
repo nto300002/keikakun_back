@@ -8,6 +8,7 @@
 3. テストデータが正しくテスト用DBに保存されることを検証する
 """
 import os
+import uuid
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -170,29 +171,39 @@ class TestDatabaseConnection:
         要件:
         - テスト実行後にデータがロールバックされること（db_sessionのトランザクション）
         """
-        # テスト開始時のStaffデータ数を取得
-        result = await db_session.execute(text("SELECT COUNT(*) FROM staffs"))
+        # pytest-xdist の並列実行では他テストのStaff作成が全体件数に混ざるため、
+        # このテストだけが作成する一意なemail prefixで件数を検証する。
+        email_prefix = f"count_test_{uuid.uuid4().hex}"
+        email_pattern = f"{email_prefix}_%@example.com"
+
+        result = await db_session.execute(
+            text("SELECT COUNT(*) FROM staffs WHERE email LIKE :email_pattern"),
+            {"email_pattern": email_pattern},
+        )
         count_before = result.scalar()
 
-        print(f"📊 Staffs count before test: {count_before}")
+        print(f"📊 Matching staffs count before test: {count_before}")
 
         # テストデータを3件作成
         for i in range(3):
             await service_admin_user_factory(
                 first_name=f"テスト{i}",
-                email=f"count_test_{i}@example.com"
+                email=f"{email_prefix}_{i}@example.com",
             )
         await db_session.flush()
 
-        # テストデータ作成後のStaffデータ数を取得
-        result = await db_session.execute(text("SELECT COUNT(*) FROM staffs"))
+        # テストデータ作成後、このテストで作成したStaffだけの件数を取得
+        result = await db_session.execute(
+            text("SELECT COUNT(*) FROM staffs WHERE email LIKE :email_pattern"),
+            {"email_pattern": email_pattern},
+        )
         count_during = result.scalar()
 
-        print(f"📊 Staffs count during test: {count_during}")
+        print(f"📊 Matching staffs count during test: {count_during}")
 
         # テスト中は3件増えているはず
         assert count_during == count_before + 3, (
-            f"Expected {count_before + 3} staffs, but got {count_during}"
+            f"Expected {count_before + 3} matching staffs, but got {count_during}"
         )
 
         print("✅ Test data was created successfully")
