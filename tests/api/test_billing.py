@@ -3,6 +3,7 @@ Billing API エンドポイントのテスト
 """
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
+from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,6 +98,86 @@ async def test_get_billing_status_past_due(
     assert response.status_code == 200
     data = response.json()
     assert data["billing_status"] == "past_due"
+
+
+async def test_get_billing_status_expired_free_updates_to_trial_expired(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory
+) -> None:
+    """
+    期限切れfreeはCheckout遷移を待たず、ステータス取得時にtrial_expiredへ補正される。
+    """
+    staff = await employee_user_factory()
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=1)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    response = await async_client.get(
+        "/api/v1/billing/status",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["billing_status"] == "trial_expired"
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.trial_expired
+
+
+async def test_get_billing_status_expired_early_payment_updates_to_active(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory
+) -> None:
+    """
+    期限切れearly_paymentはバッチ実行を待たず、ステータス取得時にactiveへ補正される。
+    """
+    staff = await employee_user_factory()
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=1)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.early_payment,
+        stripe_customer_id=f"cus_test_expired_early_{uuid4().hex[:8]}",
+        stripe_subscription_id=f"sub_test_expired_early_{uuid4().hex[:8]}",
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        subscription_start_date=datetime.now(timezone.utc),
+        last_payment_date=datetime.now(timezone.utc),
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    response = await async_client.get(
+        "/api/v1/billing/status",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["billing_status"] == "active"
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.active
 
 
 async def test_require_active_billing_restriction(
@@ -281,6 +362,412 @@ async def test_create_checkout_session_includes_metadata(
     # automatic_taxが有効化されることを確認
     assert 'automatic_tax' in call_kwargs
     assert call_kwargs['automatic_tax']['enabled'] is True
+
+
+async def test_create_checkout_session_expired_free_without_customer_recovers_to_trial_expired(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    期限切れfreeかつstripe_customer_id未設定の事業所でもCheckoutが500にならず、trial_expiredへ補正されることを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_expired_free_{unique_id}"
+    checkout_session_id = f"cs_expired_free_{unique_id}"
+
+    mock_customer_create = mocker.patch('stripe.Customer.create')
+    mock_customer_create.return_value = MagicMock(id=customer_id)
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.return_value = MagicMock(
+        id=checkout_session_id,
+        url='https://checkout.stripe.com/expired-free'
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=10)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+    assert billing.stripe_customer_id is None
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == checkout_session_id
+    assert data["url"] == "https://checkout.stripe.com/expired-free"
+
+    mock_session_create.assert_called_once()
+    subscription_data = mock_session_create.call_args.kwargs["subscription_data"]
+    assert "trial_end" not in subscription_data
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.trial_expired
+    assert billing_after.stripe_customer_id == customer_id
+
+
+async def test_create_checkout_session_expired_free_with_existing_customer_recovers_to_trial_expired(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    既存Customerありの期限切れfree事業所でもCheckout前にtrial_expiredへ補正されることを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_existing_expired_free_{unique_id}"
+    checkout_session_id = f"cs_existing_expired_free_{unique_id}"
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.return_value = MagicMock(
+        id=checkout_session_id,
+        url='https://checkout.stripe.com/existing-expired-free'
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=10)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        stripe_customer_id=customer_id,
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == checkout_session_id
+    assert data["url"] == "https://checkout.stripe.com/existing-expired-free"
+
+    mock_session_create.assert_called_once()
+    call_kwargs = mock_session_create.call_args.kwargs
+    assert call_kwargs["customer"] == customer_id
+    assert "trial_end" not in call_kwargs["subscription_data"]
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.trial_expired
+    assert billing_after.stripe_customer_id == customer_id
+
+
+async def test_create_checkout_session_failure_rolls_back_new_customer_and_status_correction(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    新規Customer作成後にCheckout作成が失敗した場合、Customer ID保存と期限切れ補正がrollbackされる。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_checkout_failure_{unique_id}"
+
+    mock_customer_create = mocker.patch('stripe.Customer.create')
+    mock_customer_create.return_value = MagicMock(id=customer_id)
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.side_effect = Exception("checkout session failed")
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=10)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    billing_id = billing.id
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 500
+    mock_customer_create.assert_called_once()
+    mock_session_create.assert_called_once()
+
+    db_session.expire_all()
+    billing_after = await crud.billing.get(db=db_session, id=billing_id)
+    assert billing_after.billing_status == BillingStatus.free
+    assert billing_after.stripe_customer_id is None
+
+
+async def test_create_checkout_session_failure_rolls_back_existing_customer_status_correction(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    既存CustomerのCheckout作成が失敗した場合、期限切れ補正だけがrollbackされ、既存Customer IDは維持される。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_existing_checkout_failure_{unique_id}"
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.side_effect = Exception("checkout session failed")
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=10)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        stripe_customer_id=customer_id,
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    billing_id = billing.id
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 500
+    mock_session_create.assert_called_once()
+
+    db_session.expire_all()
+    billing_after = await crud.billing.get(db=db_session, id=billing_id)
+    assert billing_after.billing_status == BillingStatus.free
+    assert billing_after.stripe_customer_id == customer_id
+
+
+async def test_create_checkout_session_existing_customer_in_trial_includes_trial_end(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    既存Customerあり、trial中freeの事業所では従来どおりtrial_endをStripeに渡すことを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_existing_trial_{unique_id}"
+    checkout_session_id = f"cs_existing_trial_{unique_id}"
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.return_value = MagicMock(
+        id=checkout_session_id,
+        url='https://checkout.stripe.com/existing-trial'
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    future_trial_end = datetime.now(timezone.utc) + timedelta(days=30)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        stripe_customer_id=customer_id,
+        trial_start_date=future_trial_end - timedelta(days=150),
+        trial_end_date=future_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == checkout_session_id
+    assert data["url"] == "https://checkout.stripe.com/existing-trial"
+
+    mock_session_create.assert_called_once()
+    call_kwargs = mock_session_create.call_args.kwargs
+    assert call_kwargs["customer"] == customer_id
+    assert call_kwargs["subscription_data"]["trial_end"] == int(future_trial_end.timestamp())
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.free
+
+
+async def test_create_checkout_session_past_due_existing_customer_excludes_trial_end(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    既存Customerあり、past_dueの事業所では過去trial_endをStripeに渡さないことを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_existing_past_due_{unique_id}"
+    checkout_session_id = f"cs_existing_past_due_{unique_id}"
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.return_value = MagicMock(
+        id=checkout_session_id,
+        url='https://checkout.stripe.com/existing-past-due'
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    expired_trial_end = datetime.now(timezone.utc) - timedelta(days=10)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.past_due,
+        stripe_customer_id=customer_id,
+        trial_start_date=expired_trial_end - timedelta(days=180),
+        trial_end_date=expired_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == checkout_session_id
+    assert data["url"] == "https://checkout.stripe.com/existing-past-due"
+
+    mock_session_create.assert_called_once()
+    call_kwargs = mock_session_create.call_args.kwargs
+    assert call_kwargs["customer"] == customer_id
+    assert "trial_end" not in call_kwargs["subscription_data"]
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.past_due
+
+
+async def test_create_checkout_session_existing_customer_with_naive_trial_end(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    既存Customerあり、naive datetimeのtrial_end_dateでも比較エラーで500にならないことを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_existing_naive_{unique_id}"
+    checkout_session_id = f"cs_existing_naive_{unique_id}"
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.return_value = MagicMock(
+        id=checkout_session_id,
+        url='https://checkout.stripe.com/existing-naive'
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    naive_trial_end = datetime.now() + timedelta(days=30)
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.free,
+        stripe_customer_id=customer_id,
+        trial_start_date=naive_trial_end - timedelta(days=150),
+        trial_end_date=naive_trial_end,
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == checkout_session_id
+    assert data["url"] == "https://checkout.stripe.com/existing-naive"
+
+    mock_session_create.assert_called_once()
+    call_kwargs = mock_session_create.call_args.kwargs
+    assert call_kwargs["customer"] == customer_id
+    assert call_kwargs["subscription_data"]["trial_end"] == int(
+        naive_trial_end.replace(tzinfo=timezone.utc).timestamp()
+    )
+
+    billing_after = await crud.billing.get(db=db_session, id=billing.id)
+    assert billing_after.billing_status == BillingStatus.free
 
 
 @patch('stripe.Webhook.construct_event')

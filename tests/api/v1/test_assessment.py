@@ -177,11 +177,6 @@ class TestGetAllAssessmentData:
         self, async_client: AsyncClient, db_session: AsyncSession
     ):
         """401: 未認証の場合、エラーを返す"""
-        print("\n" + "="*80)
-        print("=== TEST: test_get_all_assessment_data_unauthorized START ===")
-        print("NOTE: This test does NOT use setup_recipient to avoid dependency override")
-        logger.info("=== test_get_all_assessment_data_unauthorized start ===")
-
         # 利用者だけを作成（オーバーライドなし）
         recipient = WelfareRecipient(
             last_name="テスト",
@@ -195,20 +190,9 @@ class TestGetAllAssessmentData:
         await db_session.flush()
         await db_session.refresh(recipient)
 
-        print(f"Testing with recipient_id: {recipient.id}")
-        print("Sending request WITHOUT authorization headers (no override)")
-        logger.info(f"Testing with recipient_id: {recipient.id}")
-        logger.info("Sending request WITHOUT authorization headers")
-
         response = await async_client.get(
             f"{settings.API_V1_STR}/recipients/{recipient.id}/assessment",
         )
-
-        print(f"Response status code: {response.status_code}")
-        print(f"Response body: {response.text}")
-        print("="*80 + "\n")
-        logger.info(f"Response status code: {response.status_code}")
-        logger.info(f"Response body: {response.text}")
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 

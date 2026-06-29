@@ -4,7 +4,10 @@ BillingService ステータス運用ヘルパーメソッドのTDDテスト
 ユーザーが便利に使えるステータス判定・操作メソッドをテスト
 """
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from typing import Tuple
@@ -15,6 +18,7 @@ from app.models.office import Office, OfficeStaff
 from app.models.billing import Billing
 from app.models.enums import StaffRole, OfficeType, BillingStatus
 from app.core.security import get_password_hash
+from app.api.deps import require_active_billing
 from app import crud
 
 pytestmark = pytest.mark.asyncio
@@ -174,33 +178,31 @@ class TestBillingStatusChecks:
     ):
         """
         有料機能にアクセスできるかを判定
-        early_payment, active, canceling は True
-        free, past_due, canceled は False
+        early_payment, active, canceling は True。
+        free, past_due, trial_expired, payment_failed, canceled は False。
         """
-        # early_payment: True
-        billing_id, _, _ = await billing_factory(BillingStatus.early_payment)
-        billing = await crud.billing.get(db=db, id=billing_id)
-        assert crud.billing.can_access_paid_features(billing) is True
+        allowed_statuses = [
+            BillingStatus.early_payment,
+            BillingStatus.active,
+            BillingStatus.canceling,
+        ]
+        restricted_statuses = [
+            BillingStatus.free,
+            BillingStatus.past_due,
+            BillingStatus.trial_expired,
+            BillingStatus.payment_failed,
+            BillingStatus.canceled,
+        ]
 
-        # active: True
-        billing_id, _, _ = await billing_factory(BillingStatus.active)
-        billing = await crud.billing.get(db=db, id=billing_id)
-        assert crud.billing.can_access_paid_features(billing) is True
+        for status in allowed_statuses:
+            billing_id, _, _ = await billing_factory(status)
+            billing = await crud.billing.get(db=db, id=billing_id)
+            assert crud.billing.can_access_paid_features(billing) is True
 
-        # canceling: True (期間終了まで利用可能)
-        billing_id, _, _ = await billing_factory(BillingStatus.canceling)
-        billing = await crud.billing.get(db=db, id=billing_id)
-        assert crud.billing.can_access_paid_features(billing) is True
-
-        # free: False
-        billing_id, _, _ = await billing_factory(BillingStatus.free)
-        billing = await crud.billing.get(db=db, id=billing_id)
-        assert crud.billing.can_access_paid_features(billing) is False
-
-        # past_due: False
-        billing_id, _, _ = await billing_factory(BillingStatus.past_due)
-        billing = await crud.billing.get(db=db, id=billing_id)
-        assert crud.billing.can_access_paid_features(billing) is False
+        for status in restricted_statuses:
+            billing_id, _, _ = await billing_factory(status)
+            billing = await crud.billing.get(db=db, id=billing_id)
+            assert crud.billing.can_access_paid_features(billing) is False
 
     async def test_requires_payment_action(
         self,
@@ -226,6 +228,80 @@ class TestBillingStatusChecks:
         billing = await crud.billing.get(db=db, id=billing_id)
         assert crud.billing.requires_payment_action(billing) is False
 
+    async def test_new_statuses_are_restricted_and_require_payment_action(
+        self,
+        db: AsyncSession,
+        billing_factory
+    ):
+        """
+        新仕様: trial_expired/payment_failed は有料機能不可かつ支払いアクション対象。
+        """
+        for status in [BillingStatus.trial_expired, BillingStatus.payment_failed]:
+            billing_id, _, _ = await billing_factory(status)
+            billing = await crud.billing.get(db=db, id=billing_id)
+
+            assert crud.billing.is_active_subscription(billing) is False
+            assert crud.billing.can_access_paid_features(billing) is False
+            assert crud.billing.requires_payment_action(billing) is True
+
+    async def test_require_active_billing_restricts_payment_required_statuses(
+        self,
+        db: AsyncSession,
+        billing_factory
+    ):
+        """
+        書き込み操作向けdependencyは支払い対応が必要なstatusを402で制限する。
+        """
+        restricted_statuses = [
+            BillingStatus.past_due,
+            BillingStatus.trial_expired,
+            BillingStatus.payment_failed,
+            BillingStatus.canceled,
+        ]
+
+        for billing_status in restricted_statuses:
+            _, _, staff_id = await billing_factory(billing_status)
+            result = await db.execute(
+                select(Staff)
+                .where(Staff.id == staff_id)
+                .options(selectinload(Staff.office_associations))
+            )
+            staff = result.scalars().one()
+
+            with pytest.raises(HTTPException) as exc_info:
+                await require_active_billing(db=db, current_staff=staff)
+
+            assert exc_info.value.status_code == 402
+
+    async def test_require_active_billing_allows_usable_statuses(
+        self,
+        db: AsyncSession,
+        billing_factory
+    ):
+        """
+        書き込み操作向けdependencyは利用可能statusを通す。
+
+        free は有料機能判定では False だが、無料期間中の通常利用を許可するため
+        require_active_billing では制限対象に含めない。
+        """
+        allowed_statuses = [
+            BillingStatus.free,
+            BillingStatus.early_payment,
+            BillingStatus.active,
+            BillingStatus.canceling,
+        ]
+
+        for billing_status in allowed_statuses:
+            _, _, staff_id = await billing_factory(billing_status)
+            result = await db.execute(
+                select(Staff)
+                .where(Staff.id == staff_id)
+                .options(selectinload(Staff.office_associations))
+            )
+            staff = result.scalars().one()
+
+            assert await require_active_billing(db=db, current_staff=staff) == staff
+
 
 class TestBillingStatusMessages:
     """ステータスメッセージ取得のテスト"""
@@ -245,6 +321,26 @@ class TestBillingStatusMessages:
             (BillingStatus.past_due, "支払い遅延"),
             (BillingStatus.canceling, "キャンセル予定"),
             (BillingStatus.canceled, "キャンセル済み"),
+        ]
+
+        for status, expected_message in test_cases:
+            billing_id, _, _ = await billing_factory(status)
+            billing = await crud.billing.get(db=db, id=billing_id)
+
+            message = crud.billing.get_status_display_message(billing)
+            assert message == expected_message
+
+    async def test_get_status_display_message_for_new_statuses(
+        self,
+        db: AsyncSession,
+        billing_factory
+    ):
+        """
+        新仕様: trial_expired/payment_failed の表示文言を分離する。
+        """
+        test_cases = [
+            (BillingStatus.trial_expired, "無料期間終了"),
+            (BillingStatus.payment_failed, "支払い失敗"),
         ]
 
         for status, expected_message in test_cases:
@@ -303,3 +399,21 @@ class TestBillingStatusMessages:
         billing = await crud.billing.get(db=db, id=billing_id)
         message = crud.billing.get_next_action_message(billing)
         assert "再契約" in message or "再開" in message
+
+    async def test_get_next_action_message_for_new_statuses(
+        self,
+        db: AsyncSession,
+        billing_factory
+    ):
+        """
+        新仕様: trial_expired/payment_failed で次アクションを分ける。
+        """
+        billing_id, _, _ = await billing_factory(BillingStatus.trial_expired)
+        billing = await crud.billing.get(db=db, id=billing_id)
+        message = crud.billing.get_next_action_message(billing)
+        assert "サブスクリプション" in message or "課金登録" in message
+
+        billing_id, _, _ = await billing_factory(BillingStatus.payment_failed)
+        billing = await crud.billing.get(db=db, id=billing_id)
+        message = crud.billing.get_next_action_message(billing)
+        assert "支払い方法" in message or "再決済" in message

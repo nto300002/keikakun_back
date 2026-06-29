@@ -48,7 +48,9 @@ class BillingStatus(str, enum.Enum):
     free = 'free'                    # 無料トライアル
     early_payment = 'early_payment'  # 早期支払い完了（無料期間中に課金設定済み）
     active = 'active'                # 課金中
-    past_due = 'past_due'            # 支払い遅延
+    past_due = 'past_due'            # 互換用の支払い対応必要状態
+    trial_expired = 'trial_expired'  # 無料期間終了・未課金
+    payment_failed = 'payment_failed'  # 支払い失敗
     canceling = 'canceling'          # キャンセル予定（期間終了時にキャンセル）
     canceled = 'canceled'            # キャンセル済み
 

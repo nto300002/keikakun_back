@@ -102,6 +102,118 @@ async def active_subscription_setup(db: AsyncSession) -> Tuple:
     return (office.id, staff.id, billing.id, customer_id, subscription_id)
 
 
+@pytest.fixture(scope="function")
+async def trial_expired_subscription_setup(db: AsyncSession) -> Tuple:
+    """
+    試用期限切れだがStripe Subscriptionが残っているBillingを作成する。
+    Returns: (office_id, staff_id, billing_id, customer_id, subscription_id)
+    """
+    staff = Staff(
+        first_name="テスト",
+        last_name="ユーザー",
+        full_name="テスト ユーザー",
+        email=f"test_{uuid4().hex[:8]}@example.com",
+        hashed_password=get_password_hash("password"),
+        role=StaffRole.owner,
+        is_test_data=True
+    )
+    db.add(staff)
+    await db.flush()
+
+    office = Office(
+        name="テスト事業所",
+        type=OfficeType.type_A_office,
+        created_by=staff.id,
+        last_modified_by=staff.id,
+        is_test_data=True
+    )
+    db.add(office)
+    await db.flush()
+
+    office_staff = OfficeStaff(
+        office_id=office.id,
+        staff_id=staff.id,
+        is_primary=True
+    )
+    db.add(office_staff)
+
+    now = datetime.now(timezone.utc)
+    customer_id = f"cus_test_trial_expired_{uuid4().hex[:8]}"
+    subscription_id = f"sub_test_trial_expired_{uuid4().hex[:8]}"
+
+    billing = Billing(
+        office_id=office.id,
+        billing_status=BillingStatus.trial_expired,
+        stripe_customer_id=customer_id,
+        stripe_subscription_id=subscription_id,
+        trial_start_date=now - timedelta(days=190),
+        trial_end_date=now - timedelta(days=10),
+        current_plan_amount=6000
+    )
+    db.add(billing)
+    await db.flush()
+    await db.commit()
+
+    return (office.id, staff.id, billing.id, customer_id, subscription_id)
+
+
+@pytest.fixture(scope="function")
+async def stale_canceling_expired_trial_setup(db: AsyncSession) -> Tuple:
+    """
+    バッチ未実行や過去のキャンセル操作により、試用期限切れ相当だがcancelingで残っているBillingを作成する。
+    Returns: (office_id, staff_id, billing_id, customer_id, subscription_id)
+    """
+    staff = Staff(
+        first_name="テスト",
+        last_name="ユーザー",
+        full_name="テスト ユーザー",
+        email=f"test_{uuid4().hex[:8]}@example.com",
+        hashed_password=get_password_hash("password"),
+        role=StaffRole.owner,
+        is_test_data=True
+    )
+    db.add(staff)
+    await db.flush()
+
+    office = Office(
+        name="テスト事業所",
+        type=OfficeType.type_A_office,
+        created_by=staff.id,
+        last_modified_by=staff.id,
+        is_test_data=True
+    )
+    db.add(office)
+    await db.flush()
+
+    office_staff = OfficeStaff(
+        office_id=office.id,
+        staff_id=staff.id,
+        is_primary=True
+    )
+    db.add(office_staff)
+
+    now = datetime.now(timezone.utc)
+    customer_id = f"cus_test_stale_canceling_{uuid4().hex[:8]}"
+    subscription_id = f"sub_test_stale_canceling_{uuid4().hex[:8]}"
+
+    billing = Billing(
+        office_id=office.id,
+        billing_status=BillingStatus.canceling,
+        stripe_customer_id=customer_id,
+        stripe_subscription_id=subscription_id,
+        trial_start_date=now - timedelta(days=190),
+        trial_end_date=now - timedelta(days=10),
+        last_payment_date=None,
+        scheduled_cancel_at=now + timedelta(days=30),
+        current_plan_amount=6000
+    )
+    db.add(billing)
+    await db.flush()
+    await db.commit()
+
+    return (office.id, staff.id, billing.id, customer_id, subscription_id)
+
+
 class TestBillingCanceling:
     """キャンセル予定(canceling)状態のテスト"""
 
@@ -141,6 +253,64 @@ class TestBillingCanceling:
         # billing_statusがcancelingになっていることを確認
         billing = await crud.billing.get(db=db, id=billing_id)
         assert billing.billing_status == BillingStatus.canceling
+
+    async def test_process_subscription_updated_trial_expired_cancels_immediately(
+        self,
+        db: AsyncSession,
+        trial_expired_subscription_setup: Tuple,
+        billing_service: BillingService
+    ):
+        """
+        trial_expired は既に利用不可のため、期間終了キャンセル通知でもcancelingを経由せずcanceledにする。
+        """
+        office_id, staff_id, billing_id, customer_id, subscription_id = trial_expired_subscription_setup
+        cancel_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+        subscription_data = {
+            'id': subscription_id,
+            'customer': customer_id,
+            'cancel_at_period_end': True,
+            'cancel_at': cancel_at,
+            'status': 'active'
+        }
+
+        await billing_service.process_subscription_updated(
+            db=db,
+            event_id=f"evt_test_{uuid4().hex[:8]}",
+            subscription_data=subscription_data
+        )
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        assert billing.billing_status == BillingStatus.canceled
+        assert billing.scheduled_cancel_at is None
+
+    async def test_process_subscription_updated_stale_canceling_expired_trial_cancels_immediately(
+        self,
+        db: AsyncSession,
+        stale_canceling_expired_trial_setup: Tuple,
+        billing_service: BillingService
+    ):
+        """
+        trial期限切れ・未支払いのcanceling残存データは、キャンセル予定通知で即時canceledへ補正する。
+        """
+        office_id, staff_id, billing_id, customer_id, subscription_id = stale_canceling_expired_trial_setup
+        cancel_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+        subscription_data = {
+            'id': subscription_id,
+            'customer': customer_id,
+            'cancel_at_period_end': True,
+            'cancel_at': cancel_at,
+            'status': 'active'
+        }
+
+        await billing_service.process_subscription_updated(
+            db=db,
+            event_id=f"evt_test_{uuid4().hex[:8]}",
+            subscription_data=subscription_data
+        )
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        assert billing.billing_status == BillingStatus.canceled
+        assert billing.scheduled_cancel_at is None
 
     async def test_process_subscription_updated_not_canceling(
         self,

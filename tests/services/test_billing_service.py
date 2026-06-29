@@ -22,14 +22,14 @@ from app import crud
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format='%(levelname)s:%(name)s:%(message)s'
 )
 
 # Suppress SQLAlchemy logs
 logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
-logging.getLogger('app').setLevel(logging.INFO)
+logging.getLogger('app').setLevel(logging.WARNING)
 
 pytestmark = pytest.mark.asyncio
 
@@ -140,11 +140,15 @@ class TestBillingServiceTransactionIntegrity:
         billing = await crud.billing.get(db=db, id=billing_id)
         assert billing is not None
 
+        unique_id = uuid4().hex
+        customer_id = f"cus_test_rollback_{unique_id}"
+        event_id = f"evt_test_rollback_{unique_id}"
+
         # Stripe Customer IDを設定
         await crud.billing.update_stripe_customer(
             db=db,
             billing_id=billing_id,
-            stripe_customer_id="cus_test_12345"
+            stripe_customer_id=customer_id
         )
 
         # 初期状態確認
@@ -158,8 +162,8 @@ class TestBillingServiceTransactionIntegrity:
             with pytest.raises(Exception, match="DB Error"):
                 await billing_service.process_payment_succeeded(
                     db=db,
-                    event_id="evt_test_12345",
-                    customer_id="cus_test_12345"
+                    event_id=event_id,
+                    customer_id=customer_id
                 )
 
         # ロールバック後の状態確認
@@ -357,14 +361,66 @@ class TestBillingServiceTransactionIntegrity:
         assert billing_after.billing_status == BillingStatus.active
 
     @pytest.mark.asyncio
-    async def test_process_payment_failed_sets_past_due(
+    async def test_subscription_created_after_payment_succeeded_keeps_early_payment_during_trial(
         self,
         db: AsyncSession,
         setup_office_with_billing: Tuple[UUID, UUID, UUID],
         billing_service: BillingService
     ):
         """
-        支払い失敗処理でステータスがpast_dueになることを検証
+        invoice.payment_succeeded が先に来た後で customer.subscription.created が来ても、
+        trial期間中なら early_payment が維持されることを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex[:8]
+        customer_id = f"cus_test_event_order_{unique_id}"
+        subscription_id = f"sub_test_event_order_{unique_id}"
+
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+
+        await billing_service.process_payment_succeeded(
+            db=db,
+            event_id=f"evt_payment_first_{unique_id}",
+            customer_id=customer_id
+        )
+
+        async with AsyncSessionLocal() as new_db:
+            billing_after_payment = await crud.billing.get(db=new_db, id=billing_id)
+            assert billing_after_payment.billing_status == BillingStatus.early_payment
+
+            subscription_data = {
+                "id": subscription_id,
+                "customer": customer_id,
+                "metadata": {
+                    "office_id": str(office_id),
+                    "office_name": "テスト事業所",
+                    "created_by_user_id": str(staff_id)
+                }
+            }
+
+            await billing_service.process_subscription_created(
+                db=new_db,
+                event_id=f"evt_subscription_after_payment_{unique_id}",
+                subscription_data=subscription_data
+            )
+
+            billing_after_subscription = await crud.billing.get(db=new_db, id=billing_id)
+            assert billing_after_subscription.billing_status == BillingStatus.early_payment
+            assert billing_after_subscription.stripe_subscription_id == subscription_id
+
+    @pytest.mark.asyncio
+    async def test_process_payment_failed_during_trial_keeps_free_status(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        新仕様: trial期間中の支払い失敗ではpast_due/payment_failedへ落とさないことを検証
         """
         office_id, staff_id, billing_id = setup_office_with_billing
 
@@ -389,9 +445,92 @@ class TestBillingServiceTransactionIntegrity:
         # 新しいセッションで検証
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as new_db:
-            # ステータスがpast_dueになっていることを確認
             billing_after = await crud.billing.get(db=new_db, id=billing_id)
-            assert billing_after.billing_status == BillingStatus.past_due
+            assert billing_after.billing_status == BillingStatus.free
+
+    @pytest.mark.asyncio
+    async def test_process_payment_failed_after_trial_sets_payment_failed(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        新仕様: trial期間外の支払い失敗はpayment_failedに更新される。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex[:8]
+        customer_id = f"cus_test_payment_failed_after_trial_{unique_id}"
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        await crud.billing.update(
+            db=db,
+            db_obj=billing,
+            obj_in={
+                "billing_status": BillingStatus.active,
+                "trial_end_date": datetime.now(timezone.utc) - timedelta(days=1),
+                "stripe_subscription_id": f"sub_test_payment_failed_{unique_id}",
+            },
+            auto_commit=False
+        )
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+        await db.commit()
+
+        await billing_service.process_payment_failed(
+            db=db,
+            event_id=f"evt_test_payment_failed_after_trial_{unique_id}",
+            customer_id=customer_id
+        )
+
+        async with AsyncSessionLocal() as new_db:
+            billing_after = await crud.billing.get(db=new_db, id=billing_id)
+            assert billing_after.billing_status == BillingStatus.payment_failed
+
+    @pytest.mark.asyncio
+    async def test_process_payment_failed_during_trial_keeps_existing_status(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        新仕様: trial期間中の支払い失敗ではpayment_failed/past_dueへ落とさない。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex[:8]
+        customer_id = f"cus_test_payment_failed_during_trial_{unique_id}"
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        await crud.billing.update(
+            db=db,
+            db_obj=billing,
+            obj_in={
+                "billing_status": BillingStatus.early_payment,
+                "trial_end_date": datetime.now(timezone.utc) + timedelta(days=30),
+                "stripe_subscription_id": f"sub_test_trial_payment_failed_{unique_id}",
+            },
+            auto_commit=False
+        )
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+        await db.commit()
+
+        await billing_service.process_payment_failed(
+            db=db,
+            event_id=f"evt_test_payment_failed_during_trial_{unique_id}",
+            customer_id=customer_id
+        )
+
+        async with AsyncSessionLocal() as new_db:
+            billing_after = await crud.billing.get(db=new_db, id=billing_id)
+            assert billing_after.billing_status == BillingStatus.early_payment
 
     @pytest.mark.asyncio
     async def test_process_subscription_deleted_sets_canceled(
@@ -446,6 +585,62 @@ class TestBillingServiceTransactionIntegrity:
             # ステータスがcanceledになっていることを確認
             billing_after = await crud.billing.get(db=new_db, id=billing_id)
             assert billing_after.billing_status == BillingStatus.canceled
+
+    @pytest.mark.asyncio
+    async def test_process_subscription_deleted_after_recent_payment_failed_keeps_payment_failed(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        支払い失敗直後のStripe自動削除では、ユーザー解約ではなくpayment_failedを優先する。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+
+        unique_id = uuid4().hex[:8]
+        customer_id = f"cus_test_failed_deleted_{unique_id}"
+
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+        await crud.billing.update_stripe_subscription(
+            db=db,
+            billing_id=billing_id,
+            stripe_subscription_id=f"sub_test_failed_deleted_{unique_id}"
+        )
+        await crud.billing.update_status(
+            db=db,
+            billing_id=billing_id,
+            status=BillingStatus.payment_failed
+        )
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        await crud.webhook_event.create_event_record(
+            db=db,
+            event_id=f"evt_recent_payment_failed_{unique_id}",
+            event_type="invoice.payment_failed",
+            source="stripe",
+            billing_id=billing_id,
+            office_id=office_id,
+            payload={"customer_id": customer_id},
+            status="success",
+            auto_commit=False
+        )
+        await db.commit()
+
+        await billing_service.process_subscription_deleted(
+            db=db,
+            event_id=f"evt_test_deleted_after_failed_{unique_id}",
+            customer_id=customer_id
+        )
+
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_db:
+            billing_after = await crud.billing.get(db=new_db, id=billing_id)
+            assert billing_after.billing_status == BillingStatus.payment_failed
 
 
 class TestBillingServiceMissingCustomerHandling:
@@ -644,6 +839,356 @@ class TestBillingServiceStripeIntegration:
         # DB更新が反映されていることを確認
         billing_after = await crud.billing.get(db=db, id=billing_id)
         assert billing_after.stripe_customer_id == "cus_mock_12345"
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_with_customer_excludes_expired_trial_end(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        新規Customer作成ルートでは、過去のtrial_endをStripeに渡さないことを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex
+        customer_id = f"cus_mock_expired_trial_{unique_id}"
+        checkout_session_id = f"cs_mock_expired_trial_{unique_id}"
+        expired_trial_end = datetime.now(timezone.utc) - timedelta(days=1)
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        await crud.billing.update(
+            db=db,
+            db_obj=billing,
+            obj_in={"trial_end_date": expired_trial_end},
+            auto_commit=False
+        )
+        await db.flush()
+
+        mock_customer = Mock()
+        mock_customer.id = customer_id
+
+        mock_checkout_session = Mock()
+        mock_checkout_session.id = checkout_session_id
+        mock_checkout_session.url = "https://checkout.stripe.com/expired-trial"
+
+        with patch('stripe.Customer.create', return_value=mock_customer), \
+             patch('stripe.checkout.Session.create', return_value=mock_checkout_session) as mock_create_session:
+            result = await billing_service.create_checkout_session_with_customer(
+                db=db,
+                billing_id=billing_id,
+                office_id=office_id,
+                office_name="期限切れトライアル事業所",
+                user_email="expired-trial@example.com",
+                user_id=staff_id,
+                trial_end_date=expired_trial_end,
+                stripe_secret_key="sk_test_mock",
+                stripe_price_id="price_mock_12345",
+                frontend_url="http://localhost:3000"
+            )
+
+        assert result["session_id"] == checkout_session_id
+        assert result["url"] == "https://checkout.stripe.com/expired-trial"
+
+        mock_create_session.assert_called_once()
+        subscription_data = mock_create_session.call_args.kwargs["subscription_data"]
+        assert "trial_end" not in subscription_data
+
+        billing_after = await crud.billing.get(db=db, id=billing_id)
+        assert billing_after.stripe_customer_id == customer_id
+        assert billing_after.billing_status == BillingStatus.trial_expired
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_with_customer_includes_future_trial_end(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        新規Customer作成ルートでは、未来のtrial_endを従来どおりStripeに渡すことを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex
+        customer_id = f"cus_mock_future_trial_{unique_id}"
+        checkout_session_id = f"cs_mock_future_trial_{unique_id}"
+        future_trial_end = datetime.now(timezone.utc) + timedelta(days=30)
+
+        mock_customer = Mock()
+        mock_customer.id = customer_id
+
+        mock_checkout_session = Mock()
+        mock_checkout_session.id = checkout_session_id
+        mock_checkout_session.url = "https://checkout.stripe.com/future-trial"
+
+        with patch('stripe.Customer.create', return_value=mock_customer), \
+             patch('stripe.checkout.Session.create', return_value=mock_checkout_session) as mock_create_session:
+            result = await billing_service.create_checkout_session_with_customer(
+                db=db,
+                billing_id=billing_id,
+                office_id=office_id,
+                office_name="トライアル中事業所",
+                user_email="future-trial@example.com",
+                user_id=staff_id,
+                trial_end_date=future_trial_end,
+                stripe_secret_key="sk_test_mock",
+                stripe_price_id="price_mock_12345",
+                frontend_url="http://localhost:3000"
+            )
+
+        assert result["session_id"] == checkout_session_id
+        assert result["url"] == "https://checkout.stripe.com/future-trial"
+
+        mock_create_session.assert_called_once()
+        subscription_data = mock_create_session.call_args.kwargs["subscription_data"]
+        assert subscription_data["trial_end"] == int(future_trial_end.timestamp())
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_with_customer_accepts_naive_trial_end(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        新規Customer作成ルートでは、naive datetimeでも比較エラーにならずtrial_endを渡すことを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex
+        customer_id = f"cus_mock_naive_trial_{unique_id}"
+        checkout_session_id = f"cs_mock_naive_trial_{unique_id}"
+        naive_trial_end = datetime.now() + timedelta(days=30)
+
+        mock_customer = Mock()
+        mock_customer.id = customer_id
+
+        mock_checkout_session = Mock()
+        mock_checkout_session.id = checkout_session_id
+        mock_checkout_session.url = "https://checkout.stripe.com/naive-trial"
+
+        with patch('stripe.Customer.create', return_value=mock_customer), \
+             patch('stripe.checkout.Session.create', return_value=mock_checkout_session) as mock_create_session:
+            result = await billing_service.create_checkout_session_with_customer(
+                db=db,
+                billing_id=billing_id,
+                office_id=office_id,
+                office_name="naive datetime事業所",
+                user_email="naive-trial@example.com",
+                user_id=staff_id,
+                trial_end_date=naive_trial_end,
+                stripe_secret_key="sk_test_mock",
+                stripe_price_id="price_mock_12345",
+                frontend_url="http://localhost:3000"
+            )
+
+        assert result["session_id"] == checkout_session_id
+        assert result["url"] == "https://checkout.stripe.com/naive-trial"
+
+        mock_create_session.assert_called_once()
+        subscription_data = mock_create_session.call_args.kwargs["subscription_data"]
+        assert subscription_data["trial_end"] == int(
+            naive_trial_end.replace(tzinfo=timezone.utc).timestamp()
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_rollback_on_checkout_session_error(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        Customer作成後にCheckout Session作成が失敗した場合、DB更新がロールバックされることを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        unique_id = uuid4().hex
+        customer_id = f"cus_mock_checkout_error_{unique_id}"
+        expired_trial_end = datetime.now(timezone.utc) - timedelta(days=1)
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        await crud.billing.update(
+            db=db,
+            db_obj=billing,
+            obj_in={
+                "billing_status": BillingStatus.free,
+                "trial_end_date": expired_trial_end,
+            },
+            auto_commit=False
+        )
+        await db.commit()
+
+        mock_customer = Mock()
+        mock_customer.id = customer_id
+
+        import stripe
+        with patch('stripe.Customer.create', return_value=mock_customer), \
+             patch('stripe.checkout.Session.create', side_effect=stripe.error.StripeError("Checkout Error")):
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException):
+                await billing_service.create_checkout_session_with_customer(
+                    db=db,
+                    billing_id=billing_id,
+                    office_id=office_id,
+                    office_name="Checkout失敗事業所",
+                    user_email="checkout-error@example.com",
+                    user_id=staff_id,
+                    trial_end_date=expired_trial_end,
+                    stripe_secret_key="sk_test_mock",
+                    stripe_price_id="price_mock_12345",
+                    frontend_url="http://localhost:3000"
+                )
+
+        billing_after = await crud.billing.get(db=db, id=billing_id)
+        assert billing_after.stripe_customer_id is None
+        assert billing_after.billing_status == BillingStatus.free
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_logs_safe_context_on_stripe_error(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService,
+        caplog
+    ):
+        """
+        Stripe APIエラー時に、秘匿情報を含めず調査用コンテキストをログ出力することを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        billing = await crud.billing.get(db=db, id=billing_id)
+
+        secret_key = "sk_test_secret_should_not_be_logged"
+        user_email = "sensitive-user@example.com"
+        leaked_customer_id = f"cus_leaked_error_{uuid4().hex}"
+        stripe_error_message = f"No such customer: {leaked_customer_id}; email={user_email}"
+
+        import stripe
+        with caplog.at_level(logging.ERROR, logger="app.services.billing_service"):
+            with patch('stripe.Customer.create', side_effect=stripe.error.StripeError(stripe_error_message)):
+                from fastapi import HTTPException
+                with pytest.raises(HTTPException):
+                    await billing_service.create_checkout_session_with_customer(
+                        db=db,
+                        billing_id=billing_id,
+                        office_id=office_id,
+                        office_name="ログ検証事業所",
+                        user_email=user_email,
+                        user_id=staff_id,
+                        trial_end_date=billing.trial_end_date,
+                        stripe_secret_key=secret_key,
+                        stripe_price_id="price_mock_12345",
+                        frontend_url="http://localhost:3000"
+                    )
+
+        assert f"billing_id={billing_id}" in caplog.text
+        assert f"office_id={office_id}" in caplog.text
+        assert "checkout_route=new_customer" in caplog.text
+        assert "has_stripe_customer_id=False" in caplog.text
+        assert "billing_status=free" in caplog.text
+        assert "trial_end_date=" in caplog.text
+        assert "stripe_error_type=StripeError" in caplog.text
+        assert secret_key not in caplog.text
+        assert user_email not in caplog.text
+        assert leaked_customer_id not in caplog.text
+        assert stripe_error_message not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_existing_customer_logs_safe_context_on_stripe_error(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService,
+        caplog
+    ):
+        """
+        既存CustomerありルートのStripe APIエラーでも、非秘匿の調査情報をログ出力することを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        customer_id = f"cus_existing_log_{uuid4().hex}"
+
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+        await db.commit()
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        user_email = "existing-sensitive-user@example.com"
+        stripe_error_message = f"No such customer: {customer_id}; email={user_email}"
+
+        import stripe
+        with caplog.at_level(logging.ERROR, logger="app.services.billing_service"):
+            with patch('stripe.checkout.Session.create', side_effect=stripe.error.StripeError(stripe_error_message)):
+                from fastapi import HTTPException
+                with pytest.raises(HTTPException):
+                    await billing_service.create_checkout_session_for_existing_customer(
+                        db=db,
+                        billing_id=billing_id,
+                        office_id=office_id,
+                        office_name="既存Customerログ検証事業所",
+                        user_id=staff_id,
+                        stripe_customer_id=customer_id,
+                        trial_end_date=billing.trial_end_date,
+                        stripe_secret_key="sk_test_existing_customer_log",
+                        stripe_price_id="price_mock_12345",
+                        frontend_url="http://localhost:3000"
+                    )
+
+        assert f"billing_id={billing_id}" in caplog.text
+        assert f"office_id={office_id}" in caplog.text
+        assert "checkout_route=existing_customer" in caplog.text
+        assert "has_stripe_customer_id=True" in caplog.text
+        assert "billing_status=free" in caplog.text
+        assert "trial_end_date=" in caplog.text
+        assert "stripe_error_type=StripeError" in caplog.text
+        assert customer_id not in caplog.text
+        assert user_email not in caplog.text
+        assert stripe_error_message not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_create_checkout_session_existing_customer_sets_stripe_api_key(
+        self,
+        db: AsyncSession,
+        setup_office_with_billing: Tuple[UUID, UUID, UUID],
+        billing_service: BillingService
+    ):
+        """
+        既存CustomerありルートでもCheckout作成前にStripe APIキーを設定することを検証。
+        """
+        office_id, staff_id, billing_id = setup_office_with_billing
+        customer_id = f"cus_existing_api_key_{uuid4().hex}"
+        secret_key = "sk_test_existing_customer_route"
+
+        await crud.billing.update_stripe_customer(
+            db=db,
+            billing_id=billing_id,
+            stripe_customer_id=customer_id
+        )
+        await db.commit()
+
+        billing = await crud.billing.get(db=db, id=billing_id)
+        mock_checkout_session = Mock()
+        mock_checkout_session.id = f"cs_existing_api_key_{uuid4().hex}"
+        mock_checkout_session.url = "https://checkout.stripe.com/existing-api-key"
+
+        import stripe
+        stripe.api_key = None
+
+        with patch('stripe.checkout.Session.create', return_value=mock_checkout_session):
+            await billing_service.create_checkout_session_for_existing_customer(
+                db=db,
+                billing_id=billing_id,
+                office_id=office_id,
+                office_name="既存Customer APIキー検証事業所",
+                user_id=staff_id,
+                stripe_customer_id=customer_id,
+                trial_end_date=billing.trial_end_date,
+                stripe_secret_key=secret_key,
+                stripe_price_id="price_mock_12345",
+                frontend_url="http://localhost:3000"
+            )
+
+        assert stripe.api_key == secret_key
 
     @pytest.mark.asyncio
     async def test_create_checkout_session_rollback_on_stripe_error(

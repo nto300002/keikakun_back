@@ -17,7 +17,7 @@ from app.core.config import settings # settingsをインポート
 from app.api.v1.api import api_router
 from app.scheduler.calendar_sync_scheduler import calendar_sync_scheduler
 from app.scheduler.cleanup_scheduler import cleanup_scheduler
-from app.scheduler.billing_scheduler import billing_scheduler
+from app.scheduler import billing_scheduler
 from app.scheduler import deadline_notification_scheduler
 
 # ログ設定（環境に応じてレベルを変更）

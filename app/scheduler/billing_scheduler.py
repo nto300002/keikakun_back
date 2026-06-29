@@ -82,15 +82,21 @@ def start():
         name='スケジュールキャンセル期限チェック'
     )
 
-    billing_scheduler.start()
-    logger.info(
-        "[BILLING_SCHEDULER] Started successfully\n"
-        "  - check_trial_expiration: Daily at 0:00 UTC\n"
-        "  - check_scheduled_cancellation: Daily at 0:05 UTC"
-    )
+    if not billing_scheduler.running:
+        billing_scheduler.start()
+        logger.info(
+            "[BILLING_SCHEDULER] Started successfully\n"
+            "  - check_trial_expiration: Daily at 0:00 UTC\n"
+            "  - check_scheduled_cancellation: Daily at 0:05 UTC"
+        )
+    else:
+        logger.info("[BILLING_SCHEDULER] Already running; jobs refreshed")
 
 
 def shutdown():
     """スケジューラーをシャットダウン"""
-    billing_scheduler.shutdown(wait=True)
-    logger.info("[BILLING_SCHEDULER] Shutdown completed")
+    if billing_scheduler.running:
+        billing_scheduler.shutdown(wait=True)
+        logger.info("[BILLING_SCHEDULER] Shutdown completed")
+    else:
+        logger.info("[BILLING_SCHEDULER] Shutdown skipped because scheduler is not running")

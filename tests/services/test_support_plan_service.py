@@ -20,7 +20,7 @@ from app.core.exceptions import InvalidStepOrderError
 
 # Configure logging to suppress SQL statements and show only application logs
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format='%(levelname)s:%(name)s:%(message)s'
 )
 
@@ -31,7 +31,7 @@ logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
 logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
 
 # Keep application logs visible
-logging.getLogger('app').setLevel(logging.INFO)
+logging.getLogger('app').setLevel(logging.WARNING)
 
 
 pytestmark = pytest.mark.asyncio

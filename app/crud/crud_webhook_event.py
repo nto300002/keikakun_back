@@ -166,6 +166,36 @@ class CRUDWebhookEvent(CRUDBase[WebhookEvent, WebhookEventCreate, WebhookEventUp
         result = await db.execute(query)
         return list(result.scalars().all())
 
+    async def has_recent_successful_event(
+        self,
+        db: AsyncSession,
+        *,
+        billing_id: UUID,
+        event_type: str,
+        since: datetime
+    ) -> bool:
+        """
+        指定Billingに直近の成功Webhookイベントが存在するか確認
+
+        Args:
+            db: データベースセッション
+            billing_id: Billing ID
+            event_type: イベントタイプ
+            since: この日時以降のイベントのみ対象
+
+        Returns:
+            True: 存在する, False: 存在しない
+        """
+        result = await db.execute(
+            select(self.model.id)
+            .where(self.model.billing_id == billing_id)
+            .where(self.model.event_type == event_type)
+            .where(self.model.status == "success")
+            .where(self.model.processed_at >= since)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def cleanup_old_events(
         self,
         db: AsyncSession,

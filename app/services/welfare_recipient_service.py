@@ -312,7 +312,7 @@ class WelfareRecipientService:
             return result
 
         except Exception as e:
-            print(f"Error checking data integrity: {str(e)}")
+            logger.warning("Error checking data integrity: %s", e)
             result["is_valid"] = False
             result["issues"].append(f"整合性チェック中にエラーが発生しました: {str(e)}")
             return result
@@ -331,13 +331,13 @@ class WelfareRecipientService:
             修復成功フラグ
         """
         try:
-            print(f"Starting support plan repair for recipient {welfare_recipient_id}")
+            logger.debug("Starting support plan repair for recipient %s", welfare_recipient_id)
 
             # 整合性チェック
             integrity_result = WelfareRecipientService.check_data_integrity(db, welfare_recipient_id)
 
             if integrity_result["is_valid"]:
-                print("No repair needed - data is already consistent")
+                logger.debug("No support plan repair needed for recipient %s", welfare_recipient_id)
                 return True
 
             # 修復処理
@@ -349,11 +349,11 @@ class WelfareRecipientService:
                 WelfareRecipientService._repair_missing_statuses(db, welfare_recipient_id)
 
             db.commit()
-            print(f"Successfully repaired support plan for recipient {welfare_recipient_id}")
+            logger.debug("Successfully repaired support plan for recipient %s", welfare_recipient_id)
             return True
 
         except Exception as e:
-            print(f"Error during support plan repair: {str(e)}")
+            logger.warning("Error during support plan repair for recipient %s: %s", welfare_recipient_id, e)
             db.rollback()
             return False
 
@@ -395,7 +395,7 @@ class WelfareRecipientService:
                     completed_at=None
                 )
                 db.add(status)
-                print(f"Added missing status: {step.value}")
+                logger.debug("Added missing support plan status: %s", step.value)
 
     @staticmethod
     async def create_recipient_with_details(db: AsyncSession, registration_data: UserRegistrationRequest, office_id: UUID, **kwargs):
