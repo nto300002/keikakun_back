@@ -1,4 +1,5 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import pytest
 
 import app.main as main
 import app.scheduler.billing_scheduler as billing_scheduler_module
@@ -12,7 +13,8 @@ class TestBillingScheduler:
         """
         assert main.billing_scheduler is billing_scheduler_module
 
-    def test_start_registers_billing_jobs(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_start_registers_billing_jobs(self, monkeypatch):
         """start() wrapper が課金バッチ用 job を登録することを検証。"""
         scheduler = AsyncIOScheduler()
         monkeypatch.setattr(billing_scheduler_module, "billing_scheduler", scheduler)
@@ -29,7 +31,8 @@ class TestBillingScheduler:
         finally:
             billing_scheduler_module.shutdown()
 
-    def test_multiple_start_calls_do_not_duplicate_jobs(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_multiple_start_calls_do_not_duplicate_jobs(self, monkeypatch):
         """start() を複数回呼んでも job が重複しないことを検証。"""
         scheduler = AsyncIOScheduler()
         monkeypatch.setattr(billing_scheduler_module, "billing_scheduler", scheduler)
