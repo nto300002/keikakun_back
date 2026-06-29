@@ -65,13 +65,6 @@ class TestSetupOffice:
         # Act
         # この時点ではエンドポイントが存在しないため404が返るが、実装後は200になることを期待
         response = await async_client.post("/api/v1/offices/setup", json=payload, headers=headers)
-        print("Status Code:", response.status_code)
-        try:
-            print("Response JSON:", response.json())
-        except Exception as e:
-            print("Response Text:", response.text)
-            print("JSON Decode Error:", e)
-
 
         # Assert: レスポンスの検証
         assert response.status_code == 201
@@ -79,7 +72,6 @@ class TestSetupOffice:
         assert data["name"] == payload["name"]
         assert data["office_type"] == payload["office_type"]
         assert "id" in data
-        print(f"Response data: {data}")
 
         # Assert: DBの状態の検証
         # 1. Officeが作成されたか

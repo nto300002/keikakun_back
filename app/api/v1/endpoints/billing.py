@@ -2,9 +2,9 @@
 Billing API エンドポイント (Phase 2)
 """
 from typing import Annotated
-from datetime import datetime, timezone
 from uuid import UUID
 import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -86,6 +86,32 @@ async def get_billing_status(
         )
         logger.info(f"Auto-created billing record: id={billing.id}, office_id={office_id}")
 
+    if billing.trial_end_date and billing.trial_end_date < datetime.now(timezone.utc):
+        expired_status = None
+        if billing.billing_status == BillingStatus.free:
+            expired_status = BillingStatus.trial_expired
+        elif billing.billing_status == BillingStatus.early_payment:
+            expired_status = BillingStatus.active
+
+        if expired_status:
+            billing = await crud.billing.update_status(
+                db=db,
+                billing_id=billing.id,
+                status=expired_status,
+                auto_commit=True
+            )
+            logger.info(
+                "Expired trial billing corrected during status fetch: "
+                f"billing_id={billing.id}, office_id={office_id}, "
+                f"status={expired_status.value}"
+            )
+
+    if billing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ja.BILLING_INFO_NOT_FOUND
+        )
+
     return BillingStatusResponse(
         billing_status=billing.billing_status,
         trial_end_date=billing.trial_end_date,
@@ -149,49 +175,18 @@ async def create_checkout_session(
 
     # 既にCustomer IDがある場合
     if billing.stripe_customer_id:
-        # 既存のCustomerでCheckout Sessionを作成
-        try:
-            # Trial期間が未来の場合のみtrial_endを設定
-            now = datetime.now(timezone.utc)
-            subscription_data_params = {
-                'metadata': {
-                    'office_id': str(office_id),
-                    'office_name': office.name,
-                    'created_by_user_id': str(current_user.id),
-                }
-            }
-
-            # Trial期間が未来の場合のみtrial_endを設定（past_due状態では設定しない）
-            if billing.trial_end_date and billing.trial_end_date > now:
-                subscription_data_params['trial_end'] = int(billing.trial_end_date.timestamp())
-
-            checkout_session = stripe.checkout.Session.create(
-                mode='subscription',
-                customer=billing.stripe_customer_id,
-                line_items=[{
-                    'price': settings.STRIPE_PRICE_ID,
-                    'quantity': 1
-                }],
-                subscription_data=subscription_data_params,
-                automatic_tax={'enabled': True},
-                customer_update={'address': 'auto'},
-                billing_address_collection='required',
-                payment_method_types=['card'],
-                success_url=f"{settings.FRONTEND_URL}/admin?tab=plan&success=true",
-                cancel_url=f"{settings.FRONTEND_URL}/admin?tab=plan&canceled=true",
-            )
-
-            return {
-                "session_id": checkout_session.id,
-                "url": checkout_session.url
-            }
-
-        except Exception as e:
-            logger.error(f"Stripe Checkout Session作成エラー: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=ja.BILLING_CHECKOUT_SESSION_FAILED
-            )
+        return await billing_service.create_checkout_session_for_existing_customer(
+            db=db,
+            billing_id=billing.id,
+            office_id=office_id,
+            office_name=office.name,
+            user_id=current_user.id,
+            stripe_customer_id=billing.stripe_customer_id,
+            trial_end_date=billing.trial_end_date,
+            stripe_secret_key=get_stripe_secret_key(),
+            stripe_price_id=settings.STRIPE_PRICE_ID,
+            frontend_url=settings.FRONTEND_URL
+        )
 
     # Customer IDがない場合: サービス層で作成
     return await billing_service.create_checkout_session_with_customer(
@@ -323,6 +318,19 @@ async def stripe_webhook(
     event_data: dict = event_dict['data']['object']
     event_id: str = event_dict.get('id', 'unknown')
 
+    logger.info(
+        "[Webhook:%s] Received event type=%s object_id=%s customer=%s "
+        "subscription=%s payment_intent=%s invoice=%s status=%s",
+        event_id,
+        event_type,
+        event_data.get('id'),
+        event_data.get('customer'),
+        event_data.get('subscription'),
+        event_data.get('payment_intent'),
+        event_data.get('invoice'),
+        event_data.get('status'),
+    )
+
     # 【Phase 7】冪等性チェック: 既に処理済みのイベントはスキップ
     is_processed = await crud.webhook_event.is_event_processed(db=db, event_id=event_id)
     if is_processed:
@@ -376,7 +384,18 @@ async def stripe_webhook(
 
         else:
             # 未対応のイベントタイプ
-            logger.info(f"[Webhook:{event_id}] Unhandled event type: {event_type}")
+            logger.info(
+                "[Webhook:%s] Unhandled event type=%s object_id=%s customer=%s "
+                "subscription=%s payment_intent=%s invoice=%s status=%s",
+                event_id,
+                event_type,
+                event_data.get('id'),
+                event_data.get('customer'),
+                event_data.get('subscription'),
+                event_data.get('payment_intent'),
+                event_data.get('invoice'),
+                event_data.get('status'),
+            )
 
         return {"status": "success"}
 

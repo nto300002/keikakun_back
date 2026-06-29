@@ -1,4 +1,5 @@
 """スタッフプロフィール関連のサービス"""
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from app.core import mail
 from app.messages import ja
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger(__name__)
 
 
 class RateLimitExceededError(Exception):
@@ -192,7 +194,7 @@ class StaffProfileService:
                 )
             except Exception as e:
                 # メール送信失敗はログに記録するが、処理は続行
-                print(f"パスワード変更通知メール送信失敗: {e}")
+                logger.warning("Password change notification email failed: %s", e)
 
             # commit前にupdated_atを取得（MissingGreenletエラー対策）
             updated_at = staff.updated_at
@@ -491,7 +493,7 @@ class StaffProfileService:
             )
         except Exception as e:
             # メール送信失敗はログに記録するが、リクエストは成功とする
-            print(f"確認メール送信失敗: {e}")
+            logger.warning("Email change verification email failed: %s", e)
 
         # 通知メール送信（旧メールアドレス）
         try:
@@ -501,7 +503,7 @@ class StaffProfileService:
                 new_email=email_request.new_email
             )
         except Exception as e:
-            print(f"通知メール送信失敗: {e}")
+            logger.warning("Email change notification email failed: %s", e)
 
         await db.commit()
 
@@ -528,10 +530,10 @@ class StaffProfileService:
         6. 旧メールアドレスに完了通知送信
         7. 監査ログ記録
         """
-        print(f"[DEBUG SERVICE] verify_email_change started with token: {verification_token[:10]}...")
+        logger.debug("verify_email_change started")
 
         # トークンでリクエストを検索
-        print(f"[DEBUG SERVICE] Searching for email change request with token...")
+        logger.debug("Searching for email change request")
         stmt = (
             select(EmailChangeRequestModel)
             .where(EmailChangeRequestModel.verification_token == verification_token)
@@ -540,52 +542,52 @@ class StaffProfileService:
         email_request = result.scalar_one_or_none()
 
         if not email_request:
-            print(f"[DEBUG SERVICE] Email change request not found for token")
+            logger.warning("Email change request not found")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="無効な確認トークンです"
             )
 
-        print(f"[DEBUG SERVICE] Found email change request: id={email_request.id}, status={email_request.status}")
+        logger.debug("Found email change request: id=%s status=%s", email_request.id, email_request.status)
 
         # 有効期限チェック
-        print(f"[DEBUG SERVICE] Checking expiration: expires_at={email_request.expires_at}, now={datetime.now(timezone.utc)}")
+        logger.debug("Checking email change request expiration: expires_at=%s", email_request.expires_at)
         if datetime.now(timezone.utc) > email_request.expires_at:
-            print(f"[DEBUG SERVICE] Token expired")
+            logger.warning("Email change token expired")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="確認トークンの有効期限が切れています"
             )
 
         # ステータスチェック
-        print(f"[DEBUG SERVICE] Checking status: {email_request.status}")
+        logger.debug("Checking email change request status: %s", email_request.status)
         if email_request.status != "pending":
-            print(f"[DEBUG SERVICE] Status is not pending")
+            logger.warning("Email change request status is not pending: %s", email_request.status)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="この変更リクエストは既に処理されています"
             )
 
         # スタッフ情報取得
-        print(f"[DEBUG SERVICE] Fetching staff: staff_id={email_request.staff_id}")
+        logger.debug("Fetching staff for email change: staff_id=%s", email_request.staff_id)
         stmt_staff = select(Staff).where(Staff.id == email_request.staff_id)
         result_staff = await db.execute(stmt_staff)
         staff = result_staff.scalar_one_or_none()
 
         if not staff:
-            print(f"[DEBUG SERVICE] Staff not found")
+            logger.warning("Staff not found for email change: staff_id=%s", email_request.staff_id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=ja.STAFF_NOT_FOUND
             )
 
-        print(f"[DEBUG SERVICE] Staff found: id={staff.id}, email={staff.email}")
+        logger.debug("Staff found for email change: id=%s", staff.id)
 
         # 旧メールアドレスと新メールアドレスを保存（コミット後のアクセス用）
         old_email = staff.email
         new_email = email_request.new_email
         staff_name = staff.full_name
-        print(f"[DEBUG SERVICE] Updating email from {old_email} to {new_email}")
+        logger.debug("Updating staff email: staff_id=%s", staff.id)
 
         # スタッフ情報更新
         updated_at = datetime.now(timezone.utc)
@@ -596,11 +598,11 @@ class StaffProfileService:
         email_request.status = "completed"
         # verified_atは不要（updated_atで確認日時を判定）
 
-        print(f"[DEBUG SERVICE] Flushing database changes...")
+        logger.debug("Flushing email change database changes")
         await db.flush()
 
         # 監査ログ記録
-        print(f"[DEBUG SERVICE] Creating audit log...")
+        logger.debug("Creating email change audit log")
         audit_log = AuditLog(
             staff_id=staff.id,
             action="UPDATE_EMAIL",
@@ -612,7 +614,7 @@ class StaffProfileService:
         await db.flush()
 
         # 旧メールアドレスに完了通知送信
-        print(f"[DEBUG SERVICE] Sending completion email...")
+        logger.debug("Sending email change completion email")
         try:
             await mail.send_email_change_completed(
                 old_email=old_email,
@@ -620,9 +622,9 @@ class StaffProfileService:
                 new_email=new_email
             )
         except Exception as e:
-            print(f"完了通知メール送信失敗: {e}")
+            logger.warning("Email change completion email failed: %s", e)
 
-        print(f"[DEBUG SERVICE] Committing transaction...")
+        logger.debug("Committing email change transaction")
         await db.commit()
 
         # コミット後はモデル属性にアクセスできないため、保存した変数を使用
@@ -631,7 +633,7 @@ class StaffProfileService:
             "new_email": new_email,
             "updated_at": updated_at
         }
-        print(f"[DEBUG SERVICE] verify_email_change completed successfully: {result}")
+        logger.debug("verify_email_change completed successfully")
         return result
 
 

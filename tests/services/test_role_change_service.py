@@ -15,14 +15,14 @@ from app.services.role_change_service import role_change_service
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format='%(levelname)s:%(name)s:%(message)s'
 )
 
 # Suppress SQLAlchemy logs
 logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
-logging.getLogger('app').setLevel(logging.INFO)
+logging.getLogger('app').setLevel(logging.WARNING)
 
 pytestmark = pytest.mark.asyncio
 

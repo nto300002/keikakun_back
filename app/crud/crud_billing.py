@@ -174,7 +174,7 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
 
         Returns:
             True: active, early_payment, canceling（期間終了まで利用可能）
-            False: free, past_due, canceled
+            False: free, past_due, trial_expired, payment_failed, canceled
         """
         return billing.billing_status in [
             BillingStatus.active,
@@ -198,7 +198,7 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
 
         Returns:
             True: early_payment, active, canceling（期間終了まで利用可能）
-            False: free, past_due, canceled
+            False: free, past_due, trial_expired, payment_failed, canceled
         """
         return billing.billing_status in [
             BillingStatus.early_payment,
@@ -211,10 +211,14 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
         支払いアクションが必要かを判定
 
         Returns:
-            True: past_due のみ
+            True: past_due, trial_expired, payment_failed
             False: その他
         """
-        return billing.billing_status == BillingStatus.past_due
+        return billing.billing_status in [
+            BillingStatus.past_due,
+            BillingStatus.trial_expired,
+            BillingStatus.payment_failed,
+        ]
 
     # ========================================
     # ステータスメッセージ取得メソッド
@@ -235,6 +239,8 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
             BillingStatus.early_payment: "課金設定済み（無料期間中）",
             BillingStatus.active: "課金中",
             BillingStatus.past_due: "支払い遅延",
+            BillingStatus.trial_expired: "無料期間終了",
+            BillingStatus.payment_failed: "支払い失敗",
             BillingStatus.canceling: "キャンセル予定",
             BillingStatus.canceled: "キャンセル済み",
         }
@@ -270,6 +276,8 @@ class CRUDBilling(CRUDBase[Billing, BillingCreate, BillingUpdate]):
         messages = {
             BillingStatus.free: "課金設定を行うと、より多くの機能が利用できます。",
             BillingStatus.past_due: "支払い方法を更新してください。",
+            BillingStatus.trial_expired: "サブスクリプション登録を行ってください。",
+            BillingStatus.payment_failed: "支払い方法を更新し、再決済を行ってください。",
             BillingStatus.canceling: "キャンセルの取り消しができます。",
             BillingStatus.canceled: "再契約することで、サービスを再開できます。",
         }

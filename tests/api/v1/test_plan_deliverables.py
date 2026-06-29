@@ -5,12 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from datetime import date, datetime
 import io
-import logging
 import boto3
 from moto import mock_aws
-
-logging.basicConfig()
-logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
 from app.models.welfare_recipient import WelfareRecipient, OfficeWelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus, PlanDeliverable
@@ -55,11 +51,6 @@ def s3_mock(aws_credentials):
         bucket_name = "test-plan-deliverables-bucket"
         s3_client.create_bucket(Bucket=bucket_name)
 
-        # バケットが作成されたことを確認
-        buckets = s3_client.list_buckets()
-        print(f"\n=== S3 Mock Setup ===")
-        print(f"DEBUG: Created buckets: {[b['Name'] for b in buckets['Buckets']]}")
-
         yield s3_client
 
 
@@ -77,7 +68,6 @@ async def test_upload_assessment_pdf(
     アセスメントPDFのアップロードが正常に完了することを確認
     """
     # S3アップロード関数をモック
-    from unittest.mock import AsyncMock
     async def mock_upload_file(file, object_name: str):
         """S3アップロードをモック"""
         return f"s3://test-plan-deliverables-bucket/{object_name}"
@@ -86,24 +76,10 @@ async def test_upload_assessment_pdf(
     monkeypatch.setattr(storage, "upload_file", mock_upload_file)
 
     # 1. テストデータの準備
-    print(f"\n=== DEBUG: Test data preparation ===")
-    print(f"DEBUG: test_admin_user.id = {test_admin_user.id}")
-    print(f"DEBUG: db_session object id (test data prep) = {id(db_session)}")
-
     office = await office_factory(creator=test_admin_user)
-    print(f"DEBUG: office.id = {office.id}")
 
     db_session.add(OfficeStaff(staff_id=test_admin_user.id, office_id=office.id, is_primary=True))
     await db_session.flush()  # OfficeStaffを先にflush
-
-    # OfficeStaffが保存されたか確認
-    office_staff_check = await db_session.execute(
-        select(OfficeStaff).where(OfficeStaff.staff_id == test_admin_user.id)
-    )
-    saved_office_staff = office_staff_check.scalars().all()
-    print(f"DEBUG: OfficeStaff records saved = {len(saved_office_staff)}")
-    for idx, os in enumerate(saved_office_staff):
-        print(f"DEBUG: OfficeStaff[{idx}].staff_id = {os.staff_id}, office_id = {os.office_id}")
 
     recipient = WelfareRecipient(first_name="テスト", last_name="太郎", first_name_furigana="テスト", last_name_furigana="タロウ", birth_day=date(1990, 1, 1), gender=GenderType.male)
     db_session.add(recipient)
@@ -116,92 +92,14 @@ async def test_upload_assessment_pdf(
     statuses = [SupportPlanStatus(plan_cycle_id=cycle.id, welfare_recipient_id=recipient.id, office_id=office.id, step_type=s, is_latest_status=(s==SupportPlanStep.assessment)) for s in [SupportPlanStep.assessment, SupportPlanStep.draft_plan, SupportPlanStep.staff_meeting, SupportPlanStep.final_plan_signed]]
     db_session.add_all(statuses)
     await db_session.commit()
-    print(f"=== DEBUG: Test data preparation complete ===\n")
 
     # 2. 依存関係のオーバーライド（get_current_userのみ）
     async def override_get_current_user_with_relations():
-        print(f"\n=== DEBUG test_upload_assessment_pdf: override_get_current_user_with_relations called ===")
-        print(f"DEBUG: test_admin_user.id = {test_admin_user.id}")
-        print(f"DEBUG: db_session object id = {id(db_session)}")
-
-        # SQLAlchemyのSQLログを一時的に有効化
-        import logging
-        logging.basicConfig()
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
-
-        # SQL レベルでの確認: OfficeStaff が存在するか生SQLで確認
-        from sqlalchemy import text
-        print("\n--- Raw SQL Query ---")
-        raw_sql_result = await db_session.execute(
-            text("SELECT id, staff_id, office_id, is_primary FROM office_staffs WHERE staff_id = :staff_id"),
-            {"staff_id": str(test_admin_user.id)}
-        )
-        raw_rows = raw_sql_result.fetchall()
-        print(f"DEBUG: Raw SQL - OfficeStaff records = {len(raw_rows)}")
-        for idx, row in enumerate(raw_rows):
-            print(f"DEBUG: Raw SQL - OfficeStaff[{idx}]: id={row[0]}, staff_id={row[1]}, office_id={row[2]}, is_primary={row[3]}")
-
-        # OfficeStaffを直接クエリしてみる
-        print("\n--- Direct OfficeStaff Query ---")
-        office_staff_stmt = select(OfficeStaff).where(OfficeStaff.staff_id == test_admin_user.id)
-        office_staff_result = await db_session.execute(office_staff_stmt)
-        office_staff_records = office_staff_result.scalars().all()
-        print(f"DEBUG: Direct OfficeStaff query - records found = {len(office_staff_records)}")
-        for idx, os in enumerate(office_staff_records):
-            print(f"DEBUG: OfficeStaff[{idx}]: id={os.id}, staff_id={os.staff_id}, office_id={os.office_id}")
-            # Staffオブジェクトにアクセスしてみる
-            try:
-                print(f"DEBUG: OfficeStaff[{idx}].staff = {os.staff}")
-                print(f"DEBUG: OfficeStaff[{idx}].staff.id = {os.staff.id if os.staff else None}")
-            except Exception as e:
-                print(f"DEBUG: Error accessing OfficeStaff[{idx}].staff: {e}")
-
-        # selectinloadなしで取得してみる
-        print("\n--- Staff Query Without selectinload ---")
-        stmt_no_load = select(Staff).where(Staff.id == test_admin_user.id)
-        result_no_load = await db_session.execute(stmt_no_load)
-        user_no_load = result_no_load.scalars().first()
-        print(f"DEBUG: Without selectinload - user found = {user_no_load is not None}")
-        if user_no_load:
-            print(f"DEBUG: user_no_load object state: {user_no_load.__dict__}")
-            try:
-                print(f"DEBUG: Without selectinload - office_associations length = {len(user_no_load.office_associations)}")
-            except Exception as e:
-                print(f"DEBUG: Without selectinload - Error accessing office_associations: {type(e).__name__}: {e}")
-
-        # キャッシュをバイパスして強制的にDBから再ロード
-        print("\n--- Staff Query With selectinload (populate_existing=True) ---")
         stmt = select(Staff).where(Staff.id == test_admin_user.id).options(
             selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
         ).execution_options(populate_existing=True)
         result = await db_session.execute(stmt)
-        user = result.scalars().first()
-
-        print(f"DEBUG: With selectinload - user found = {user is not None}")
-        if user:
-            print(f"DEBUG: user.id = {user.id}")
-            print(f"DEBUG: user object state: {user.__dict__}")
-            print(f"DEBUG: user.office_associations = {user.office_associations}")
-            print(f"DEBUG: len(office_associations) = {len(user.office_associations)}")
-            for idx, assoc in enumerate(user.office_associations):
-                print(f"DEBUG: association[{idx}].staff_id = {assoc.staff_id}")
-                print(f"DEBUG: association[{idx}].office_id = {assoc.office_id}")
-                print(f"DEBUG: association[{idx}].office = {assoc.office}")
-                if assoc.office:
-                    print(f"DEBUG: association[{idx}].office.id = {assoc.office.id}")
-                    print(f"DEBUG: association[{idx}].office.name = {assoc.office.name}")
-
-        # リレーションシップのメタデータを確認
-        print("\n--- Relationship Metadata ---")
-        print(f"DEBUG: Staff.office_associations.property = {Staff.office_associations.property}")
-        print(f"DEBUG: Staff.office_associations.property.mapper = {Staff.office_associations.property.mapper}")
-
-        print(f"=== DEBUG END ===\n")
-
-        # SQLログを元に戻す
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
-
-        return user
+        return result.scalars().first()
 
     app.dependency_overrides[get_current_user] = override_get_current_user_with_relations
 

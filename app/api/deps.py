@@ -45,22 +45,16 @@ async def get_current_user(
     1. Cookie (access_token)
     2. Authorization ヘッダー (Bearer token)
     """
-    print("\n" + "="*80)
-    print("=== get_current_user called ===")
-
     # まずCookieからトークンを取得
     cookie_token = request.cookies.get("access_token")
 
     # Cookieが優先、なければAuthorizationヘッダーから
     final_token = cookie_token if cookie_token else token
 
-    print(f"Cookie token: {cookie_token[:20]}..." if cookie_token else "No cookie token")
-    print(f"Header token: {token[:20]}..." if token else "No header token")
-    print(f"Using token: {final_token[:20]}..." if final_token else "No token")
-    logger.info("=== get_current_user called ===")
-    logger.info(f"Cookie token: {'present' if cookie_token else 'absent'}")
-    logger.info(f"Header token: {'present' if token else 'absent'}")
-    logger.info(f"Using token from: {'cookie' if cookie_token else 'header' if token else 'none'}")
+    logger.debug("get_current_user called")
+    logger.debug("Cookie token: %s", "present" if cookie_token else "absent")
+    logger.debug("Header token: %s", "present" if token else "absent")
+    logger.debug("Using token from: %s", "cookie" if cookie_token else "header" if token else "none")
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,41 +63,33 @@ async def get_current_user(
     )
 
     if not final_token:
-        print("No token provided - raising 401")
         logger.warning("No token provided - raising 401")
         raise credentials_exception
 
     payload = decode_access_token(final_token)
-    print(f"Decoded payload: {payload}")
-    logger.info(f"Decoded payload: {payload}")
+    logger.debug("Decoded token payload")
 
     if payload is None:
-        print("Payload is None - raising 401")
         logger.warning("Payload is None - raising 401")
         raise credentials_exception
 
     try:
         token_data = TokenData(sub=payload.get("sub"))
-        print(f"TokenData created with sub: {token_data.sub}")
-        logger.info(f"TokenData created with sub: {token_data.sub}")
+        logger.debug("TokenData created with sub=%s", token_data.sub)
     except ValidationError as e:
-        print(f"ValidationError: {e}")
-        logger.warning(f"ValidationError: {e}")
+        logger.warning("TokenData validation error: %s", e)
         raise credentials_exception
 
     if token_data.sub is None:
-        print("token_data.sub is None - raising 401")
         logger.warning("token_data.sub is None - raising 401")
         raise credentials_exception
 
     # IDを元に、crud層を経由してユーザーをデータベースから検索します。
     try:
         user_id = uuid.UUID(token_data.sub)
-        print(f"Parsed user_id: {user_id}")
-        logger.info(f"Parsed user_id: {user_id}")
+        logger.debug("Parsed user_id=%s", user_id)
     except ValueError as e:
-        print(f"ValueError parsing UUID: {e}")
-        logger.warning(f"ValueError parsing UUID: {e}")
+        logger.warning("ValueError parsing UUID: %s", e)
         raise credentials_exception
 
     from sqlalchemy.orm import selectinload
@@ -117,8 +103,7 @@ async def get_current_user(
     user = result.scalars().first()
 
     if not user:
-        print(f"User not found for id: {user_id}")
-        logger.warning(f"User not found for id: {user_id}")
+        logger.warning("User not found for id: %s", user_id)
         raise credentials_exception
 
     # app_admin以外の場合、所属事務所の削除済みチェック（スタッフチェックより先に実行）
@@ -128,7 +113,6 @@ async def get_current_user(
             # いずれかの事務所が削除済みの場合、アクセス拒否
             for office_assoc in user.office_associations:
                 if office_assoc.office and office_assoc.office.is_deleted:
-                    print(f"User's office is deleted: office_id={office_assoc.office.id}")
                     logger.warning(f"User {user.email} attempted access with deleted office: office_id={office_assoc.office.id}")
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
@@ -138,7 +122,6 @@ async def get_current_user(
 
     # 削除済みスタッフチェック（事務所チェックの後に実行）
     if user.is_deleted:
-        print(f"User is deleted: {user.email}")
         logger.warning(f"Deleted user attempted access: {user.email}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -158,9 +141,6 @@ async def get_current_user(
 
             # パスワード変更時刻とトークン発行時刻を比較
             if user.password_changed_at > token_issued_at:
-                print(f"Token issued before password change - rejecting")
-                print(f"  Token issued at: {token_issued_at}")
-                print(f"  Password changed at: {user.password_changed_at}")
                 logger.warning(
                     f"Token rejected: issued at {token_issued_at}, "
                     f"password changed at {user.password_changed_at}"
@@ -171,9 +151,7 @@ async def get_current_user(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-    print(f"User found: {user.email}, id: {user.id}")
-    print("="*80 + "\n")
-    logger.info(f"User found: {user.email}, id: {user.id}")
+    logger.debug("User found: email=%s id=%s", user.email, user.id)
     return user
 
 
@@ -325,7 +303,7 @@ async def require_active_billing(
     """
     課金ステータスチェック（Phase 1: 機能制限）
 
-    billing_status が past_due または canceled の場合、
+    billing_status が past_due / trial_expired / payment_failed / canceled の場合、
     書き込み操作を制限し 402 Payment Required を返す。
 
     free または active の場合は制限なし。
@@ -342,7 +320,7 @@ async def require_active_billing(
         Staff: 課金ステータスが有効な場合
 
     Raises:
-        HTTPException: 課金ステータスが past_due/canceled の場合
+        HTTPException: 課金ステータスが past_due/trial_expired/payment_failed/canceled の場合
     """
     from app import crud
     from app.models.enums import BillingStatus
@@ -375,7 +353,12 @@ async def require_active_billing(
         await db.commit()
 
     # 課金ステータスチェック
-    if billing.billing_status in [BillingStatus.past_due, BillingStatus.canceled]:
+    if billing.billing_status in [
+        BillingStatus.past_due,
+        BillingStatus.trial_expired,
+        BillingStatus.payment_failed,
+        BillingStatus.canceled,
+    ]:
         logger.warning(
             f"Billing restriction: office_id={office_id}, "
             f"status={billing.billing_status}, staff_id={current_staff.id}"

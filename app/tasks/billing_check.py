@@ -25,7 +25,7 @@ async def check_trial_expiration(
     処理内容:
     - trial_end_date < now かつ billing_status が 'free' または 'early_payment' のレコードを抽出
     - billing_status を以下のように更新:
-      - free → past_due（無料期間終了、未課金）
+      - free → trial_expired（無料期間終了、未課金）
       - early_payment → active（無料期間終了、課金済み）
     - 処理件数を返す
 
@@ -70,10 +70,12 @@ async def check_trial_expiration(
     # ステータス更新
     updated_count = 0
     for billing in expired_billings:
+        old_status = billing.billing_status
+
         # 遷移先を判定
-        if billing.billing_status == BillingStatus.free:
-            new_status = BillingStatus.past_due
-        elif billing.billing_status == BillingStatus.early_payment:
+        if old_status == BillingStatus.free:
+            new_status = BillingStatus.trial_expired
+        elif old_status == BillingStatus.early_payment:
             new_status = BillingStatus.active
         else:
             continue
@@ -89,7 +91,7 @@ async def check_trial_expiration(
             f"Trial expired: office_id={billing.office_id}, "
             f"billing_id={billing.id}, "
             f"trial_end_date={billing.trial_end_date}, "
-            f"{billing.billing_status.value} → {new_status.value}"
+            f"{old_status.value} → {new_status.value}"
         )
 
         updated_count += 1

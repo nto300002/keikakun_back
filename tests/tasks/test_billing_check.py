@@ -1,6 +1,8 @@
 """
 課金バッチ処理のテスト（TDD）
 """
+import logging
+
 import pytest
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -19,18 +21,18 @@ def assert_updated_at_least(actual_count: int, expected_own_records: int) -> Non
 class TestTrialExpirationCheck:
     """トライアル期間終了チェックのテスト"""
 
-    async def test_expired_trial_updates_to_past_due(
+    async def test_expired_trial_updates_to_trial_expired_legacy_case(
         self,
         db_session,
         office_factory,
         staff_factory
     ):
         """
-        トライアル期限切れのBillingがpast_dueに更新される
+        トライアル期限切れのBillingがtrial_expiredに更新される
 
         Given: trial_end_date が過去 かつ billing_status = 'free'
         When: check_trial_expiration() 実行
-        Then: billing_status が 'past_due' に更新される
+        Then: billing_status が 'trial_expired' に更新される
         """
         # テスト用事務所作成
         office = await office_factory(session=db_session, is_test_data=True)
@@ -54,7 +56,40 @@ class TestTrialExpirationCheck:
 
         # 検証
         await db_session.refresh(billing)
-        assert billing.billing_status == BillingStatus.past_due
+        assert billing.billing_status == BillingStatus.trial_expired
+        assert_updated_at_least(expired_count, 1)
+
+    async def test_expired_trial_updates_to_trial_expired(
+        self,
+        db_session,
+        office_factory
+    ):
+        """
+        新仕様: トライアル期限切れ・未課金のBillingはtrial_expiredに更新される。
+
+        Given: trial_end_date が過去 かつ billing_status = 'free'
+        When: check_trial_expiration() 実行
+        Then: billing_status が 'trial_expired' に更新される
+        """
+        office = await office_factory(session=db_session, is_test_data=True)
+        await db_session.commit()
+
+        billing = await crud.billing.create_for_office(
+            db=db_session,
+            office_id=office.id,
+            trial_days=180
+        )
+        await db_session.commit()
+
+        billing.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        billing.billing_status = BillingStatus.free
+        billing.stripe_subscription_id = None
+        await db_session.commit()
+
+        expired_count = await check_trial_expiration(db=db_session)
+
+        await db_session.refresh(billing)
+        assert billing.billing_status == BillingStatus.trial_expired
         assert_updated_at_least(expired_count, 1)
 
     async def test_active_trial_not_updated(
@@ -177,7 +212,7 @@ class TestTrialExpirationCheck:
 
         Given: 3つのBillingがトライアル期限切れ
         When: check_trial_expiration() 実行
-        Then: 3つ全てが past_due に更新される
+        Then: 3つ全てが trial_expired に更新される
         """
         # テスト用事務所を3つ作成
         billings = []
@@ -202,11 +237,11 @@ class TestTrialExpirationCheck:
         # バッチ処理実行
         expired_count = await check_trial_expiration(db=db_session)
 
-        # 検証（作成したBillingがすべて past_due に更新されていることを確認）
+        # 検証（作成したBillingがすべて trial_expired に更新されていることを確認）
         assert_updated_at_least(expired_count, 3)
         for billing in billings:
             await db_session.refresh(billing)
-            assert billing.billing_status == BillingStatus.past_due
+            assert billing.billing_status == BillingStatus.trial_expired
 
     async def test_past_due_already_not_updated(
         self,
@@ -244,6 +279,72 @@ class TestTrialExpirationCheck:
         await db_session.refresh(billing)
         assert billing.billing_status == BillingStatus.past_due
 
+    async def test_past_due_during_trial_is_not_changed_by_trial_expiration_check(
+        self,
+        db_session,
+        office_factory
+    ):
+        """
+        互換用past_dueはtrial中に見えても、期限切れバッチでは自動補正しない。
+        """
+        office = await office_factory(session=db_session, is_test_data=True)
+        await db_session.commit()
+
+        billing = await crud.billing.create_for_office(
+            db=db_session,
+            office_id=office.id,
+            trial_days=180
+        )
+        await db_session.commit()
+
+        billing.trial_end_date = datetime.now(timezone.utc) + timedelta(days=30)
+        billing.billing_status = BillingStatus.past_due
+        await db_session.commit()
+
+        await check_trial_expiration(db=db_session)
+
+        await db_session.refresh(billing)
+        assert billing.billing_status == BillingStatus.past_due
+
+    async def test_trial_expiration_logs_original_status(
+        self,
+        db_session,
+        office_factory,
+        caplog
+    ):
+        """
+        期限切れバッチのログが更新後ではなく、更新前statusからの遷移を記録する。
+        """
+        office1 = await office_factory(session=db_session, is_test_data=True)
+        await db_session.commit()
+        billing1 = await crud.billing.create_for_office(
+            db=db_session,
+            office_id=office1.id,
+            trial_days=180
+        )
+        await db_session.commit()
+        billing1.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        billing1.billing_status = BillingStatus.free
+
+        office2 = await office_factory(session=db_session, is_test_data=True)
+        await db_session.commit()
+        billing2 = await crud.billing.create_for_office(
+            db=db_session,
+            office_id=office2.id,
+            trial_days=180
+        )
+        await db_session.commit()
+        billing2.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        billing2.billing_status = BillingStatus.early_payment
+        billing2.stripe_subscription_id = f"sub_test_log_{uuid4().hex[:12]}"
+        await db_session.commit()
+
+        with caplog.at_level(logging.INFO, logger="app.tasks.billing_check"):
+            await check_trial_expiration(db=db_session)
+
+        assert "free → trial_expired" in caplog.text
+        assert "early_payment → active" in caplog.text
+
     async def test_timezone_aware_comparison(
         self,
         db_session,
@@ -278,7 +379,7 @@ class TestTrialExpirationCheck:
 
         # 検証
         await db_session.refresh(billing)
-        assert billing.billing_status == BillingStatus.past_due
+        assert billing.billing_status == BillingStatus.trial_expired
         assert_updated_at_least(expired_count, 1)
 
     async def test_mixed_statuses_batch_update(
@@ -294,10 +395,10 @@ class TestTrialExpirationCheck:
           - Billing2: early_payment, trial期限切れ
         When: check_trial_expiration() 実行
         Then:
-          - Billing1: past_due に更新
+          - Billing1: trial_expired に更新
           - Billing2: active に更新
         """
-        # Billing1: free → past_due
+        # Billing1: free → trial_expired
         office1 = await office_factory(session=db_session, is_test_data=True)
         await db_session.commit()
         billing1 = await crud.billing.create_for_office(
@@ -330,7 +431,49 @@ class TestTrialExpirationCheck:
         # 検証
         await db_session.refresh(billing1)
         await db_session.refresh(billing2)
-        assert billing1.billing_status == BillingStatus.past_due
+        assert billing1.billing_status == BillingStatus.trial_expired
+        assert billing2.billing_status == BillingStatus.active
+        assert_updated_at_least(expired_count, 2)
+
+    async def test_mixed_statuses_batch_update_uses_trial_expired(
+        self,
+        db_session,
+        office_factory
+    ):
+        """
+        新仕様: free期限切れはtrial_expired、early_payment期限切れはactiveへ更新される。
+        """
+        office1 = await office_factory(session=db_session, is_test_data=True)
+        await db_session.commit()
+        billing1 = await crud.billing.create_for_office(
+            db=db_session,
+            office_id=office1.id,
+            trial_days=180
+        )
+        await db_session.commit()
+        billing1.trial_end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        billing1.billing_status = BillingStatus.free
+        billing1.stripe_subscription_id = None
+
+        office2 = await office_factory(session=db_session, is_test_data=True)
+        await db_session.commit()
+        billing2 = await crud.billing.create_for_office(
+            db=db_session,
+            office_id=office2.id,
+            trial_days=180
+        )
+        await db_session.commit()
+        billing2.trial_end_date = datetime.now(timezone.utc) - timedelta(days=2)
+        billing2.billing_status = BillingStatus.early_payment
+        billing2.stripe_subscription_id = "sub_test_batch_new_status"
+
+        await db_session.commit()
+
+        expired_count = await check_trial_expiration(db=db_session)
+
+        await db_session.refresh(billing1)
+        await db_session.refresh(billing2)
+        assert billing1.billing_status == BillingStatus.trial_expired
         assert billing2.billing_status == BillingStatus.active
         assert_updated_at_least(expired_count, 2)
 

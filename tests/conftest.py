@@ -50,10 +50,11 @@ async def safe_cleanup_test_database(engine: AsyncEngine):
         engine: データベースエンジン
     """
     from tests.utils.safe_cleanup import SafeTestDataCleanup
+    verbose_cleanup = os.getenv("PYTEST_VERBOSE_CLEANUP") == "1"
 
     # テスト環境であることを確認
     if not SafeTestDataCleanup.verify_test_environment():
-        print("⚠️  Not in test environment - skipping cleanup")
+        logger.warning("Not in test environment - skipping cleanup")
         return
 
     async with engine.connect() as connection:
@@ -74,13 +75,18 @@ async def safe_cleanup_test_database(engine: AsyncEngine):
 
             if result:
                 total = sum(result.values())
-                print(f"  🧹 Deleted {total} factory-generated records:")
-                for table, count in sorted(result.items(), key=lambda x: x[1], reverse=True):
-                    print(f"    - {table}: {count}")
-            else:
-                print("  ✓ No factory-generated data found")
+                if verbose_cleanup:
+                    logger.info(
+                        "Deleted %s factory-generated records: %s",
+                        total,
+                        dict(sorted(result.items(), key=lambda x: x[1], reverse=True)),
+                    )
+                else:
+                    logger.info("Deleted %s factory-generated records", total)
+            elif verbose_cleanup:
+                logger.info("No factory-generated data found")
         except Exception as e:
-            print(f"  ❌ Safe cleanup failed: {e}")
+            logger.error("Safe cleanup failed: %s", e)
             await transaction.rollback()
             raise
         finally:
@@ -123,30 +129,23 @@ async def cleanup_database_session():
                 return "unknown"
 
         branch_name = get_db_branch_name(DATABASE_URL)
-        print("\n" + "=" * 80)
-        print("🔍 DATABASE CONNECTION INFO (cleanup_database_session)")
-        print("=" * 80)
-        print(f"  TEST_DATABASE_URL set: {'Yes' if TEST_DATABASE_URL_VAR else 'No'}")
-        print(f"  DATABASE_URL set: {'Yes' if DATABASE_URL_VAR else 'No'}")
-        print(f"  Using: {'TEST_DATABASE_URL' if TEST_DATABASE_URL_VAR else 'DATABASE_URL (FALLBACK)'}")
-        print(f"  Database branch: {branch_name}")
-        if TEST_DATABASE_URL_VAR:
-            print(f"  Connection string: {DATABASE_URL[:50]}...")
-        else:
-            print(f"  ⚠️  WARNING: TEST_DATABASE_URL not set, falling back to DATABASE_URL!")
-        print("=" * 80)
+        if os.getenv("PYTEST_VERBOSE_CLEANUP") == "1":
+            logger.info(
+                "Test DB: using=%s branch=%s test_url_set=%s database_url_set=%s",
+                "TEST_DATABASE_URL" if TEST_DATABASE_URL_VAR else "DATABASE_URL",
+                branch_name,
+                bool(TEST_DATABASE_URL_VAR),
+                bool(DATABASE_URL_VAR),
+            )
+        elif not TEST_DATABASE_URL_VAR:
+            logger.warning("TEST_DATABASE_URL not set; falling back to DATABASE_URL for tests")
 
         temp_engine = create_async_engine(DATABASE_URL, echo=False)
 
         try:
-            print("\n" + "=" * 60)
-            print("🧪 Starting test session - safe cleanup...")
-            print("=" * 60)
             await safe_cleanup_test_database(temp_engine)
-            print("✅ Pre-test cleanup completed")
-            print("=" * 60 + "\n")
         except Exception as e:
-            print(f"⚠️  Pre-test safe cleanup failed: {e}")
+            logger.warning("Pre-test safe cleanup failed: %s", e)
         finally:
             await temp_engine.dispose()
 
@@ -158,14 +157,9 @@ async def cleanup_database_session():
         temp_engine = create_async_engine(DATABASE_URL, echo=False)
 
         try:
-            print("\n" + "=" * 60)
-            print("🧪 Test session completed - safe cleanup...")
-            print("=" * 60)
             await safe_cleanup_test_database(temp_engine)
-            print("✅ Post-test cleanup completed")
-            print("=" * 60 + "\n")
         except Exception as e:
-            print(f"⚠️  Post-test safe cleanup failed: {e}")
+            logger.warning("Post-test safe cleanup failed: %s", e)
         finally:
             await temp_engine.dispose()
 
@@ -1035,20 +1029,16 @@ async def setup_recipient(
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
-    print("\n" + "="*80)
-    print("=== setup_recipient fixture start ===")
-    logger.info("=== setup_recipient fixture start ===")
+    logger.debug("setup_recipient fixture start")
 
     # マネージャーを作成（事業所も自動作成される）
     manager = await manager_user_factory(session=db_session)
     await db_session.flush()  # Flush changes without committing (allows rollback)
-    print(f"Manager created: {manager.email}, id: {manager.id}")
-    logger.info(f"Manager created: {manager.email}, id: {manager.id}")
+    logger.debug("Manager created: id=%s", manager.id)
 
     # マネージャーの所属事業所を取得
     office = manager.office_associations[0].office
-    print(f"Office: {office.name}, id: {office.id}")
-    logger.info(f"Office: {office.name}, id: {office.id}")
+    logger.debug("Office loaded: id=%s", office.id)
 
     # 利用者を作成
     recipient = WelfareRecipient(
@@ -1061,8 +1051,7 @@ async def setup_recipient(
     )
     db_session.add(recipient)
     await db_session.flush()
-    print(f"Recipient created: {recipient.id}")
-    logger.info(f"Recipient created: {recipient.id}")
+    logger.debug("Recipient created: id=%s", recipient.id)
 
     # 事業所との関連付けを作成
     office_recipient_association = OfficeWelfareRecipient(
@@ -1076,43 +1065,30 @@ async def setup_recipient(
     # トークンを生成
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(str(manager.id), access_token_expires)
-    print(f"Token created: {access_token[:30]}...")
-    logger.info(f"Token created: {access_token[:30]}...")
+    logger.debug("Access token created for setup_recipient")
 
     # get_current_userをオーバーライド
     async def override_get_current_user():
-        print(f"\n{'='*80}")
-        print(f"=== override_get_current_user called in setup_recipient ===")
-        logger.info(f"=== override_get_current_user called in setup_recipient ===")
+        logger.debug("override_get_current_user called in setup_recipient")
         stmt = select(Staff).where(Staff.id == manager.id).options(
             selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
         )
         result = await db_session.execute(stmt)
         user = result.scalars().first()
-        print(f"Returning user from override: {user.email if user else 'None'}")
-        print(f"{'='*80}\n")
-        logger.info(f"Returning user from override: {user.email if user else 'None'}")
+        logger.debug("Returning user from setup_recipient override: id=%s", user.id if user else None)
         return user
 
     app.dependency_overrides[get_current_user] = override_get_current_user
-    print("dependency_overrides set for get_current_user")
-    print(f"Current overrides: {list(app.dependency_overrides.keys())}")
-    print("="*80 + "\n")
-    logger.info("dependency_overrides set for get_current_user")
+    logger.debug("dependency_overrides set for get_current_user")
 
     token_headers = {"Authorization": f"Bearer {access_token}"}
 
     yield recipient, manager, office, token_headers
 
     # クリーンアップ
-    print("\n" + "="*80)
-    print("=== setup_recipient fixture cleanup ===")
-    logger.info("=== setup_recipient fixture cleanup ===")
+    logger.debug("setup_recipient fixture cleanup")
     app.dependency_overrides.pop(get_current_user, None)
-    print("dependency_overrides removed for get_current_user")
-    print(f"Current overrides after cleanup: {list(app.dependency_overrides.keys())}")
-    print("="*80 + "\n")
-    logger.info("dependency_overrides removed for get_current_user")
+    logger.debug("dependency_overrides removed for get_current_user")
 
 
 @pytest_asyncio.fixture
