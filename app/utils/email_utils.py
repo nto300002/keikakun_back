@@ -60,9 +60,7 @@ async def send_email_with_retry(
             result["retry_count"] = attempt
 
             if attempt > 0:
-                logger.info(
-                    f"メール送信成功（リトライ {attempt}回目）: {email_kwargs.get('recipient_email', 'unknown')}"
-                )
+                logger.info("メール送信成功（リトライ %s回目）", attempt)
 
             return result
 
@@ -71,7 +69,10 @@ async def send_email_with_retry(
             result["retry_count"] = attempt
 
             logger.warning(
-                f"メール送信失敗（試行 {attempt + 1}/{max_retries + 1}）: {last_error}"
+                "メール送信失敗（試行 %s/%s）: %s",
+                attempt + 1,
+                max_retries + 1,
+                type(e).__name__
             )
 
             # 最後の試行でなければリトライ
@@ -81,9 +82,7 @@ async def send_email_with_retry(
             else:
                 # すべてのリトライが失敗
                 result["error"] = last_error
-                logger.error(
-                    f"メール送信失敗（すべてのリトライ失敗）: {email_kwargs.get('recipient_email', 'unknown')} - {last_error}"
-                )
+                logger.error("メール送信失敗（すべてのリトライ失敗）: %s", type(e).__name__)
 
     return result
 

@@ -268,7 +268,7 @@ async def reply_to_inquiry(
                 # メール送信失敗してもエラーにしない（ログのみ）
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f"問い合わせ返信メール送信に失敗: {str(email_error)}")
+                logger.error("問い合わせ返信メール送信に失敗: %s", type(email_error).__name__)
 
         # メッセージ内容を決定
         if reply_in.send_email:

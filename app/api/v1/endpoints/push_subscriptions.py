@@ -67,11 +67,6 @@ async def subscribe_push(
             user_agent=user_agent
         )
 
-        logger.info(
-            f"[PUSH_SUBSCRIPTION] Staff {current_user.email} subscribed "
-            f"(subscription_id: {new_subscription.id})"
-        )
-
         return new_subscription
 
     except Exception as e:
@@ -118,11 +113,6 @@ async def unsubscribe_push(
         if not deleted:
             raise HTTPException(status_code=404, detail="Subscription not found")
 
-        logger.info(
-            f"[PUSH_SUBSCRIPTION] Staff {current_user.email} unsubscribed "
-            f"(endpoint: {endpoint[:50]}...)"
-        )
-
         return {"message": "Unsubscribed successfully"}
 
     except HTTPException:
@@ -163,5 +153,4 @@ async def get_my_subscriptions(
     except Exception as e:
         logger.error(f"[PUSH_SUBSCRIPTION] Failed to get subscriptions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve subscriptions")
-
 

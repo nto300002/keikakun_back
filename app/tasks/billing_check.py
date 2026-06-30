@@ -45,7 +45,6 @@ async def check_trial_expiration(
 
         >>> # ドライラン（テスト実行）
         >>> expired_count = await check_trial_expiration(db=db, dry_run=True)
-        >>> print(f"Would update {expired_count} expired trials")
     """
     now = datetime.now(timezone.utc)
 
@@ -132,7 +131,6 @@ async def check_scheduled_cancellation(
 
         >>> # ドライラン（テスト実行）
         >>> canceled_count = await check_scheduled_cancellation(db=db, dry_run=True)
-        >>> print(f"Would update {canceled_count} scheduled cancellations")
     """
     now = datetime.now(timezone.utc)
 

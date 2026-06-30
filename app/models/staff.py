@@ -166,13 +166,11 @@ class Staff(Base):
 
         try:
             from app.core.security import decrypt_mfa_secret
-            logger.info(f"[MFA SECRET] Attempting to decrypt. Encrypted length: {len(self.mfa_secret)}")
             decrypted = decrypt_mfa_secret(self.mfa_secret)
-            logger.info(f"[MFA SECRET] Decryption successful. Decrypted length: {len(decrypted)}")
             return decrypted
         except Exception as e:
             # 復号化失敗時は明示的にエラーを発生させる
-            logger.error(f"[MFA SECRET] Decryption failed for user {self.email}: {str(e)}")
+            logger.error("[MFA SECRET] Decryption failed", exc_info=e)
             raise ValueError(
                 f"MFAシークレットの復号化に失敗しました。データが破損している可能性があります。"
             ) from e

@@ -283,11 +283,6 @@ class CalendarService:
                     detail=ja.SERVICE_ACCOUNT_KEY_NOT_FOUND
                 )
 
-            logger.info("=" * 80)
-            logger.info("カレンダー接続テスト開始")
-            logger.info(f"  カレンダーID: {account.google_calendar_id}")
-            logger.info(f"  カレンダー名: {account.calendar_name}")
-            logger.info("=" * 80)
 
             # Google Calendar APIクライアントを作成して認証
             client = GoogleCalendarClient(service_account_json)
@@ -299,7 +294,6 @@ class CalendarService:
             test_start = datetime.now()
             test_end = test_start + timedelta(hours=1)  # 23時台でもエラーが発生しないようにtimedeltaを使用
 
-            logger.info("テストイベント作成開始...")
             event_id = client.create_event(
                 calendar_id=account.google_calendar_id,
                 title=test_title,
@@ -307,15 +301,12 @@ class CalendarService:
                 start_datetime=test_start,
                 end_datetime=test_end
             )
-            logger.info(f"テストイベント作成成功: {event_id}")
 
             # テストイベントを削除
-            logger.info("テストイベント削除開始...")
             client.delete_event(
                 calendar_id=account.google_calendar_id,
                 event_id=event_id
             )
-            logger.info("テストイベント削除成功")
 
             # 接続ステータスを更新
             await crud_office_calendar_account.update_connection_status(
@@ -326,7 +317,6 @@ class CalendarService:
             )
 
             logger.info("カレンダー接続テスト成功")
-            logger.info("=" * 80)
 
             return True
 
@@ -370,11 +360,8 @@ class CalendarService:
         Returns:
             作成されたイベントIDのリスト（1要素、またはカレンダー未設定時・重複時は空リスト）
         """
-        logger.info(f"[DEBUG] create_renewal_deadline_events START: office_id={office_id}, cycle_id={cycle_id}")
-
         # 重複チェック: 同じcycle_id + event_typeのイベントが既に存在するか
         # ※ SELECT文なので、現在のトランザクション内の変更も含めて検索される
-        logger.info("[DEBUG] Checking for duplicate events...")
         existing_event_result = await db.execute(
             select(CalendarEvent).where(
                 CalendarEvent.support_plan_cycle_id == cycle_id,
@@ -384,10 +371,6 @@ class CalendarService:
         existing_event = existing_event_result.scalar_one_or_none()
 
         if existing_event:
-            logger.info(
-                f"Renewal deadline event already exists for cycle_id={cycle_id} (event_id={existing_event.id}). "
-                f"Skipping creation."
-            )
             return []
 
         # カレンダーアカウントを取得
@@ -397,10 +380,6 @@ class CalendarService:
         )
 
         if not account:
-            logger.warning(
-                f"Calendar account not found for office {office_id}. "
-                "Skipping event creation."
-            )
             return []
 
         # 属性を事前に取得（ループ内でアクセスするとgreenletエラーが発生するため）
@@ -408,10 +387,6 @@ class CalendarService:
         account_status = account.connection_status
 
         if account_status != CalendarConnectionStatus.connected:
-            logger.warning(
-                f"Calendar account not connected for office {office_id}. "
-                "Skipping event creation."
-            )
             return []
 
         # 利用者情報を取得
@@ -421,7 +396,6 @@ class CalendarService:
         recipient = result.scalar_one_or_none()
 
         if not recipient:
-            logger.error(f"Welfare recipient {welfare_recipient_id} not found")
             return []
 
         # サイクル情報を取得（cycle_numberを取得するため）
@@ -432,7 +406,6 @@ class CalendarService:
         cycle = cycle_result.scalar_one_or_none()
 
         if not cycle:
-            logger.error(f"Support plan cycle {cycle_id} not found")
             return []
 
         # 利用者名とサイクル番号を事前に取得
@@ -469,7 +442,6 @@ class CalendarService:
 
         await db.flush()
 
-        logger.info(f"[DEBUG] create_renewal_deadline_events END: created event_id={event.id}")
         return [event.id]
 
     async def create_next_plan_start_date_events(
@@ -496,15 +468,11 @@ class CalendarService:
         Returns:
             作成されたイベントIDのリスト、またはNone（status_id未指定の場合）
         """
-        logger.info(f"[DEBUG] create_next_plan_start_date_events START: cycle_number={cycle_number}, cycle_id={cycle_id}")
-
         # status_idが指定されていない場合はイベントを作成しない
         if not status_id:
-            logger.warning("status_id is None. Cannot create monitoring event without status_id.")
             return []
 
         # 重複チェック: 同じstatus_id + event_typeのイベントが既に存在するか
-        logger.info("[DEBUG] Checking for duplicate monitoring events...")
         existing_event_result = await db.execute(
             select(CalendarEvent).where(
                 CalendarEvent.support_plan_status_id == status_id,
@@ -514,10 +482,6 @@ class CalendarService:
         existing_event = existing_event_result.scalar_one_or_none()
 
         if existing_event:
-            logger.info(
-                f"Monitoring deadline event already exists for status_id={status_id} (event_id={existing_event.id}). "
-                f"Skipping creation."
-            )
             return []
 
         # カレンダーアカウントを取得
@@ -527,10 +491,6 @@ class CalendarService:
         )
 
         if not account:
-            logger.warning(
-                f"Calendar account not found for office {office_id}. "
-                "Skipping event creation."
-            )
             return []
 
         # 属性を事前に取得（ループ内でアクセスするとgreenletエラーが発生するため）
@@ -538,10 +498,6 @@ class CalendarService:
         account_status = account.connection_status
 
         if account_status != CalendarConnectionStatus.connected:
-            logger.warning(
-                f"Calendar account not connected for office {office_id}. "
-                "Skipping event creation."
-            )
             return []
 
         # 利用者情報を取得
@@ -551,7 +507,6 @@ class CalendarService:
         recipient = result.scalar_one_or_none()
 
         if not recipient:
-            logger.error(f"Welfare recipient {welfare_recipient_id} not found")
             return []
 
         # 利用者名を事前に取得
@@ -588,10 +543,6 @@ class CalendarService:
 
         await db.flush()
 
-        logger.info(
-            f"[DEBUG] create_next_plan_start_date_events END: "
-            f"created event_id={event.id}, cycle_id={cycle_id}, status_id={status_id}"
-        )
         return [event.id]
 
     async def create_next_plan_start_date_event(
@@ -624,10 +575,6 @@ class CalendarService:
         existing_event = existing_event_result.scalar_one_or_none()
 
         if existing_event:
-            logger.info(
-                f"Monitoring deadline event already exists for status_id={status_id}. "
-                f"Skipping creation."
-            )
             return None
 
         # カレンダーアカウントを取得
@@ -887,8 +834,6 @@ class CalendarService:
         Returns:
             削除に成功した場合True、イベントが存在しない場合False
         """
-        logger.info(f"[DEBUG] delete_event_by_cycle START: cycle_id={cycle_id}, event_type={event_type}")
-
         # イベントを検索
         result = await db.execute(
             select(CalendarEvent).where(
@@ -899,7 +844,6 @@ class CalendarService:
         event = result.scalar_one_or_none()
 
         if not event:
-            logger.info(f"[DEBUG] No event found for cycle_id={cycle_id}, event_type={event_type}")
             return False
 
         # Google Calendarからイベントを削除（google_event_idがある場合のみ）
@@ -919,16 +863,14 @@ class CalendarService:
                         calendar_id=event.google_calendar_id,
                         event_id=event.google_event_id
                     )
-                    logger.info(f"[DEBUG] Deleted event from Google Calendar: {event.google_event_id}")
             except Exception as e:
-                logger.warning(f"[DEBUG] Failed to delete event from Google Calendar: {e}")
+                logger.warning("Failed to delete event from Google Calendar: %s", type(e).__name__)
                 # Google Calendar削除失敗してもDBからは削除する
 
         # DBからイベントを削除
         await db.delete(event)
         await db.flush()
 
-        logger.info(f"[DEBUG] delete_event_by_cycle END: event_id={event.id} deleted")
         return True
 
     async def delete_event_by_status(
@@ -947,8 +889,6 @@ class CalendarService:
         Returns:
             削除に成功した場合True、イベントが存在しない場合False
         """
-        logger.info(f"[DEBUG] delete_event_by_status START: status_id={status_id}, event_type={event_type}")
-
         # イベントを検索
         result = await db.execute(
             select(CalendarEvent).where(
@@ -959,7 +899,6 @@ class CalendarService:
         event = result.scalar_one_or_none()
 
         if not event:
-            logger.info(f"[DEBUG] No event found for status_id={status_id}, event_type={event_type}")
             return False
 
         # Google Calendarからイベントを削除（google_event_idがある場合のみ）
@@ -979,16 +918,14 @@ class CalendarService:
                         calendar_id=event.google_calendar_id,
                         event_id=event.google_event_id
                     )
-                    logger.info(f"[DEBUG] Deleted event from Google Calendar: {event.google_event_id}")
             except Exception as e:
-                logger.warning(f"[DEBUG] Failed to delete event from Google Calendar: {e}")
+                logger.warning("Failed to delete event from Google Calendar: %s", type(e).__name__)
                 # Google Calendar削除失敗してもDBからは削除する
 
         # DBからイベントを削除
         await db.delete(event)
         await db.flush()
 
-        logger.info(f"[DEBUG] delete_event_by_status END: event_id={event.id} deleted")
         return True
 
 

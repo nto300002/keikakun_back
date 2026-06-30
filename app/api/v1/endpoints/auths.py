@@ -282,7 +282,7 @@ async def login_for_access_token(
                 }
             except ValueError as e:
                 # シークレット復号化失敗 → MFAをリセット
-                logger.error(f"[LOGIN MFA] Secret decryption failed for {user.email}: {str(e)}")
+                logger.error("[LOGIN MFA] Secret decryption failed", exc_info=e)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -335,9 +335,6 @@ async def login_for_access_token(
             logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_SAMESITE value: {cookie_samesite}")
             cookie_samesite = None
 
-    # デバッグログ
-    logger.info(f"[LOGIN COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
-    logger.info(f"[LOGIN COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
 
     cookie_options = {
         "key": "access_token",
@@ -352,7 +349,6 @@ async def login_for_access_token(
     if cookie_domain:
         cookie_options["domain"] = cookie_domain
 
-    logger.info(f"[LOGIN COOKIE DEBUG] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
 
     response.set_cookie(**cookie_options)
 
@@ -460,9 +456,6 @@ async def verify_mfa_for_login(
     mfa_data: MFAVerifyRequest,
     staff_crud=Depends(get_staff_crud),
 ):
-    logger.info(f"[MFA VERIFY] Starting MFA verification")
-    logger.info(f"[MFA VERIFY] temporary_token length: {len(mfa_data.temporary_token) if mfa_data.temporary_token else 0}")
-    logger.info(f"[MFA VERIFY] totp_code: {mfa_data.totp_code}")
 
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
@@ -475,7 +468,6 @@ async def verify_mfa_for_login(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
-    logger.info(f"[MFA VERIFY] Token validated, user_id: {user_id}")
 
     user = await staff_crud.get(db, id=user_id)
     if not user:
@@ -489,26 +481,21 @@ async def verify_mfa_for_login(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
 
-    logger.info(f"[MFA VERIFY] User found, MFA enabled: {user.is_mfa_enabled}")
-    logger.info(f"[MFA VERIFY] MFA secret exists: {bool(user.mfa_secret)}")
 
     # Verify either TOTP code or recovery code
     verification_successful = False
 
     if mfa_data.totp_code:
-        logger.info(f"[MFA VERIFY] Attempting TOTP verification")
         if user.mfa_secret:
             try:
                 # MFA secretは暗号化されているため、復号化が必要
                 decrypted_secret = user.get_mfa_secret()
-                logger.info(f"[MFA VERIFY] Secret decrypted successfully: {bool(decrypted_secret)}")
                 totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
-                logger.info(f"[MFA VERIFY] TOTP verification result: {totp_result}")
                 if totp_result:
                     verification_successful = True
             except ValueError as e:
                 # シークレット復号化失敗 → MFAに問題がある
-                logger.error(f"[MFA VERIFY] Secret decryption failed for user {user.email}: {str(e)}")
+                logger.error("[MFA VERIFY] Secret decryption failed", exc_info=e)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -517,7 +504,6 @@ async def verify_mfa_for_login(
             logger.error(f"[MFA VERIFY] MFA secret is missing")
 
     if mfa_data.recovery_code and not verification_successful:
-        logger.info(f"[MFA VERIFY] Attempting recovery code verification")
         from app.core.security import verify_recovery_code
         from app.models.mfa import MFABackupCode
         from sqlalchemy import select
@@ -537,7 +523,6 @@ async def verify_mfa_for_login(
                 backup_code.mark_as_used()
                 await db.commit()
                 verification_successful = True
-                logger.info(f"[MFA VERIFY] Recovery code verified successfully")
                 break
 
     if not verification_successful:
@@ -564,9 +549,6 @@ async def verify_mfa_for_login(
     cookie_domain = os.getenv("COOKIE_DOMAIN", None)
     cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
 
-    # デバッグログ
-    logger.info(f"[MFA COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
-    logger.info(f"[MFA COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
 
     cookie_options = {
         "key": "access_token",
@@ -581,7 +563,6 @@ async def verify_mfa_for_login(
     if cookie_domain:
         cookie_options["domain"] = cookie_domain
 
-    logger.info(f"[MFA COOKIE DEBUG] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
 
     response.set_cookie(**cookie_options)
 
@@ -618,7 +599,6 @@ async def verify_mfa_first_time(
     検証成功後、is_mfa_verified_by_userフラグをTrueに設定し、
     以降は通常のMFAフローを使用できるようになります。
     """
-    logger.info(f"[MFA FIRST TIME VERIFY] Starting first-time MFA verification")
 
     # 一時トークンを検証
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
@@ -632,7 +612,6 @@ async def verify_mfa_first_time(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
-    logger.info(f"[MFA FIRST TIME VERIFY] Token validated, user_id: {user_id}")
 
     # ユーザーを取得
     user = await staff_crud.get(db, id=user_id)
@@ -658,7 +637,6 @@ async def verify_mfa_first_time(
             detail="MFAは既に検証済みです。通常のログインフローを使用してください。",
         )
 
-    logger.info(f"[MFA FIRST TIME VERIFY] User found, MFA enabled but not verified by user")
 
     # TOTPコードを検証
     if not mfa_data.totp_code:
@@ -678,10 +656,8 @@ async def verify_mfa_first_time(
     # シークレットを復号化してTOTPコードを検証
     try:
         decrypted_secret = user.get_mfa_secret()
-        logger.info(f"[MFA FIRST TIME VERIFY] Secret decrypted successfully")
 
         totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
-        logger.info(f"[MFA FIRST TIME VERIFY] TOTP verification result: {totp_result}")
 
         if not totp_result:
             logger.error(f"[MFA FIRST TIME VERIFY] Invalid TOTP code")
@@ -690,7 +666,7 @@ async def verify_mfa_first_time(
                 detail=ja.AUTH_INVALID_MFA_CODE,
             )
     except ValueError as e:
-        logger.error(f"[MFA FIRST TIME VERIFY] Secret decryption failed: {str(e)}")
+        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed", exc_info=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -700,7 +676,6 @@ async def verify_mfa_first_time(
     user.is_mfa_verified_by_user = True
     await db.commit()
     await db.refresh(user)
-    logger.info(f"[MFA FIRST TIME VERIFY] User verification flag set to True")
 
     # アクセストークンとリフレッシュトークンを生成
     access_token = create_access_token(
@@ -720,8 +695,6 @@ async def verify_mfa_first_time(
     cookie_domain = os.getenv("COOKIE_DOMAIN", None)
     cookie_samesite = os.getenv("COOKIE_SAMESITE", None)
 
-    logger.info(f"[MFA FIRST TIME VERIFY COOKIE] ENVIRONMENT={environment_value}, is_production={is_production}")
-    logger.info(f"[MFA FIRST TIME VERIFY COOKIE] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
 
     cookie_options = {
         "key": "access_token",
@@ -734,7 +707,6 @@ async def verify_mfa_first_time(
     if cookie_domain:
         cookie_options["domain"] = cookie_domain
 
-    logger.info(f"[MFA FIRST TIME VERIFY COOKIE] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
 
     response.set_cookie(**cookie_options)
 
@@ -855,14 +827,14 @@ async def forgot_password(
                 # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f"Failed to send password reset email to {staff_email}: {str(e)}")
+                logger.error("Failed to send password reset email: %s", type(e).__name__)
 
         except Exception as e:
             # DB処理失敗時はロールバック
             await db.rollback()
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create password reset token for {staff_email}: {str(e)}")
+            logger.error("Failed to create password reset token: %s", type(e).__name__)
             # エラーは飲み込んで、セキュリティのため成功メッセージを返す
             # （メールアドレスの存在を漏らさない）
 
@@ -996,7 +968,7 @@ async def reset_password(
             )
         except Exception as e:
             # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
-            logger.error(f"Failed to send password changed notification to {staff_email}: {str(e)}")
+            logger.error("Failed to send password changed notification: %s", type(e).__name__)
 
         return schemas.token.PasswordResetResponse(
             message=ja.AUTH_PASSWORD_RESET_SUCCESS

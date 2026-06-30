@@ -104,10 +104,6 @@ async def _process_single_office(
         # バッチクエリ結果から取得（クエリ発行なし）
         alert_response = alerts_by_office.get(office.id)
         if not alert_response or alert_response.total == 0:
-            logger.debug(
-                f"[DEADLINE_NOTIFICATION] Office {office.name} "
-                f"(ID: {office.id}): No alerts, skipping"
-            )
             return {"email_sent": 0, "push_sent": 0, "push_failed": 0}
 
         all_renewal_alerts: List[DeadlineAlertItem] = []
@@ -153,10 +149,6 @@ async def _process_single_office(
             email_notification_enabled = notification_prefs.get("email_notification", True)
 
             if not email_notification_enabled:
-                logger.debug(
-                    f"[DEADLINE_NOTIFICATION] Staff {mask_email(staff.email)} "
-                    f"({staff.last_name} {staff.first_name}): email_notification disabled, skipping"
-                )
                 continue
 
             staff_email_threshold = notification_prefs.get("email_threshold_days", 30)
@@ -168,11 +160,6 @@ async def _process_single_office(
             staff_assessment_alerts = all_assessment_alerts
 
             if not staff_renewal_alerts and not staff_assessment_alerts:
-                logger.debug(
-                    f"[DEADLINE_NOTIFICATION] Staff {mask_email(staff.email)} "
-                    f"({staff.last_name} {staff.first_name}): No alerts within threshold "
-                    f"({staff_email_threshold} days), skipping"
-                )
                 continue
 
             logger.info(
@@ -393,14 +380,6 @@ async def send_deadline_alert_emails(
             - push_sent: 送信したWeb Push件数
             - push_failed: 失敗したWeb Push件数
 
-    Examples:
-        >>> # 本番実行
-        >>> result = await send_deadline_alert_emails(db=db)
-        >>> logger.info(f"Sent {result['email_sent']} emails, {result['push_sent']} push notifications")
-
-        >>> # ドライラン（テスト実行）
-        >>> result = await send_deadline_alert_emails(db=db, dry_run=True)
-        >>> print(f"Would send {result['email_sent']} emails, {result['push_sent']} push notifications")
     """
     today = datetime.now(timezone.utc).date()
     if not is_japanese_weekday_and_not_holiday(today):

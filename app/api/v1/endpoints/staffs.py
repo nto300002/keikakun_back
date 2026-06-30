@@ -195,21 +195,16 @@ async def verify_email_change(
     - トークンの有効期限は30分
     - 変更完了後、旧メールアドレスに通知を送信
     """
-    print(f"[DEBUG] verify_email_change called with token: {email_confirm.verification_token[:10]}...")
     try:
         result = await staff_profile_service.verify_email_change(
             db=db,
             verification_token=email_confirm.verification_token
         )
-        print(f"[DEBUG] verify_email_change succeeded: {result}")
         return result
     except HTTPException:
         # HTTPException はそのまま再raise
         raise
     except Exception as e:
-        print(f"[DEBUG] Exception in verify_email_change: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.STAFF_EMAIL_CHANGE_VERIFY_FAILED.format(error=str(e))

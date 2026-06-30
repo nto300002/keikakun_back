@@ -220,7 +220,7 @@ async def create_inquiry(
             # メール送信失敗はログに記録するが、問い合わせ作成自体は成功とする
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"管理者への通知メール送信に失敗: {str(email_error)}")
+            logger.error("管理者への通知メール送信に失敗: %s", type(email_error).__name__)
 
         return InquiryCreateResponse(
             id=inquiry_id,
