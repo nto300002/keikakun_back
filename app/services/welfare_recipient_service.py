@@ -9,7 +9,7 @@ from typing import Optional, List, Dict
 from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy import select, func
+from sqlalchemy import select, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 import uuid
@@ -676,7 +676,6 @@ class WelfareRecipientService:
             期限が近い利用者のリスト（残り日数が少ない順）+ アセスメント未完了の利用者リスト
         """
         import os
-        from sqlalchemy.orm import selectinload
         from app.models.support_plan_cycle import PlanDeliverable
         from app.models.enums import DeliverableType
 
@@ -685,8 +684,6 @@ class WelfareRecipientService:
 
         # テスト環境かどうかをチェック
         is_testing = os.getenv("TESTING") == "1"
-
-        alerts = []
 
         # 1. 更新期限アラート（期限切れを含む）
         # 期限切れ（0日を含む）のアイテムも含めるため、>= today の条件を削除
@@ -698,6 +695,65 @@ class WelfareRecipientService:
         ]
         if not is_testing:
             renewal_conditions.append(WelfareRecipient.is_test_data == False)
+
+        renewal_count_stmt = (
+            select(func.count())
+            .select_from(WelfareRecipient)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .where(*renewal_conditions)
+        )
+        renewal_count = (await db.execute(renewal_count_stmt)).scalar_one()
+
+        assessment_missing_condition = ~exists(
+            select(1)
+            .select_from(PlanDeliverable)
+            .where(
+                PlanDeliverable.plan_cycle_id == SupportPlanCycle.id,
+                PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+            )
+        )
+
+        assessment_conditions = [
+            SupportPlanCycle.office_id == office_id,
+            SupportPlanCycle.is_latest_cycle == True,
+            assessment_missing_condition
+        ]
+        if not is_testing:
+            assessment_conditions.append(WelfareRecipient.is_test_data == False)
+
+        assessment_count_stmt = (
+            select(func.count())
+            .select_from(WelfareRecipient)
+            .join(
+                SupportPlanCycle,
+                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
+            )
+            .where(*assessment_conditions)
+        )
+        assessment_count = (await db.execute(assessment_count_stmt)).scalar_one()
+
+        total = renewal_count + assessment_count
+        alerts = []
+
+        if limit is None:
+            renewal_offset = 0
+            renewal_limit = None
+            assessment_offset = 0
+            assessment_limit = None
+        else:
+            remaining_limit = max(limit, 0)
+            normalized_offset = max(offset, 0)
+
+            renewal_offset = min(normalized_offset, renewal_count)
+            renewal_available = max(renewal_count - renewal_offset, 0)
+            renewal_limit = min(remaining_limit, renewal_available)
+
+            remaining_limit -= renewal_limit
+            assessment_offset = max(normalized_offset - renewal_count, 0)
+            assessment_limit = remaining_limit
 
         renewal_stmt = (
             select(WelfareRecipient, SupportPlanCycle)
@@ -713,8 +769,13 @@ class WelfareRecipientService:
             )
         )
 
-        renewal_result = await db.execute(renewal_stmt)
-        renewal_rows = renewal_result.all()
+        if limit is not None:
+            renewal_stmt = renewal_stmt.offset(renewal_offset).limit(renewal_limit)
+
+        renewal_rows = []
+        if limit is None or renewal_limit > 0:
+            renewal_result = await db.execute(renewal_stmt)
+            renewal_rows = renewal_result.all()
 
         for recipient, cycle in renewal_rows:
             days_remaining = (cycle.next_renewal_deadline - today).days
@@ -741,23 +802,11 @@ class WelfareRecipientService:
 
         # 2. アセスメント未完了アラート（新機能）
         # アセスメントPDFがアップロードされていない利用者を全て含める（cycle_numberに関わらず）
-        logger.debug("[DEADLINE_ALERTS_DEBUG] Starting assessment incomplete alert query")
-
-        assessment_conditions = [
-            SupportPlanCycle.office_id == office_id,
-            SupportPlanCycle.is_latest_cycle == True
-        ]
-        if not is_testing:
-            assessment_conditions.append(WelfareRecipient.is_test_data == False)
-
         assessment_stmt = (
             select(WelfareRecipient, SupportPlanCycle)
             .join(
                 SupportPlanCycle,
                 SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .options(
-                selectinload(SupportPlanCycle.deliverables)
             )
             .where(*assessment_conditions)
             .order_by(
@@ -766,25 +815,15 @@ class WelfareRecipientService:
             )
         )
 
-        assessment_result = await db.execute(assessment_stmt)
-        assessment_rows = assessment_result.all()
-        logger.debug(f"[DEADLINE_ALERTS_DEBUG] Found {len(assessment_rows)} candidates for assessment alerts")
+        if limit is not None:
+            assessment_stmt = assessment_stmt.offset(assessment_offset).limit(assessment_limit)
 
-        for recipient, cycle in assessment_rows:
-            full_name = f"{recipient.last_name} {recipient.first_name}"
-            logger.debug(f"[DEADLINE_ALERTS_DEBUG] Checking: {full_name}, cycle_number={cycle.cycle_number}, is_latest={cycle.is_latest_cycle}")
+        if limit is None or assessment_limit > 0:
+            assessment_result = await db.execute(assessment_stmt)
+            assessment_rows = assessment_result.all()
 
-            has_assessment_pdf = False
-            if hasattr(cycle, 'deliverables') and cycle.deliverables:
-                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(cycle.deliverables)} deliverables")
-                assessment_deliverables = [d for d in cycle.deliverables if d.deliverable_type == DeliverableType.assessment_sheet]
-                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has {len(assessment_deliverables)} assessment_sheet deliverables")
-                has_assessment_pdf = len(assessment_deliverables) > 0
-            else:
-                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   - {full_name} has NO deliverables")
-
-            if not has_assessment_pdf:
-                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   ✅ Adding {full_name} to assessment incomplete alerts")
+            for recipient, cycle in assessment_rows:
+                full_name = f"{recipient.last_name} {recipient.first_name}"
                 alert_item = DeadlineAlertItem(
                     id=str(recipient.id),
                     full_name=full_name,
@@ -795,13 +834,6 @@ class WelfareRecipientService:
                     current_cycle_number=cycle.cycle_number
                 )
                 alerts.append(alert_item)
-            else:
-                logger.debug(f"[DEADLINE_ALERTS_DEBUG]   ❌ Skipping {full_name} - assessment PDF already uploaded")
-
-        total = len(alerts)
-
-        if limit is not None:
-            alerts = alerts[offset:offset + limit]
 
         return DeadlineAlertResponse(alerts=alerts, total=total)
 
@@ -823,7 +855,6 @@ class WelfareRecipientService:
             {office_id: DeadlineAlertResponse} の辞書
         """
         import os
-        from sqlalchemy.orm import selectinload
         from app.models.support_plan_cycle import PlanDeliverable
         from app.models.enums import DeliverableType
 
@@ -863,9 +894,19 @@ class WelfareRecipientService:
         renewal_rows = renewal_result.all()
 
         # 2. アセスメント未完了アラート（複数事業所を一括取得）
+        assessment_missing_condition = ~exists(
+            select(1)
+            .select_from(PlanDeliverable)
+            .where(
+                PlanDeliverable.plan_cycle_id == SupportPlanCycle.id,
+                PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
+            )
+        )
+
         assessment_conditions = [
             SupportPlanCycle.office_id.in_(office_ids),
-            SupportPlanCycle.is_latest_cycle == True
+            SupportPlanCycle.is_latest_cycle == True,
+            assessment_missing_condition
         ]
         if not is_testing:
             assessment_conditions.append(WelfareRecipient.is_test_data == False)
@@ -875,9 +916,6 @@ class WelfareRecipientService:
             .join(
                 SupportPlanCycle,
                 SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .options(
-                selectinload(SupportPlanCycle.deliverables)
             )
             .where(*assessment_conditions)
             .order_by(
@@ -919,23 +957,16 @@ class WelfareRecipientService:
         # アセスメント未完了アラートを追加
         for recipient, cycle in assessment_rows:
             full_name = f"{recipient.last_name} {recipient.first_name}"
-
-            has_assessment_pdf = False
-            if hasattr(cycle, 'deliverables') and cycle.deliverables:
-                assessment_deliverables = [d for d in cycle.deliverables if d.deliverable_type == DeliverableType.assessment_sheet]
-                has_assessment_pdf = len(assessment_deliverables) > 0
-
-            if not has_assessment_pdf:
-                alert_item = DeadlineAlertItem(
-                    id=str(recipient.id),
-                    full_name=full_name,
-                    alert_type="assessment_incomplete",
-                    message=f"{recipient.last_name} {recipient.first_name}のアセスメントが完了していません",
-                    next_renewal_deadline=None,
-                    days_remaining=None,
-                    current_cycle_number=cycle.cycle_number
-                )
-                alerts_by_office[cycle.office_id].append(alert_item)
+            alert_item = DeadlineAlertItem(
+                id=str(recipient.id),
+                full_name=full_name,
+                alert_type="assessment_incomplete",
+                message=f"{recipient.last_name} {recipient.first_name}のアセスメントが完了していません",
+                next_renewal_deadline=None,
+                days_remaining=None,
+                current_cycle_number=cycle.cycle_number
+            )
+            alerts_by_office[cycle.office_id].append(alert_item)
 
         # 4. 各事業所のレスポンスを作成
         result: Dict[UUID, DeadlineAlertResponse] = {}
