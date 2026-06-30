@@ -768,7 +768,7 @@ class EmployeeActionService:
         deliverable = deliverable_result.scalar_one_or_none()
 
         if not deliverable:
-            logger.error(f"Deliverable {deliverable_id} not found")
+            logger.error("Deliverable not found")
             return {
                 "success": False,
                 "action": str(action_type),

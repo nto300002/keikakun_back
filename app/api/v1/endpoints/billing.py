@@ -78,13 +78,12 @@ async def get_billing_status(
 
     # Billing情報が存在しない場合、自動的に作成（既存Officeの救済措置）
     if not billing:
-        logger.warning(f"Billing not found for office {office_id}, auto-creating with 180-day trial")
+        logger.warning("Billing not found for office; auto-creating with trial")
         billing = await crud.billing.create_for_office(
             db=db,
             office_id=office_id,
             trial_days=180
         )
-        logger.info(f"Auto-created billing record: id={billing.id}, office_id={office_id}")
 
     if billing.trial_end_date and billing.trial_end_date < datetime.now(timezone.utc):
         expired_status = None
@@ -100,11 +99,7 @@ async def get_billing_status(
                 status=expired_status,
                 auto_commit=True
             )
-            logger.info(
-                "Expired trial billing corrected during status fetch: "
-                f"billing_id={billing.id}, office_id={office_id}, "
-                f"status={expired_status.value}"
-            )
+            logger.info("Expired trial billing corrected during status fetch")
 
     if billing is None:
         raise HTTPException(
@@ -251,7 +246,7 @@ async def create_portal_session(
         return {"url": portal_session.url}
 
     except Exception as e:
-        logger.error(f"Stripe Customer Portal Session作成エラー: {e}")
+        logger.error("Stripe Customer Portal Session作成エラー: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.BILLING_PORTAL_SESSION_FAILED
@@ -318,23 +313,10 @@ async def stripe_webhook(
     event_data: dict = event_dict['data']['object']
     event_id: str = event_dict.get('id', 'unknown')
 
-    logger.info(
-        "[Webhook:%s] Received event type=%s object_id=%s customer=%s "
-        "subscription=%s payment_intent=%s invoice=%s status=%s",
-        event_id,
-        event_type,
-        event_data.get('id'),
-        event_data.get('customer'),
-        event_data.get('subscription'),
-        event_data.get('payment_intent'),
-        event_data.get('invoice'),
-        event_data.get('status'),
-    )
-
     # 【Phase 7】冪等性チェック: 既に処理済みのイベントはスキップ
     is_processed = await crud.webhook_event.is_event_processed(db=db, event_id=event_id)
     if is_processed:
-        logger.info(f"[Webhook:{event_id}] Event already processed - skipping")
+        logger.info("[Webhook:%s] Event already processed - skipping", event_id)
         return {"status": "success", "message": "Event already processed"}
 
     # サービス層で処理（トランザクション整合性保証）
@@ -384,35 +366,24 @@ async def stripe_webhook(
 
         else:
             # 未対応のイベントタイプ
-            logger.info(
-                "[Webhook:%s] Unhandled event type=%s object_id=%s customer=%s "
-                "subscription=%s payment_intent=%s invoice=%s status=%s",
-                event_id,
-                event_type,
-                event_data.get('id'),
-                event_data.get('customer'),
-                event_data.get('subscription'),
-                event_data.get('payment_intent'),
-                event_data.get('invoice'),
-                event_data.get('status'),
-            )
+            logger.info("[Webhook:%s] Unhandled event type=%s", event_id, event_type)
 
         return {"status": "success"}
 
     except IntegrityError as e:
         # 冪等性: 既に処理済みのイベント（UniqueViolation）
         if "duplicate key" in str(e) and "webhook_events_event_id_key" in str(e):
-            logger.info(f"[Webhook:{event_id}] Event already processed (detected via IntegrityError) - returning success")
+            logger.info("[Webhook:%s] Event already processed (detected via IntegrityError)", event_id)
             return {"status": "success", "message": "Event already processed"}
         # その他のIntegrityError
-        logger.error(f"[Webhook:{event_id}] Integrity error: {e}")
+        logger.error("[Webhook:%s] Integrity error: %s", event_id, type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.BILLING_WEBHOOK_PROCESSING_FAILED
         )
     except Exception as e:
         # エラーはサービス層で既にロールバック済み
-        logger.error(f"[Webhook:{event_id}] Webhook処理エラー: {e}")
+        logger.error("[Webhook:%s] Webhook処理エラー: %s", event_id, type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.BILLING_WEBHOOK_PROCESSING_FAILED

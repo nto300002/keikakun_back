@@ -316,8 +316,6 @@ class CalendarService:
                 error_message=None
             )
 
-            logger.info("カレンダー接続テスト成功")
-
             return True
 
         except (GoogleCalendarAuthenticationError, GoogleCalendarAPIError, Exception) as e:
@@ -325,7 +323,7 @@ class CalendarService:
             error_message = str(e)
             logger.error("=" * 80)
             logger.error("カレンダー接続テスト失敗")
-            logger.error(f"  エラー: {error_message}")
+            logger.error("  エラー: %s", type(e).__name__)
             logger.error("=" * 80)
 
             await crud_office_calendar_account.update_connection_status(
@@ -607,7 +605,7 @@ class CalendarService:
         recipient = result.scalar_one_or_none()
 
         if not recipient:
-            logger.error(f"Welfare recipient {welfare_recipient_id} not found")
+            logger.error("Welfare recipient not found")
             return None
 
         # ステータス情報からサイクル情報を取得（cycle_numberを取得するため）
@@ -618,7 +616,7 @@ class CalendarService:
         status = status_result.scalar_one_or_none()
 
         if not status:
-            logger.error(f"Support plan status {status_id} not found")
+            logger.error("Support plan status not found")
             return None
 
         # サイクル情報を取得
@@ -628,7 +626,7 @@ class CalendarService:
         cycle = cycle_result.scalar_one_or_none()
 
         if not cycle:
-            logger.error(f"Support plan cycle {status.plan_cycle_id} not found")
+            logger.error("Support plan cycle not found")
             return None
 
         cycle_number = cycle.cycle_number

@@ -71,7 +71,7 @@ async def get_current_user(
     try:
         token_data = TokenData(sub=payload.get("sub"))
     except ValidationError as e:
-        logger.warning("TokenData validation error: %s", e)
+        logger.warning("TokenData validation error: %s", type(e).__name__)
         raise credentials_exception
 
     if token_data.sub is None:
@@ -82,7 +82,7 @@ async def get_current_user(
     try:
         user_id = uuid.UUID(token_data.sub)
     except ValueError as e:
-        logger.warning("ValueError parsing UUID: %s", e)
+        logger.warning("ValueError parsing UUID: %s", type(e).__name__)
         raise credentials_exception
 
     from sqlalchemy.orm import selectinload
@@ -96,7 +96,7 @@ async def get_current_user(
     user = result.scalars().first()
 
     if not user:
-        logger.warning("User not found for id: %s", user_id)
+        logger.warning("User not found")
         raise credentials_exception
 
     # app_admin以外の場合、所属事務所の削除済みチェック（スタッフチェックより先に実行）
@@ -340,7 +340,7 @@ async def require_active_billing(
 
     if not billing:
         # Billing情報がない場合は自動作成（マイグレーション後の過渡期対応）
-        logger.warning(f"Billing not found for office_id={office_id}, creating new billing")
+        logger.warning("Billing not found for office; creating new billing")
         billing = await crud.billing.create_for_office(db=db, office_id=office_id)
         await db.commit()
 

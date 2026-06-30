@@ -245,7 +245,7 @@ async def login_for_access_token(
             )
         # 合言葉を検証
         if not verify_password(passphrase, user.hashed_passphrase):
-            logger.warning(f"[LOGIN] Invalid passphrase attempt for app_admin: {username}")
+            logger.warning("[LOGIN] Invalid passphrase attempt for app_admin")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ja.AUTH_INVALID_PASSPHRASE,
@@ -282,7 +282,7 @@ async def login_for_access_token(
                 }
             except ValueError as e:
                 # シークレット復号化失敗 → MFAをリセット
-                logger.error("[LOGIN MFA] Secret decryption failed", exc_info=e)
+                logger.error("[LOGIN MFA] Secret decryption failed: %s", type(e).__name__)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -325,14 +325,14 @@ async def login_for_access_token(
             try:
                 cookie_domain.encode('latin-1')
             except UnicodeEncodeError:
-                logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_DOMAIN (contains non-latin-1 characters): {cookie_domain}")
+                logger.warning("[LOGIN COOKIE] Invalid COOKIE_DOMAIN")
                 cookie_domain = None
 
     if cookie_samesite:
         cookie_samesite = cookie_samesite.strip().lower()
         # 有効な値のみを許可
         if cookie_samesite not in ['none', 'lax', 'strict']:
-            logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_SAMESITE value: {cookie_samesite}")
+            logger.warning("[LOGIN COOKIE] Invalid COOKIE_SAMESITE value")
             cookie_samesite = None
 
 
@@ -459,7 +459,7 @@ async def verify_mfa_for_login(
 
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
-        logger.error(f"[MFA VERIFY] Invalid temporary token")
+        logger.error("[MFA VERIFY] Invalid temporary token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
@@ -471,12 +471,12 @@ async def verify_mfa_for_login(
 
     user = await staff_crud.get(db, id=user_id)
     if not user:
-        logger.error(f"[MFA VERIFY] User not found: {user_id}")
+        logger.error("[MFA VERIFY] User not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
     if not user.is_mfa_enabled:
-        logger.error(f"[MFA VERIFY] MFA not enabled for user: {user_id}")
+        logger.error("[MFA VERIFY] MFA not enabled for user")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
@@ -495,13 +495,13 @@ async def verify_mfa_for_login(
                     verification_successful = True
             except ValueError as e:
                 # シークレット復号化失敗 → MFAに問題がある
-                logger.error("[MFA VERIFY] Secret decryption failed", exc_info=e)
+                logger.error("[MFA VERIFY] Secret decryption failed: %s", type(e).__name__)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
                 )
         else:
-            logger.error(f"[MFA VERIFY] MFA secret is missing")
+            logger.error("[MFA VERIFY] MFA secret is missing")
 
     if mfa_data.recovery_code and not verification_successful:
         from app.core.security import verify_recovery_code
@@ -526,7 +526,7 @@ async def verify_mfa_for_login(
                 break
 
     if not verification_successful:
-        logger.error(f"[MFA VERIFY] Verification failed")
+        logger.error("[MFA VERIFY] Verification failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_MFA_CODE
@@ -603,7 +603,7 @@ async def verify_mfa_first_time(
     # 一時トークンを検証
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
-        logger.error(f"[MFA FIRST TIME VERIFY] Invalid temporary token")
+        logger.error("[MFA FIRST TIME VERIFY] Invalid temporary token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
@@ -616,7 +616,7 @@ async def verify_mfa_first_time(
     # ユーザーを取得
     user = await staff_crud.get(db, id=user_id)
     if not user:
-        logger.error(f"[MFA FIRST TIME VERIFY] User not found: {user_id}")
+        logger.error("[MFA FIRST TIME VERIFY] User not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_USER_NOT_FOUND,
@@ -624,14 +624,14 @@ async def verify_mfa_first_time(
 
     # MFAが有効で、かつユーザー未検証の状態であることを確認
     if not user.is_mfa_enabled:
-        logger.error(f"[MFA FIRST TIME VERIFY] MFA not enabled for user: {user_id}")
+        logger.error("[MFA FIRST TIME VERIFY] MFA not enabled for user")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ja.AUTH_MFA_NOT_CONFIGURED,
         )
 
     if user.is_mfa_verified_by_user:
-        logger.error(f"[MFA FIRST TIME VERIFY] User already verified: {user_id}")
+        logger.error("[MFA FIRST TIME VERIFY] User already verified")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="MFAは既に検証済みです。通常のログインフローを使用してください。",
@@ -640,14 +640,14 @@ async def verify_mfa_first_time(
 
     # TOTPコードを検証
     if not mfa_data.totp_code:
-        logger.error(f"[MFA FIRST TIME VERIFY] TOTP code is required")
+        logger.error("[MFA FIRST TIME VERIFY] TOTP code is required")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="TOTPコードが必要です。",
         )
 
     if not user.mfa_secret:
-        logger.error(f"[MFA FIRST TIME VERIFY] MFA secret is missing")
+        logger.error("[MFA FIRST TIME VERIFY] MFA secret is missing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -660,13 +660,13 @@ async def verify_mfa_first_time(
         totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
 
         if not totp_result:
-            logger.error(f"[MFA FIRST TIME VERIFY] Invalid TOTP code")
+            logger.error("[MFA FIRST TIME VERIFY] Invalid TOTP code")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ja.AUTH_INVALID_MFA_CODE,
             )
     except ValueError as e:
-        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed", exc_info=e)
+        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -979,7 +979,7 @@ async def reset_password(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Password reset failed: {e}")
+        logger.error("Password reset failed: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.AUTH_PASSWORD_RESET_FAILED

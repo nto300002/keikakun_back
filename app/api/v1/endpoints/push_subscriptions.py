@@ -70,7 +70,7 @@ async def subscribe_push(
         return new_subscription
 
     except Exception as e:
-        logger.error(f"[PUSH_SUBSCRIPTION] Failed to subscribe: {e}", exc_info=True)
+        logger.error("[PUSH_SUBSCRIPTION] Failed to subscribe: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to subscribe push notifications")
 
 
@@ -118,7 +118,7 @@ async def unsubscribe_push(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[PUSH_SUBSCRIPTION] Failed to unsubscribe: {e}", exc_info=True)
+        logger.error("[PUSH_SUBSCRIPTION] Failed to unsubscribe: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to unsubscribe push notifications")
 
 
@@ -151,6 +151,5 @@ async def get_my_subscriptions(
         return subscriptions
 
     except Exception as e:
-        logger.error(f"[PUSH_SUBSCRIPTION] Failed to get subscriptions: {e}", exc_info=True)
+        logger.error("[PUSH_SUBSCRIPTION] Failed to get subscriptions: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to retrieve subscriptions")
-

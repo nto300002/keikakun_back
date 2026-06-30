@@ -79,27 +79,20 @@ async def send_push_notification(
             vapid_claims={"sub": settings.VAPID_SUBJECT}
         )
 
-        endpoint_preview = subscription_info.get("endpoint", "")[:50]
-        logger.info(f"[PUSH] Notification sent successfully to {endpoint_preview}...")
         return (True, False)
 
     except WebPushException as e:
-        endpoint_preview = subscription_info.get("endpoint", "")[:50]
-
         # Response オブジェクトの bool() は False を返すことがあるため、is not None で確認
         if e.response is not None and hasattr(e.response, 'status_code') and e.response.status_code in [404, 410]:
             logger.warning(
-                f"[PUSH] Subscription expired (HTTP {e.response.status_code}): "
-                f"{endpoint_preview}... - Marking for deletion from database"
+                "[PUSH] Subscription expired (HTTP %s); marking for deletion",
+                e.response.status_code,
             )
             return (False, True)
         else:
-            logger.error(
-                f"[PUSH] Failed to send notification to {endpoint_preview}...: {e}",
-                exc_info=True
-            )
+            logger.error("[PUSH] Failed to send notification: %s", type(e).__name__)
             return (False, False)
 
     except Exception as e:
-        logger.error(f"[PUSH] Unexpected error during push notification: {e}", exc_info=True)
+        logger.error("[PUSH] Unexpected error during push notification: %s", type(e).__name__)
         return (False, False)

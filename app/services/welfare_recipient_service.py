@@ -277,7 +277,7 @@ class WelfareRecipientService:
             return result
 
         except Exception as e:
-            logger.warning("Error checking data integrity: %s", e)
+            logger.warning("Error checking data integrity: %s", type(e).__name__)
             result["is_valid"] = False
             result["issues"].append(f"整合性チェック中にエラーが発生しました: {str(e)}")
             return result
@@ -315,7 +315,7 @@ class WelfareRecipientService:
             return True
 
         except Exception as e:
-            logger.warning("Error during support plan repair for recipient %s: %s", welfare_recipient_id, e)
+            logger.warning("Error during support plan repair: %s", type(e).__name__)
             db.rollback()
             return False
 

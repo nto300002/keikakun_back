@@ -59,9 +59,6 @@ async def send_email_with_retry(
             result["sent_at"] = datetime.now(timezone.utc).isoformat()
             result["retry_count"] = attempt
 
-            if attempt > 0:
-                logger.info("メール送信成功（リトライ %s回目）", attempt)
-
             return result
 
         except Exception as e:

@@ -44,7 +44,7 @@ class MfaService:
             secret = user.get_mfa_secret()
         except ValueError as e:
             # 復号化失敗をログに記録して False を返す
-            logger.error("[MFA VERIFY] Decryption failed", exc_info=e)
+            logger.error("[MFA VERIFY] Decryption failed: %s", type(e).__name__)
             return False
 
         if not secret:
@@ -87,7 +87,7 @@ class MfaService:
             secret = user.get_mfa_secret()
         except ValueError as e:
             # 復号化失敗をログに記録して False を返す
-            logger.error("[MFA VERIFY TOTP] Decryption failed", exc_info=e)
+            logger.error("[MFA VERIFY TOTP] Decryption failed: %s", type(e).__name__)
             return False
 
         if not secret:

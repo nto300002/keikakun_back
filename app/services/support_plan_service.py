@@ -196,7 +196,7 @@ class SupportPlanService:
         target_step_type = DELIVERABLE_TO_STEP_MAP.get(deliverable_in.deliverable_type)
         if not target_step_type:
             from app.core.exceptions import InvalidStepOrderError
-            logger.error(f"Invalid deliverable_type: {deliverable_in.deliverable_type}")
+            logger.error("Invalid deliverable_type")
             raise InvalidStepOrderError(f"無効な成果物タイプです: {deliverable_in.deliverable_type}")
 
 
@@ -206,14 +206,14 @@ class SupportPlanService:
 
         if not cycle:
             from app.core.exceptions import NotFoundException
-            logger.error(f"Plan cycle not found: {deliverable_in.plan_cycle_id}")
+            logger.error("Plan cycle not found")
             raise NotFoundException(f"計画サイクルID {deliverable_in.plan_cycle_id} が見つかりません。")
 
 
         latest_status = next((s for s in cycle.statuses if s.is_latest_status), None)
         if not latest_status:
             from app.core.exceptions import InvalidStepOrderError
-            logger.error(f"Latest status not found for cycle: {cycle.id}")
+            logger.error("Latest status not found for cycle")
             raise InvalidStepOrderError(f"サイクル {cycle.id} の最新ステータスが見つかりません。")
 
 
@@ -236,7 +236,7 @@ class SupportPlanService:
         current_status = next((s for s in cycle.statuses if s.step_type == target_step_type), None)
         if not current_status:
             from app.core.exceptions import NotFoundException
-            logger.error(f"Target status not found for step: {target_step_type}")
+            logger.error("Target status not found for step")
             raise NotFoundException(f"ステップ {target_step_type.value} のステータスが見つかりません。")
 
 
@@ -262,7 +262,7 @@ class SupportPlanService:
                     event_type=CalendarEventType.renewal_deadline
                 )
             except Exception as e:
-                logger.warning(f"[CALENDAR_EVENT] Failed to delete renewal deadline event: {e}")
+                logger.warning("[CALENDAR_EVENT] Failed to delete renewal deadline event: %s", type(e).__name__)
 
         # monitoring完了時: モニタリング期限イベントを削除
         if target_step_type == SupportPlanStep.monitoring:
@@ -273,7 +273,7 @@ class SupportPlanService:
                     event_type=CalendarEventType.next_plan_start_date
                 )
             except Exception as e:
-                logger.warning(f"[CALENDAR_EVENT] Failed to delete monitoring deadline event: {e}")
+                logger.warning("[CALENDAR_EVENT] Failed to delete monitoring deadline event: %s", type(e).__name__)
 
         if deliverable_in.deliverable_type == DeliverableType.monitoring_report_pdf:
 
@@ -354,7 +354,7 @@ class SupportPlanService:
 
         if not deliverable:
             from app.core.exceptions import NotFoundException
-            logger.error(f"Deliverable not found: {deliverable_id}")
+            logger.error("Deliverable not found")
             raise NotFoundException(f"成果物ID {deliverable_id} が見つかりません。")
 
         # ファイル情報を更新
@@ -386,7 +386,7 @@ class SupportPlanService:
 
         if not deliverable:
             from app.core.exceptions import NotFoundException
-            logger.error(f"Deliverable not found: {deliverable_id}")
+            logger.error("Deliverable not found")
             raise NotFoundException(f"成果物ID {deliverable_id} が見つかりません。")
 
         deliverable_type = deliverable.deliverable_type
@@ -396,7 +396,7 @@ class SupportPlanService:
         target_step_type = DELIVERABLE_TO_STEP_MAP.get(deliverable_type)
         if not target_step_type:
             from app.core.exceptions import InvalidStepOrderError
-            logger.error(f"Invalid deliverable_type: {deliverable_type}")
+            logger.error("Invalid deliverable_type")
             raise InvalidStepOrderError(f"無効な成果物タイプです: {deliverable_type}")
 
         # サイクルとステータスを取得
@@ -408,7 +408,7 @@ class SupportPlanService:
 
         if not cycle:
             from app.core.exceptions import NotFoundException
-            logger.error(f"Plan cycle not found: {plan_cycle_id}")
+            logger.error("Plan cycle not found")
             raise NotFoundException(f"計画サイクルID {plan_cycle_id} が見つかりません。")
 
         # 対象ステータスを未完了に戻す
@@ -488,7 +488,7 @@ class SupportPlanService:
                         event_type=CalendarEventType.renewal_deadline
                     )
                 except Exception as e:
-                    logger.warning(f"[CALENDAR_EVENT] Failed to delete renewal deadline event: {e}")
+                    logger.warning("[CALENDAR_EVENT] Failed to delete renewal deadline event: %s", type(e).__name__)
 
             # monitoring完了時: モニタリング期限イベントを削除
             if status.step_type == SupportPlanStep.monitoring:
@@ -499,7 +499,7 @@ class SupportPlanService:
                         event_type=CalendarEventType.next_plan_start_date
                     )
                 except Exception as e:
-                    logger.warning(f"[CALENDAR_EVENT] Failed to delete monitoring deadline event: {e}")
+                    logger.warning("[CALENDAR_EVENT] Failed to delete monitoring deadline event: %s", type(e).__name__)
 
         await db.flush()
         return status
@@ -601,7 +601,7 @@ class SupportPlanService:
                     inline=True
                 )
             except Exception as e:
-                logger.warning(f"Failed to generate presigned URL for {object_name}: {e}")
+                logger.warning("Failed to generate presigned URL: %s", type(e).__name__)
                 download_url = None
 
             # レスポンスオブジェクト作成

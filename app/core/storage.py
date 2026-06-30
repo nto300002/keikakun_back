@@ -39,7 +39,6 @@ async def upload_file(file: BinaryIO, object_name: str) -> str | None:
             }
         )
         s3_url = f"s3://{settings.S3_BUCKET_NAME}/{object_name}"
-        logger.info("File uploaded to S3")
         return s3_url
     except ClientError as e:
         logger.error("Failed to upload file to S3: %s", type(e).__name__)
