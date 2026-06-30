@@ -50,14 +50,6 @@ class GoogleCalendarClient:
             # JSONをパース
             service_account_info = json.loads(self.service_account_json)
 
-            # サービスアカウント情報をログ出力（デバッグ用）
-            logger.info("=" * 80)
-            logger.info("Google Calendar サービスアカウント情報:")
-            logger.info(f"  プロジェクトID: {service_account_info.get('project_id', 'N/A')}")
-            logger.info(f"  サービスアカウントメール: {service_account_info.get('client_email', 'N/A')}")
-            logger.info(f"  クライアントID: {service_account_info.get('client_id', 'N/A')}")
-            logger.info("=" * 80)
-
             # 認証情報を作成
             credentials = service_account.Credentials.from_service_account_info(
                 service_account_info,
@@ -102,17 +94,6 @@ class GoogleCalendarClient:
         if not self.service:
             raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
 
-        # カレンダーIDをログ出力
-        logger.info("=" * 80)
-        logger.info("GoogleCalendarClient.create_event: API呼び出し直前")
-        logger.info(f"  calendar_id: {calendar_id}")
-        logger.info(f"  calendar_id（型）: {type(calendar_id)}")
-        logger.info(f"  calendar_id（長さ）: {len(calendar_id) if calendar_id else 'None'}")
-        logger.info(f"  calendar_id（repr）: {repr(calendar_id)}")
-        logger.info(f"  title: {title}")
-        logger.info(f"  start_datetime: {start_datetime}")
-        logger.info(f"  end_datetime: {end_datetime}")
-        logger.info("=" * 80)
 
         # イベントボディを作成
         event_body = {

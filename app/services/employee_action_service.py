@@ -100,10 +100,6 @@ class EmployeeActionService:
         Returns:
             作成されたApprovalRequest
         """
-        logger.info(
-            f"Creating employee action request: staff={requester_staff_id}, "
-            f"resource_type={obj_in.resource_type}, action_type={obj_in.action_type}"
-        )
 
         # ApprovalRequestを作成（employee_action種別）
         request = await approval_request.create_employee_action_request(
@@ -177,10 +173,6 @@ class EmployeeActionService:
                 detail=ja.SERVICE_EMPLOYEE_ACTION_REQUEST_NOT_FOUND.format(request_id=request_id)
             )
 
-        logger.info(
-            f"Approving employee action request: request_id={request_id}, "
-            f"approver={reviewer_staff_id}, action={_get_action_type(request)}"
-        )
 
         # 承認処理と作成、編集、実行
         execution_result = None
@@ -203,16 +195,9 @@ class EmployeeActionService:
                 execution_result=execution_result
             )
 
-            logger.info(
-                f"Employee action executed successfully: "
-                f"request_id={request_id}, result={execution_result}"
-            )
 
         except Exception as e:
-            logger.error(
-                f"Failed to execute employee action: "
-                f"request_id={request_id}, error={str(e)}"
-            )
+            logger.error("Failed to execute employee action: %s", type(e).__name__)
 
             # トランザクションがロールバック状態になっているため、明示的にrollbackを実行
             await db.rollback()
@@ -344,10 +329,6 @@ class EmployeeActionService:
         Returns:
             却下されたEmployee制限リクエスト
         """
-        logger.info(
-            f"Rejecting employee action request: request_id={request_id}, "
-            f"approver={reviewer_staff_id}"
-        )
 
         # リクエストを却下
         rejected_request = await approval_request.reject(
@@ -464,10 +445,6 @@ class EmployeeActionService:
         action_type = _get_action_type(request)
         resource_id = _get_resource_id(request)
 
-        logger.info(
-            f"Executing action: resource_type={resource_type}, "
-            f"action_type={action_type}, resource_id={resource_id}"
-        )
 
         # リソースタイプとアクションタイプに応じて処理を分岐
         if resource_type == ResourceType.welfare_recipient:
@@ -526,7 +503,6 @@ class EmployeeActionService:
             recipient_id = recipient.id
 
             # 関連データの作成（住所、緊急連絡先、障害情報）
-            logger.info("Creating related data for recipient")
 
             # 住所・連絡先情報
             contact_address = form_data.get("contactAddress", {})
@@ -648,14 +624,12 @@ class EmployeeActionService:
             await db.flush()
 
             # 初期支援計画（サイクル + ステータス）を作成
-            logger.info(f"Creating initial support plan for recipient {recipient_id}")
             from app.services.welfare_recipient_service import WelfareRecipientService
             await WelfareRecipientService._create_initial_support_plan(
                 db=db,
                 welfare_recipient_id=recipient_id,
                 office_id=request.office_id
             )
-            logger.info("Initial support plan created successfully")
 
             return {
                 "success": True,
@@ -776,9 +750,6 @@ class EmployeeActionService:
         action_type = _get_action_type(request)
         request_data = request.request_data or {}
 
-        logger.info(f"Executing support_plan_status action: {action_type}")
-        logger.info(f"Request data: {request_data}")
-
         # deliverable_idを取得
         deliverable_id = request_data.get("deliverable_id")
 
@@ -797,14 +768,12 @@ class EmployeeActionService:
         deliverable = deliverable_result.scalar_one_or_none()
 
         if not deliverable:
-            logger.error(f"Deliverable {deliverable_id} not found")
+            logger.error("Deliverable not found")
             return {
                 "success": False,
                 "action": str(action_type),
                 "error": f"Deliverable {deliverable_id} not found"
             }
-
-        logger.info(f"Deliverable {deliverable_id} found. No further action needed (already uploaded).")
 
         # deliverableは既にアップロード済みなので、特に何もしない
         # 将来的に承認フラグなどを追加する場合はここで更新

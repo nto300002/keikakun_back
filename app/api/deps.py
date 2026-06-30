@@ -51,10 +51,6 @@ async def get_current_user(
     # Cookieが優先、なければAuthorizationヘッダーから
     final_token = cookie_token if cookie_token else token
 
-    logger.debug("get_current_user called")
-    logger.debug("Cookie token: %s", "present" if cookie_token else "absent")
-    logger.debug("Header token: %s", "present" if token else "absent")
-    logger.debug("Using token from: %s", "cookie" if cookie_token else "header" if token else "none")
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -67,7 +63,6 @@ async def get_current_user(
         raise credentials_exception
 
     payload = decode_access_token(final_token)
-    logger.debug("Decoded token payload")
 
     if payload is None:
         logger.warning("Payload is None - raising 401")
@@ -75,9 +70,8 @@ async def get_current_user(
 
     try:
         token_data = TokenData(sub=payload.get("sub"))
-        logger.debug("TokenData created with sub=%s", token_data.sub)
     except ValidationError as e:
-        logger.warning("TokenData validation error: %s", e)
+        logger.warning("TokenData validation error: %s", type(e).__name__)
         raise credentials_exception
 
     if token_data.sub is None:
@@ -87,9 +81,8 @@ async def get_current_user(
     # IDを元に、crud層を経由してユーザーをデータベースから検索します。
     try:
         user_id = uuid.UUID(token_data.sub)
-        logger.debug("Parsed user_id=%s", user_id)
     except ValueError as e:
-        logger.warning("ValueError parsing UUID: %s", e)
+        logger.warning("ValueError parsing UUID: %s", type(e).__name__)
         raise credentials_exception
 
     from sqlalchemy.orm import selectinload
@@ -103,7 +96,7 @@ async def get_current_user(
     user = result.scalars().first()
 
     if not user:
-        logger.warning("User not found for id: %s", user_id)
+        logger.warning("User not found")
         raise credentials_exception
 
     # app_admin以外の場合、所属事務所の削除済みチェック（スタッフチェックより先に実行）
@@ -113,7 +106,7 @@ async def get_current_user(
             # いずれかの事務所が削除済みの場合、アクセス拒否
             for office_assoc in user.office_associations:
                 if office_assoc.office and office_assoc.office.is_deleted:
-                    logger.warning(f"User {user.email} attempted access with deleted office: office_id={office_assoc.office.id}")
+                    logger.warning("User attempted access with deleted office")
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="所属事務所が退会済みのため、アクセスできません",
@@ -122,7 +115,7 @@ async def get_current_user(
 
     # 削除済みスタッフチェック（事務所チェックの後に実行）
     if user.is_deleted:
-        logger.warning(f"Deleted user attempted access: {user.email}")
+        logger.warning("Deleted user attempted access")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ja.PERM_ACCOUNT_DELETED,
@@ -151,7 +144,6 @@ async def get_current_user(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-    logger.debug("User found: email=%s id=%s", user.email, user.id)
     return user
 
 
@@ -348,7 +340,7 @@ async def require_active_billing(
 
     if not billing:
         # Billing情報がない場合は自動作成（マイグレーション後の過渡期対応）
-        logger.warning(f"Billing not found for office_id={office_id}, creating new billing")
+        logger.warning("Billing not found for office; creating new billing")
         billing = await crud.billing.create_for_office(db=db, office_id=office_id)
         await db.commit()
 
@@ -403,7 +395,7 @@ async def validate_csrf(
         try:
             await csrf_protect.validate_csrf(request)
         except CsrfProtectError as e:
-            logger.warning(f"CSRF validation failed: {str(e)}")
+            logger.warning("CSRF validation failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"CSRF token validation failed"

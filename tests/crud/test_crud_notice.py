@@ -419,6 +419,53 @@ async def test_delete_old_notices_over_limit(
     assert "通知0" not in notice_titles  # 最も古い通知（削除される）
 
 
+async def test_delete_old_notices_over_limit_uses_bulk_delete(
+    db_session: AsyncSession,
+    office_factory,
+    employee_user_factory,
+    monkeypatch
+) -> None:
+    """
+    性能要件: 保持上限削除は通知インスタンスを1件ずつdb.deleteしない
+    """
+    from datetime import datetime, timedelta
+    from app.models.notice import Notice
+
+    staff = await employee_user_factory()
+    office = staff.office_associations[0].office if staff.office_associations else None
+
+    for i in range(6):
+        notice = Notice(
+            recipient_staff_id=staff.id,
+            office_id=office.id,
+            type="employee_action_pending",
+            title=f"通知{i}",
+            content=f"内容{i}",
+            is_read=False
+        )
+        db_session.add(notice)
+        await db_session.flush()
+        notice.created_at = datetime.now() - timedelta(days=6 - i)
+        db_session.add(notice)
+    await db_session.flush()
+
+    async def fail_instance_delete(*args, **kwargs):
+        raise AssertionError("delete_old_notices_over_limit must use bulk DELETE instead of db.delete per row")
+
+    monkeypatch.setattr(db_session, "delete", fail_instance_delete)
+
+    deleted_count = await crud.notice.delete_old_notices_over_limit(
+        db=db_session,
+        office_id=office.id,
+        limit=3
+    )
+    await db_session.commit()
+
+    notices_after = await crud.notice.get_by_office_id(db=db_session, office_id=office.id)
+    assert deleted_count == 3
+    assert len(notices_after) == 3
+
+
 async def test_delete_old_notices_under_limit(
     db_session: AsyncSession,
     office_factory,

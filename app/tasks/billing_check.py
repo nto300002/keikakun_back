@@ -38,14 +38,6 @@ async def check_trial_expiration(
     Returns:
         int: 更新したBillingの件数
 
-    Examples:
-        >>> # 本番実行
-        >>> expired_count = await check_trial_expiration(db=db)
-        >>> logger.info(f"Updated {expired_count} expired trials")
-
-        >>> # ドライラン（テスト実行）
-        >>> expired_count = await check_trial_expiration(db=db, dry_run=True)
-        >>> print(f"Would update {expired_count} expired trials")
     """
     now = datetime.now(timezone.utc)
 
@@ -99,7 +91,7 @@ async def check_trial_expiration(
     # コミット
     if updated_count > 0:
         await db.commit()
-        logger.info(f"Updated {updated_count} expired trials")
+        logger.info("Updated expired trials")
 
     return updated_count
 
@@ -125,14 +117,6 @@ async def check_scheduled_cancellation(
     Returns:
         int: 更新したBillingの件数
 
-    Examples:
-        >>> # 本番実行
-        >>> canceled_count = await check_scheduled_cancellation(db=db)
-        >>> logger.info(f"Updated {canceled_count} scheduled cancellations")
-
-        >>> # ドライラン（テスト実行）
-        >>> canceled_count = await check_scheduled_cancellation(db=db, dry_run=True)
-        >>> print(f"Would update {canceled_count} scheduled cancellations")
     """
     now = datetime.now(timezone.utc)
 
@@ -174,7 +158,7 @@ async def check_scheduled_cancellation(
     # コミット
     if updated_count > 0:
         await db.commit()
-        logger.info(f"Updated {updated_count} expired scheduled cancellations to canceled")
+        logger.info("Updated expired scheduled cancellations to canceled")
 
     return updated_count
 

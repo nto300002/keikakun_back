@@ -39,13 +39,12 @@ async def upload_file(file: BinaryIO, object_name: str) -> str | None:
             }
         )
         s3_url = f"s3://{settings.S3_BUCKET_NAME}/{object_name}"
-        logger.info(f"File {object_name} uploaded to {s3_url}")
         return s3_url
     except ClientError as e:
-        logger.error(f"Failed to upload {object_name} to S3: {e}")
+        logger.error("Failed to upload file to S3: %s", type(e).__name__)
         return None
     except Exception as e:
-        logger.error(f"An unexpected error occurred during S3 upload: {e}")
+        logger.error("Unexpected error during S3 upload: %s", type(e).__name__)
         return None
 
 async def create_presigned_url(object_name: str, expiration: int = 3600, inline: bool = True) -> str | None:
@@ -91,8 +90,8 @@ async def create_presigned_url(object_name: str, expiration: int = 3600, inline:
         )
         return response
     except ClientError as e:
-        logger.error(f"Failed to generate presigned URL for {object_name}: {e}")
+        logger.error("Failed to generate presigned URL: %s", type(e).__name__)
         return None
     except Exception as e:
-        logger.error(f"An unexpected error occurred during presigned URL generation: {e}")
+        logger.error("Unexpected error during presigned URL generation: %s", type(e).__name__)
         return None

@@ -1,6 +1,5 @@
 from typing import Any, List
 from uuid import UUID
-import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -29,7 +28,6 @@ from app.core.exceptions import (
 from app.messages import ja
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=UserRegistrationResponse, status_code=status.HTTP_201_CREATED)
@@ -51,8 +49,6 @@ async def create_welfare_recipient(
             raise BadRequestException(ja.RECIPIENT_CATEGORY_MISSING)
 
     try:
-        logger.info("[ENDPOINT DEBUG] create_welfare_recipient START")
-
         # Load office associations explicitly to avoid lazy loading issues
         office_associations = getattr(current_staff, 'office_associations', None)
 
@@ -60,7 +56,6 @@ async def create_welfare_recipient(
             raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
         office_id = office_associations[0].office_id
-        logger.info(f"[ENDPOINT DEBUG] office_id={office_id}")
 
         # Employee restriction check
         employee_request = await deps.check_employee_restriction(
@@ -84,25 +79,17 @@ async def create_welfare_recipient(
                 }
             )
 
-        logger.info("[ENDPOINT DEBUG] Calling WelfareRecipientService.create_recipient_with_details...")
         welfare_recipient_id = await WelfareRecipientService.create_recipient_with_details(
             db=db,
             registration_data=registration_data,
             office_id=office_id
         )
-        logger.info(f"[ENDPOINT DEBUG] Service call completed. welfare_recipient_id={welfare_recipient_id}")
 
-        logger.info("[ENDPOINT DEBUG] Calling db.commit()...")
         try:
             await db.commit()
-            logger.info("[ENDPOINT DEBUG] db.commit() completed successfully")
-        except Exception as commit_error:
-            logger.error(f"[ENDPOINT DEBUG] db.commit() FAILED: {type(commit_error).__name__}: {commit_error}")
-            import traceback
-            logger.error(f"[ENDPOINT DEBUG] Traceback:\n{traceback.format_exc()}")
+        except Exception:
             raise
 
-        logger.info("[ENDPOINT DEBUG] Creating response...")
         return UserRegistrationResponse(
             success=True,
             message=ja.RECIPIENT_CREATE_SUCCESS,
@@ -111,7 +98,6 @@ async def create_welfare_recipient(
         )
 
     except psycopg_errors.InvalidTextRepresentation as e:
-        logger.error(f"[ENDPOINT DEBUG] InvalidTextRepresentation: {e}")
         await db.rollback()
 
         if "disability_category" in str(e):
@@ -125,19 +111,13 @@ async def create_welfare_recipient(
         )
 
     except ValueError as e:
-        logger.error(f"[ENDPOINT DEBUG] ValueError: {e}")
         await db.rollback()
         raise BadRequestException(str(e))
-    except HTTPException as e:
-        logger.error(f"[ENDPOINT DEBUG] HTTPException: {e.status_code} - {e.detail}")
+    except HTTPException:
         await db.rollback()
         raise
     except Exception as e:
-        logger.error(f"[ENDPOINT DEBUG] Unexpected Exception: {type(e).__name__}: {e}")
         await db.rollback()
-
-        import traceback
-        logger.error(f"[ENDPOINT DEBUG] Full traceback:\n{traceback.format_exc()}")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -213,15 +193,12 @@ async def get_deadline_alerts(
     Returns:
         期限が近い利用者のリスト（残り日数が少ない順）
     """
-    logger.info("[DEADLINE_ALERTS_DEBUG] get_deadline_alerts endpoint called")
-
     # 現在のスタッフの事業所を取得
     office_associations = getattr(current_staff, 'office_associations', None)
     if not office_associations:
         raise ForbiddenException(ja.RECIPIENT_MUST_HAVE_OFFICE)
 
     office_id = office_associations[0].office_id
-    logger.info(f"[DEADLINE_ALERTS_DEBUG] office_id={office_id}, threshold_days={threshold_days}, limit={limit}, offset={offset}")
 
     # サービス層で期限アラートを取得
     result = await WelfareRecipientService.get_deadline_alerts(
@@ -231,13 +208,6 @@ async def get_deadline_alerts(
         limit=limit,
         offset=offset
     )
-
-    logger.info(f"[DEADLINE_ALERTS_DEBUG] Total alerts returned: {result.total}")
-    logger.info(f"[DEADLINE_ALERTS_DEBUG] Number of alerts in response: {len(result.alerts)}")
-
-    # ログに各アラートの詳細を出力（cycle_number=1の有無を確認）
-    for i, alert in enumerate(result.alerts):
-        logger.info(f"[DEADLINE_ALERTS_DEBUG] Alert {i}: id={alert.id}, name={alert.full_name}, type={alert.alert_type}, cycle={alert.current_cycle_number}")
 
     return result
 

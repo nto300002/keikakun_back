@@ -4,7 +4,6 @@
 全アセスメント情報の取得、家族構成、医療情報、通院歴、就労関係、課題分析のCRUD操作
 """
 
-import logging
 from typing import List
 from uuid import UUID
 
@@ -13,8 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.models.staff import Staff
-
-logger = logging.getLogger(__name__)
 from app.schemas.assessment import (
     AssessmentResponse,
     FamilyMemberCreate,
@@ -51,22 +48,11 @@ async def get_all_assessment_data(
     """
     全アセスメント情報を一括取得
     """
-    print("\n" + "="*80)
-    print("=== get_all_assessment_data endpoint called ===")
-    print(f"recipient_id: {recipient_id}")
-    print(f"current_user: {current_user.email if current_user else 'None'}")
-    logger.info(f"=== get_all_assessment_data endpoint called ===")
-    logger.info(f"recipient_id: {recipient_id}")
-    logger.info(f"current_user: {current_user.email if current_user else 'None'}")
-
     result = await assessment_service.get_all_assessment_data(
         db=db,
         recipient_id=recipient_id,
         current_user=current_user
     )
-    print(f"Assessment data retrieved successfully")
-    print("="*80 + "\n")
-    logger.info(f"Assessment data retrieved successfully")
     return result
 
 
