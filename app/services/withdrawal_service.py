@@ -109,6 +109,11 @@ class WithdrawalService:
             }
         )
 
+        logger.info(
+            f"Staff withdrawal request created: request_id={request.id}, "
+            f"target_staff={target_staff_id}, requester={requester_staff_id}"
+        )
+
         return request
 
     async def create_office_withdrawal_request(
@@ -186,6 +191,11 @@ class WithdrawalService:
                 "affected_staff_count": len(affected_staff_ids),
                 "reason": reason
             }
+        )
+
+        logger.info(
+            f"Office withdrawal request created: request_id={request.id}, "
+            f"office={office_id}, affected_staff_count={len(affected_staff_ids)}"
         )
 
         return request
@@ -284,6 +294,11 @@ class WithdrawalService:
             }
         )
 
+        logger.info(
+            f"Withdrawal approved and executed: request_id={request_id}, "
+            f"type={withdrawal_type}, reviewer={reviewer_staff_id}"
+        )
+
         return approved_request
 
     async def reject_withdrawal(
@@ -360,6 +375,11 @@ class WithdrawalService:
             }
         )
 
+        logger.info(
+            f"Withdrawal rejected: request_id={request_id}, "
+            f"type={withdrawal_type}, reviewer={reviewer_staff_id}"
+        )
+
         return rejected_request
 
     # =====================================================
@@ -416,7 +436,7 @@ class WithdrawalService:
             logger.error("Withdrawal execution failed: %s", type(e).__name__)
             return {
                 "success": False,
-                "error": str(e)
+                "error": "Withdrawal execution failed"
             }
 
     async def _execute_staff_withdrawal(
@@ -470,6 +490,10 @@ class WithdrawalService:
         )
         await db.flush()
 
+        logger.info(
+            f"Archive created for staff withdrawal: staff_id={target_staff_id}, "
+            f"archive_id={archive.id}, retention_until={archive.legal_retention_until}"
+        )
 
         # 2. 監査ログ記録（削除前に記録）
         await crud_audit_log.create_log(
@@ -497,6 +521,11 @@ class WithdrawalService:
             deleted_by=executor_id
         )
         await db.flush()
+
+        logger.info(
+            f"Staff withdrawn (soft deleted): staff_id={target_staff_id}, "
+            f"email={staff_info['email']}, will be hard deleted after 30 days"
+        )
 
         return {
             "success": True,
@@ -592,6 +621,8 @@ class WithdrawalService:
             user_agent=user_agent
         )
 
+        logger.info("Billing cancellation completed during office withdrawal")
+
         # 所属スタッフを全員論理削除（30日後に物理削除される予定）
         archived_staff_ids = []
         for staff_id in staff_ids:
@@ -611,6 +642,10 @@ class WithdrawalService:
             await db.flush()
             archived_staff_ids.append(str(archive.id))
 
+            logger.info(
+                f"Archive created for office withdrawal: staff_id={staff_id}, "
+                f"archive_id={archive.id}, retention_until={archive.legal_retention_until}"
+            )
 
             # 2. 各スタッフの削除ログを記録
             await crud_audit_log.create_log(
@@ -647,6 +682,13 @@ class WithdrawalService:
         )
 
         await db.flush()
+
+        logger.info(
+            f"Office withdrawn (soft deleted): office_id={office_id}, "
+            f"name={office_info['name']}, soft_deleted_staff_count={len(staff_ids)}, "
+            f"staff will be hard deleted after 30 days, "
+            f"billing_cancellation={billing_cancellation_result.get('action')}"
+        )
 
         return {
             "success": True,
@@ -738,6 +780,7 @@ class WithdrawalService:
             billing = await crud.billing.get_by_office_id(db=db, office_id=office_id)
 
             if not billing:
+                logger.info("No billing record found - skipping billing cancellation")
                 return {
                     "success": True,
                     "action": "skipped",
@@ -748,8 +791,8 @@ class WithdrawalService:
             billing_info = {
                 "billing_id": str(billing.id),
                 "billing_status": billing.billing_status.value,
-                "stripe_customer_id": billing.stripe_customer_id,
-                "stripe_subscription_id": billing.stripe_subscription_id
+                "has_stripe_customer_id": bool(billing.stripe_customer_id),
+                "has_stripe_subscription_id": bool(billing.stripe_subscription_id)
             }
 
             # 2. Stripeサブスクリプションをキャンセル（存在する場合）
@@ -757,6 +800,12 @@ class WithdrawalService:
             if billing.stripe_subscription_id:
                 stripe_cancellation_result = await self._cancel_stripe_subscription(
                     subscription_id=billing.stripe_subscription_id
+                )
+
+                logger.info(
+                    "Stripe subscription cancellation: success=%s action=%s",
+                    stripe_cancellation_result.get("success") if stripe_cancellation_result else None,
+                    stripe_cancellation_result.get("action") if stripe_cancellation_result else None,
                 )
 
             # 3. Billing情報を更新（customer_id=null, subscription_id=null, status=canceled）
@@ -775,6 +824,12 @@ class WithdrawalService:
             )
 
             await db.flush()
+
+            logger.info(
+                f"Billing record updated for office withdrawal: "
+                f"billing_id={billing.id}, status=canceled, "
+                f"customer_id=null, subscription_id=null"
+            )
 
             # 4. 監査ログを記録
             await crud_audit_log.create_log(
@@ -803,11 +858,11 @@ class WithdrawalService:
             }
 
         except Exception as e:
-            logger.error("Failed to cancel billing for office: %s", type(e).__name__)
+            logger.error("Failed to cancel billing: %s", type(e).__name__)
             return {
                 "success": False,
                 "action": "failed",
-                "error": str(e)
+                "error": "Billing cancellation failed"
             }
 
     async def _cancel_stripe_subscription(
@@ -840,33 +895,28 @@ class WithdrawalService:
             # invoice_now=False: 即座に請求書を発行しない
             canceled_subscription = stripe.Subscription.delete(subscription_id)
 
+            logger.info("Stripe subscription canceled: status=%s", canceled_subscription.status)
+
             return {
                 "success": True,
                 "action": "canceled",
-                "subscription_id": subscription_id,
                 "canceled_at": canceled_subscription.canceled_at,
                 "status": canceled_subscription.status
             }
 
         except stripe.error.StripeError as e:
-            logger.error(
-                "Stripe API error during subscription cancellation: %s",
-                type(e).__name__,
-            )
+            logger.error("Stripe API error during subscription cancellation: %s", type(e).__name__)
             return {
                 "success": False,
                 "action": "failed",
-                "error": f"Stripe API error: {str(e)}"
+                "error": "Stripe API error"
             }
         except Exception as e:
-            logger.error(
-                "Unexpected error during Stripe subscription cancellation: %s",
-                type(e).__name__,
-            )
+            logger.error("Unexpected error during Stripe subscription cancellation: %s", type(e).__name__)
             return {
                 "success": False,
                 "action": "failed",
-                "error": str(e)
+                "error": "Stripe subscription cancellation failed"
             }
 
 

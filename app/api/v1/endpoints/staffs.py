@@ -204,10 +204,10 @@ async def verify_email_change(
     except HTTPException:
         # HTTPException はそのまま再raise
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.STAFF_EMAIL_CHANGE_VERIFY_FAILED.format(error=str(e))
+            detail="メールアドレス変更の確認に失敗しました"
         )
 
 
@@ -341,8 +341,7 @@ async def delete_staff(
             ip_address=ip_address,
             user_agent=user_agent,
             details={
-                "deleted_staff_email": target_staff.email,
-                "deleted_staff_name": f"{target_staff.last_name} {target_staff.first_name}",
+                "deleted_staff_id": str(target_staff.id),
                 "deleted_staff_role": target_staff.role.value
             }
         )
@@ -390,11 +389,11 @@ async def delete_staff(
     except HTTPException:
         # HTTPExceptionはそのまま再raise
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.STAFF_DELETE_FAILED.format(error=str(e))
+            detail="スタッフの削除に失敗しました"
         )
 
 

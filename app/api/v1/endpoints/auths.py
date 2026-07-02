@@ -24,7 +24,11 @@ from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM,
     create_email_verification_token, verify_email_verification_token,
     create_temporary_token, verify_temporary_token, verify_temporary_token_with_session, verify_totp,
-    generate_totp_uri, get_password_hash
+    generate_totp_uri, get_password_hash, get_jwt_secret
+)
+from app.core.auth_cookie import (
+    build_access_cookie_options,
+    build_delete_access_cookie_options,
 )
 from app.core.password_breach_check import check_password_breach
 from app.core.mail import send_verification_email
@@ -280,9 +284,9 @@ async def login_for_access_token(
                     "session_duration": session_duration,
                     "session_type": session_type,
                 }
-            except ValueError as e:
+            except ValueError:
                 # シークレット復号化失敗 → MFAをリセット
-                logger.error("[LOGIN MFA] Secret decryption failed: %s", type(e).__name__)
+                logger.error("[LOGIN MFA] Secret decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -308,49 +312,9 @@ async def login_for_access_token(
         session_type=session_type
     )
 
-    # Cookie設定
-    environment_value = os.getenv("ENVIRONMENT")
-    is_production = environment_value == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
-
-    # 環境変数の値を検証（コメントや日本語が含まれていないかチェック）
-    if cookie_domain:
-        cookie_domain = cookie_domain.strip()
-        # コメント記号で始まる、または空の場合はNoneに設定
-        if cookie_domain.startswith('#') or not cookie_domain:
-            cookie_domain = None
-        else:
-            # latin-1でエンコード可能かチェック（日本語等を除外）
-            try:
-                cookie_domain.encode('latin-1')
-            except UnicodeEncodeError:
-                logger.warning("[LOGIN COOKIE] Invalid COOKIE_DOMAIN")
-                cookie_domain = None
-
-    if cookie_samesite:
-        cookie_samesite = cookie_samesite.strip().lower()
-        # 有効な値のみを許可
-        if cookie_samesite not in ['none', 'lax', 'strict']:
-            logger.warning("[LOGIN COOKIE] Invalid COOKIE_SAMESITE value")
-            cookie_samesite = None
-
-
-    cookie_options = {
-        "key": "access_token",
-        "value": access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
-        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=access_token, max_age=session_duration)
+    )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     # トークンはCookieでのみ送信される（refresh_tokenは保持）
@@ -375,9 +339,8 @@ async def refresh_access_token(
     Option 2: リフレッシュトークンのブラックリストチェックを実施
     """
     try:
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = jwt.decode(
-            refresh_token_data.refresh_token, secret_key, algorithms=[ALGORITHM]
+            refresh_token_data.refresh_token, get_jwt_secret(), algorithms=[ALGORITHM]
         )
 
         # セッション情報を取得
@@ -420,24 +383,9 @@ async def refresh_access_token(
         session_type=session_type
     )
 
-    # Cookie設定
-    is_production = os.getenv("ENVIRONMENT") == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
-
-    cookie_options = {
-        "key": "access_token",
-        "value": new_access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        # samesiteのデフォルトは'lax'なので、開発環境ではNoneを明示的に設定
-        "samesite": cookie_samesite if cookie_samesite else "none" if not is_production else "lax",
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=new_access_token, max_age=session_duration)
+    )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     return {
@@ -456,6 +404,7 @@ async def verify_mfa_for_login(
     mfa_data: MFAVerifyRequest,
     staff_crud=Depends(get_staff_crud),
 ):
+    logger.info("[MFA VERIFY] Starting MFA verification")
 
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
@@ -468,6 +417,7 @@ async def verify_mfa_for_login(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
+    logger.info("[MFA VERIFY] Temporary token validated")
 
     user = await staff_crud.get(db, id=user_id)
     if not user:
@@ -481,21 +431,22 @@ async def verify_mfa_for_login(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
 
-
     # Verify either TOTP code or recovery code
     verification_successful = False
 
     if mfa_data.totp_code:
+        logger.info("[MFA VERIFY] Attempting TOTP verification")
         if user.mfa_secret:
             try:
                 # MFA secretは暗号化されているため、復号化が必要
                 decrypted_secret = user.get_mfa_secret()
                 totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
                 if totp_result:
+                    logger.info("[MFA VERIFY] TOTP verification succeeded")
                     verification_successful = True
             except ValueError as e:
                 # シークレット復号化失敗 → MFAに問題がある
-                logger.error("[MFA VERIFY] Secret decryption failed: %s", type(e).__name__)
+                logger.error("[MFA VERIFY] Secret decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -504,6 +455,7 @@ async def verify_mfa_for_login(
             logger.error("[MFA VERIFY] MFA secret is missing")
 
     if mfa_data.recovery_code and not verification_successful:
+        logger.info(f"[MFA VERIFY] Attempting recovery code verification")
         from app.core.security import verify_recovery_code
         from app.models.mfa import MFABackupCode
         from sqlalchemy import select
@@ -523,10 +475,11 @@ async def verify_mfa_for_login(
                 backup_code.mark_as_used()
                 await db.commit()
                 verification_successful = True
+                logger.info(f"[MFA VERIFY] Recovery code verified successfully")
                 break
 
     if not verification_successful:
-        logger.error("[MFA VERIFY] Verification failed")
+        logger.error(f"[MFA VERIFY] Verification failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_MFA_CODE
@@ -543,28 +496,9 @@ async def verify_mfa_for_login(
         session_type=session_type
     )
 
-    # Cookie設定
-    environment_value = os.getenv("ENVIRONMENT")
-    is_production = environment_value == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
-
-
-    cookie_options = {
-        "key": "access_token",
-        "value": access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
-        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=access_token, max_age=session_duration)
+    )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     return {
@@ -599,11 +533,12 @@ async def verify_mfa_first_time(
     検証成功後、is_mfa_verified_by_userフラグをTrueに設定し、
     以降は通常のMFAフローを使用できるようになります。
     """
+    logger.info(f"[MFA FIRST TIME VERIFY] Starting first-time MFA verification")
 
     # 一時トークンを検証
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
-        logger.error("[MFA FIRST TIME VERIFY] Invalid temporary token")
+        logger.error(f"[MFA FIRST TIME VERIFY] Invalid temporary token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
@@ -612,11 +547,12 @@ async def verify_mfa_first_time(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
+    logger.info(f"[MFA FIRST TIME VERIFY] Token validated, user_id: {user_id}")
 
     # ユーザーを取得
     user = await staff_crud.get(db, id=user_id)
     if not user:
-        logger.error("[MFA FIRST TIME VERIFY] User not found")
+        logger.error(f"[MFA FIRST TIME VERIFY] User not found: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_USER_NOT_FOUND,
@@ -624,30 +560,31 @@ async def verify_mfa_first_time(
 
     # MFAが有効で、かつユーザー未検証の状態であることを確認
     if not user.is_mfa_enabled:
-        logger.error("[MFA FIRST TIME VERIFY] MFA not enabled for user")
+        logger.error(f"[MFA FIRST TIME VERIFY] MFA not enabled for user: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ja.AUTH_MFA_NOT_CONFIGURED,
         )
 
     if user.is_mfa_verified_by_user:
-        logger.error("[MFA FIRST TIME VERIFY] User already verified")
+        logger.error(f"[MFA FIRST TIME VERIFY] User already verified: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="MFAは既に検証済みです。通常のログインフローを使用してください。",
         )
 
+    logger.info(f"[MFA FIRST TIME VERIFY] User found, MFA enabled but not verified by user")
 
     # TOTPコードを検証
     if not mfa_data.totp_code:
-        logger.error("[MFA FIRST TIME VERIFY] TOTP code is required")
+        logger.error(f"[MFA FIRST TIME VERIFY] TOTP code is required")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="TOTPコードが必要です。",
         )
 
     if not user.mfa_secret:
-        logger.error("[MFA FIRST TIME VERIFY] MFA secret is missing")
+        logger.error(f"[MFA FIRST TIME VERIFY] MFA secret is missing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -660,13 +597,13 @@ async def verify_mfa_first_time(
         totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
 
         if not totp_result:
-            logger.error("[MFA FIRST TIME VERIFY] Invalid TOTP code")
+            logger.error(f"[MFA FIRST TIME VERIFY] Invalid TOTP code")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ja.AUTH_INVALID_MFA_CODE,
             )
-    except ValueError as e:
-        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed: %s", type(e).__name__)
+    except ValueError:
+        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -676,6 +613,7 @@ async def verify_mfa_first_time(
     user.is_mfa_verified_by_user = True
     await db.commit()
     await db.refresh(user)
+    logger.info(f"[MFA FIRST TIME VERIFY] User verification flag set to True")
 
     # アクセストークンとリフレッシュトークンを生成
     access_token = create_access_token(
@@ -689,26 +627,9 @@ async def verify_mfa_first_time(
         session_type=session_type
     )
 
-    # Cookie設定
-    environment_value = os.getenv("ENVIRONMENT")
-    is_production = environment_value == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)
-
-
-    cookie_options = {
-        "key": "access_token",
-        "value": access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=access_token, max_age=session_duration)
+    )
 
     # レスポンス返却
     return {
@@ -732,22 +653,7 @@ async def logout(
     クライアント側でトークンを無効化するためのエンドポイントです。
     サーバー側での追加のアクションは現在ありません。
     """
-    # Cookieをクリア（ログイン時と同じパラメータで削除）
-    is_production = os.getenv("ENVIRONMENT") == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)
-
-    delete_cookie_options = {
-        "key": "access_token",
-        "path": "/",  # Cookie設定時と同じpathを明示的に指定
-        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
-        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        delete_cookie_options["domain"] = cookie_domain
-
-    response.delete_cookie(**delete_cookie_options)
+    response.delete_cookie(**build_delete_access_cookie_options())
 
     # 今後のためにcurrent_userとdbは引数として残しておく
     return {"message": ja.AUTH_LOGOUT_SUCCESS}
@@ -827,14 +733,14 @@ async def forgot_password(
                 # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error("Failed to send password reset email: %s", type(e).__name__)
+                logger.error("Failed to send password reset email")
 
         except Exception as e:
             # DB処理失敗時はロールバック
             await db.rollback()
             import logging
             logger = logging.getLogger(__name__)
-            logger.error("Failed to create password reset token: %s", type(e).__name__)
+            logger.error("Failed to create password reset token")
             # エラーは飲み込んで、セキュリティのため成功メッセージを返す
             # （メールアドレスの存在を漏らさない）
 
@@ -875,6 +781,38 @@ async def verify_reset_token(
             valid=False,
             message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
         )
+
+
+@router.post(
+    "/verify-reset-token",
+    response_model=schemas.token.TokenValidityResponse,
+    status_code=status.HTTP_200_OK,
+)
+@limiter.limit("30/minute")
+async def verify_reset_token_post(
+    data: schemas.token.VerifyResetTokenRequest,
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """
+    パスワードリセットトークンの有効性を確認します。
+
+    POST bodyで受け取り、URL query stringにトークンを残さないためのエンドポイントです。
+    """
+    from app.crud import password_reset as crud_password_reset
+
+    db_token = await crud_password_reset.get_valid_token(db, token=data.token)
+
+    if db_token:
+        return schemas.token.TokenValidityResponse(
+            valid=True,
+            message=ja.AUTH_RESET_TOKEN_VALID
+        )
+
+    return schemas.token.TokenValidityResponse(
+        valid=False,
+        message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
+    )
 
 
 @router.post(
@@ -924,7 +862,7 @@ async def reset_password(
     is_breached, breach_count = await check_password_breach(data.new_password)
     if is_breached:
         logger.warning(
-            f"Attempted password reset with breached password for {staff_email}. "
+            f"Attempted password reset with breached password for staff_id={staff_id}. "
             f"Password found {breach_count} times in breach database."
         )
         raise HTTPException(
@@ -968,7 +906,7 @@ async def reset_password(
             )
         except Exception as e:
             # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
-            logger.error("Failed to send password changed notification: %s", type(e).__name__)
+            logger.error("Failed to send password changed notification")
 
         return schemas.token.PasswordResetResponse(
             message=ja.AUTH_PASSWORD_RESET_SUCCESS

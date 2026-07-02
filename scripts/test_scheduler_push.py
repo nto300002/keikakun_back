@@ -59,8 +59,8 @@ async def send_test_notifications():
         failure_count = 0
 
         for subscription, staff in subscriptions_with_staff:
-            print(f"📤 送信中: {staff.last_name} {staff.first_name} ({staff.email})")
-            print(f"   Endpoint: {subscription.endpoint[:60]}...")
+            print(f"📤 送信中: staff_id={staff.id}")
+            print(f"   Endpoint: <hidden>")
 
             # PushSubscriptionInfoに変換
             subscription_info = PushSubscriptionInfo.from_db_model(subscription)

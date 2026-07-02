@@ -50,6 +50,8 @@ class GoogleCalendarClient:
             # JSONをパース
             service_account_info = json.loads(self.service_account_json)
 
+            logger.info("Google Calendar service account configuration loaded")
+
             # 認証情報を作成
             credentials = service_account.Credentials.from_service_account_info(
                 service_account_info,
@@ -94,6 +96,11 @@ class GoogleCalendarClient:
         if not self.service:
             raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
 
+        logger.info(
+            "GoogleCalendarClient.create_event called calendar_id_present=%s title_present=%s",
+            bool(calendar_id),
+            bool(title),
+        )
 
         # イベントボディを作成
         event_body = {

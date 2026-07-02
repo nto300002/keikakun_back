@@ -66,7 +66,7 @@ async def fix_double_encoded_secrets():
 
         for staff in staffs:
             try:
-                print(f"処理中: {staff.email} (ID: {staff.id})")
+                print(f"処理中: staff_id={staff.id}")
 
                 # 既存の二重デコード方式で復号化を試行
                 try:
@@ -84,7 +84,7 @@ async def fix_double_encoded_secrets():
                     # データベースを更新
                     staff.mfa_secret = new_encrypted
                     fixed_count += 1
-                    print(f"  ✅ 修正完了: {staff.email}")
+                    print(f"  ✅ 修正完了: staff_id={staff.id}")
 
                 except Exception as e1:
                     # 二重デコードに失敗した場合、既に正しい形式の可能性がある
@@ -100,16 +100,16 @@ async def fix_double_encoded_secrets():
                     except Exception as e2:
                         # どちらの方式でも復号化できない場合
                         failed_count += 1
-                        print(f"  ❌ 復号化失敗: {staff.email}")
-                        print(f"     二重デコードエラー: {str(e1)}")
-                        print(f"     単一デコードエラー: {str(e2)}")
+                        print(f"  ❌ 復号化失敗: staff_id={staff.id}")
+                        print(f"     二重デコードエラー: {type(e1).__name__}")
+                        print(f"     単一デコードエラー: {type(e2).__name__}")
                         print(f"     ⚠️  このスタッフはMFAの再設定が必要です")
 
                 print()
 
             except Exception as e:
                 failed_count += 1
-                print(f"  ❌ 処理エラー: {staff.email} - {str(e)}\n")
+                print(f"  ❌ 処理エラー: staff_id={staff.id} - {type(e).__name__}\n")
 
         # 変更をコミット
         if fixed_count > 0:
@@ -142,9 +142,7 @@ async def main():
         print("\n\n⚠️  処理が中断されました")
         sys.exit(1)
     except Exception as e:
-        print(f"\n\n❌ エラーが発生しました: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"\n\n❌ エラーが発生しました: {type(e).__name__}")
         sys.exit(1)
 
 

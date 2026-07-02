@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import datetime
 import io
+import re
 import uuid as uuid_lib
 from typing import Optional
 
@@ -21,6 +22,61 @@ from app.core.exceptions import NotFoundException, ForbiddenException
 from app.messages import ja
 
 router = APIRouter()
+
+MAX_PDF_UPLOAD_BYTES = 10 * 1024 * 1024
+PDF_READ_CHUNK_BYTES = 1024 * 1024
+
+
+def sanitize_pdf_filename(filename: str | None) -> str:
+    """S3 object名に含める元ファイル名を最小限サニタイズする。"""
+    safe_name = (filename or "unknown.pdf").split("/")[-1].split("\\")[-1]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name).strip("._")
+    return safe_name or "unknown.pdf"
+
+
+def validate_pdf_upload(file_content: bytes, filename: str | None, content_type: str | None) -> None:
+    if content_type != "application/pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ja.SUPPORT_PLAN_PDF_ONLY,
+        )
+
+    if len(file_content) > MAX_PDF_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="PDFファイルは10MB以内でアップロードしてください。",
+        )
+
+    if not file_content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ja.SUPPORT_PLAN_PDF_ONLY,
+        )
+
+    safe_name = sanitize_pdf_filename(filename)
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ja.SUPPORT_PLAN_PDF_ONLY,
+        )
+
+
+async def read_limited_pdf_upload(file: UploadFile) -> bytes:
+    """上限を超えた時点で読み取りを止め、巨大ファイルの全量readを避ける。"""
+    chunks: list[bytes] = []
+    total_size = 0
+
+    while True:
+        chunk = await file.read(PDF_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+
+        chunks.append(chunk)
+        total_size += len(chunk)
+        if total_size > MAX_PDF_UPLOAD_BYTES:
+            break
+
+    return b"".join(chunks)
 
 
 @router.get(
@@ -164,11 +220,8 @@ async def upload_plan_deliverable(
     個別支援計画の成果物（PDF）のアップロード
     """
     # 1. ファイル検証
-    if not file.content_type == "application/pdf":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ja.SUPPORT_PLAN_PDF_ONLY
-        )
+    file_content = await read_limited_pdf_upload(file)
+    validate_pdf_upload(file_content, file.filename, file.content_type)
 
     # 2. plan_cycleの存在確認と権限チェック
     stmt = (
@@ -196,11 +249,9 @@ async def upload_plan_deliverable(
     if current_user.role == StaffRole.employee:
         raise ForbiddenException(ja.SUPPORT_PLAN_EMPLOYEE_CANNOT_UPLOAD)
 
-    # 4. ファイル内容を読み取る
-    file_content = await file.read()
-
     # 5. ファイル名の衝突を避けるためにUUIDを付与
-    unique_filename = f"{uuid_lib.uuid4()}_{file.filename or 'unknown.pdf'}"
+    safe_filename = sanitize_pdf_filename(file.filename)
+    unique_filename = f"{uuid_lib.uuid4()}_{safe_filename}"
     object_name = f"plan-deliverables/{plan_cycle_id}/{deliverable_type}/{unique_filename}"
 
     # 6. ファイルをBinaryIOに変換してS3にアップロード
@@ -218,7 +269,7 @@ async def upload_plan_deliverable(
         plan_cycle_id=plan_cycle_id,
         deliverable_type=DeliverableType(deliverable_type),
         file_path=s3_url,
-        original_filename=file.filename or "unknown.pdf"
+        original_filename=safe_filename
     )
 
     deliverable = await support_plan_service.handle_deliverable_upload(
@@ -292,11 +343,8 @@ async def update_plan_deliverable(
     個別支援計画の成果物（PDF）を再アップロード（更新）
     """
     # 1. ファイル検証
-    if not file.content_type == "application/pdf":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ja.SUPPORT_PLAN_PDF_ONLY
-        )
+    file_content = await read_limited_pdf_upload(file)
+    validate_pdf_upload(file_content, file.filename, file.content_type)
 
     # 2. deliverableを取得
     stmt = (
@@ -327,11 +375,9 @@ async def update_plan_deliverable(
     if current_user.role == StaffRole.employee:
         raise ForbiddenException(ja.SUPPORT_PLAN_EMPLOYEE_CANNOT_UPLOAD)
 
-    # 5. ファイル内容を読み取る
-    file_content = await file.read()
-
     # 6. ファイル名の衝突を避けるためにUUIDを付与
-    unique_filename = f"{uuid_lib.uuid4()}_{file.filename or 'unknown.pdf'}"
+    safe_filename = sanitize_pdf_filename(file.filename)
+    unique_filename = f"{uuid_lib.uuid4()}_{safe_filename}"
     object_name = f"plan-deliverables/{deliverable.plan_cycle_id}/{deliverable.deliverable_type.value}/{unique_filename}"
 
     # 7. ファイルをBinaryIOに変換してS3にアップロード
@@ -349,7 +395,7 @@ async def update_plan_deliverable(
         db=db,
         deliverable_id=deliverable_id,
         new_file_path=s3_url,
-        new_filename=file.filename or "unknown.pdf"
+        new_filename=safe_filename
     )
 
     return updated_deliverable
@@ -506,10 +552,10 @@ async def get_plan_deliverables_list(
 
         return result
 
-    except ForbiddenException as e:
+    except ForbiddenException:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
+            detail="支援計画一覧にアクセスする権限がありません"
         )
     except Exception:
         raise HTTPException(

@@ -58,10 +58,10 @@ async def create_employee_action_request(
             obj_in=obj_in
         )
         return request
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="リクエスト内容が不正です"
         )
 
 
@@ -106,8 +106,7 @@ async def get_employee_action_requests(
     if status_filter:
         all_requests = [req for req in all_requests if req.status == status_filter]
 
-    result = list(all_requests)
-    return result
+    return list(all_requests)
 
 
 @router.patch("/{request_id}/approve", response_model=EmployeeActionRequestRead)
@@ -164,10 +163,10 @@ async def approve_employee_action_request(
         )
         # 明示的にスキーマに変換
         return EmployeeActionRequestRead.model_validate(approved_request)
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="リクエストの承認に失敗しました"
         )
 
 
@@ -224,10 +223,10 @@ async def reject_employee_action_request(
         )
         # 明示的にスキーマに変換
         return EmployeeActionRequestRead.model_validate(rejected_request)
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="リクエストの却下に失敗しました"
         )
 
 

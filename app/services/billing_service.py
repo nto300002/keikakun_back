@@ -22,6 +22,7 @@ from fastapi import HTTPException, status
 from app import crud
 from app.models.enums import BillingStatus
 from app.messages import ja
+from app.services.billing.status_transition import BillingStatusTransitionService
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +35,16 @@ class BillingService:
     データ整合性を保証します。
     """
 
+    def __init__(
+        self,
+        status_transition_service: Optional[BillingStatusTransitionService] = None,
+    ):
+        self.status_transition_service = (
+            status_transition_service or BillingStatusTransitionService()
+        )
+
     def _normalize_trial_end_date(self, trial_end_date: Optional[datetime]) -> Optional[datetime]:
-        if not trial_end_date:
-            return None
-
-        if trial_end_date.tzinfo is not None:
-            return trial_end_date
-
-        return trial_end_date.replace(tzinfo=timezone.utc)
+        return self.status_transition_service.normalize_trial_end_date(trial_end_date)
 
     async def correct_expired_free_billing_before_checkout(
         self,
@@ -62,16 +65,23 @@ class BillingService:
         normalized_trial_end_date = self._normalize_trial_end_date(trial_end_date)
 
         billing = await crud.billing.get(db=db, id=billing_id)
+        expired_status = (
+            self.status_transition_service.determine_trial_expiration_status(
+                current_status=billing.billing_status,
+            )
+            if billing
+            else None
+        )
         if (
             billing
-            and billing.billing_status == BillingStatus.free
+            and expired_status == BillingStatus.trial_expired
             and normalized_trial_end_date
             and normalized_trial_end_date < now
         ):
             await crud.billing.update_status(
                 db=db,
                 billing_id=billing_id,
-                status=BillingStatus.trial_expired,
+                status=expired_status,
                 auto_commit=auto_commit
             )
             logger.info(
@@ -285,6 +295,8 @@ class BillingService:
             )
             customer_id = customer.id
 
+            logger.info("Stripe Customer created")
+
             # 2. DB更新（auto_commit=Falseで遅延commit）
             await crud.billing.update_stripe_customer(
                 db=db,
@@ -315,6 +327,8 @@ class BillingService:
                 success_url=f"{frontend_url}/admin?tab=plan&success=true",
                 cancel_url=f"{frontend_url}/admin?tab=plan&canceled=true",
             )
+
+            logger.info("Stripe Checkout Session created")
 
             # 4. 全ての操作が成功した後、1回だけcommit
             await db.commit()
@@ -389,6 +403,8 @@ class BillingService:
             )
 
             if not billing:
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
+
                 await crud.webhook_event.create_event_record(
                     db=db,
                     event_id=event_id,
@@ -442,10 +458,12 @@ class BillingService:
             # 4. 全ての操作が成功した後、1回だけcommit
             await db.commit()
 
+            logger.info("[Webhook] Payment succeeded")
+
         except Exception as e:
             # エラー時は全てロールバック
             await db.rollback()
-            logger.error("[Webhook:%s] Payment processing error: %s", event_id, type(e).__name__)
+            logger.error("[Webhook] Payment processing error: %s", type(e).__name__)
             raise
 
     async def process_payment_failed(
@@ -473,6 +491,8 @@ class BillingService:
             )
 
             if not billing:
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
+
                 await crud.webhook_event.create_event_record(
                     db=db,
                     event_id=event_id,
@@ -489,13 +509,16 @@ class BillingService:
             # 1. ステータス更新（auto_commit=False）
             now = datetime.now(timezone.utc)
             trial_end_date = self._normalize_trial_end_date(billing.trial_end_date)
-            is_trial_active = bool(trial_end_date and trial_end_date > now)
+            failed_status = self.status_transition_service.determine_payment_failed_status(
+                trial_end_date=trial_end_date,
+                now=now,
+            )
 
-            if not is_trial_active:
+            if failed_status:
                 await crud.billing.update_status(
                     db=db,
                     billing_id=billing.id,
-                    status=BillingStatus.payment_failed,
+                    status=failed_status,
                     auto_commit=False
                 )
 
@@ -532,9 +555,11 @@ class BillingService:
             # 4. commit
             await db.commit()
 
+            logger.warning("[Webhook] Payment failed")
+
         except Exception as e:
             await db.rollback()
-            logger.error("[Webhook:%s] Payment failed processing error: %s", event_id, type(e).__name__)
+            logger.error("[Webhook] Payment failed processing error: %s", type(e).__name__)
             raise
 
     async def process_subscription_created(
@@ -556,7 +581,7 @@ class BillingService:
             # customer_idを取得（必須）
             customer_id = subscription_data.get('customer')
             if not customer_id:
-                logger.error("[Webhook:%s] No customer_id in subscription data", event_id)
+                logger.error("[Webhook] No customer_id in subscription data")
                 return
 
             # 1. 最新のBilling情報を取得
@@ -571,6 +596,27 @@ class BillingService:
                 raise ValueError("Billing not found for Stripe customer")
 
             previous_status = billing.billing_status
+            logger.info(
+                "[Webhook:%s] Subscription created payload: customer_present=%s, "
+                "subscription_present=%s, stripe_status=%s, cancel_at_period_end=%s, "
+                "cancel_at=%s, trial_start=%s, trial_end=%s, latest_invoice=%s, "
+                "billing_id=%s, office_id=%s, previous_billing_status=%s, "
+                "db_trial_end_date=%s, db_stripe_subscription_id=%s",
+                event_id,
+                bool(customer_id),
+                bool(subscription_data.get('id')),
+                subscription_data.get('status'),
+                subscription_data.get('cancel_at_period_end'),
+                subscription_data.get('cancel_at'),
+                subscription_data.get('trial_start'),
+                subscription_data.get('trial_end'),
+                subscription_data.get('latest_invoice'),
+                billing.id,
+                billing.office_id,
+                previous_status.value if previous_status else None,
+                billing.trial_end_date.isoformat() if billing.trial_end_date else None,
+                bool(billing.stripe_subscription_id),
+            )
 
             # 2. Subscription情報を更新（auto_commit=False）
             billing = await crud.billing.update_stripe_subscription(
@@ -584,13 +630,28 @@ class BillingService:
             # 3. ステータス判定: 無料期間中 → early_payment、期限切れ → active
             now = datetime.now(timezone.utc)
             trial_end_date = self._normalize_trial_end_date(billing.trial_end_date)
-
-            is_trial_active = (
-                trial_end_date and
-                trial_end_date > now
+            status_decision = (
+                self.status_transition_service.determine_subscription_created_status(
+                    trial_end_date=trial_end_date,
+                    now=now,
+                )
             )
 
-            new_status = BillingStatus.early_payment if is_trial_active else BillingStatus.active
+            new_status = status_decision.status
+            is_trial_active = status_decision.is_trial_active
+            logger.info(
+                "[Webhook:%s] Subscription created status decision: billing_id=%s, "
+                "previous_status=%s, new_status=%s, db_trial_end_date=%s, "
+                "normalized_trial_end_date=%s, now=%s, is_trial_active=%s",
+                event_id,
+                billing.id,
+                previous_status.value if previous_status else None,
+                new_status.value,
+                billing.trial_end_date.isoformat() if billing.trial_end_date else None,
+                trial_end_date.isoformat() if trial_end_date else None,
+                now.isoformat(),
+                is_trial_active,
+            )
             await crud.billing.update_status(
                 db=db,
                 billing_id=billing.id,
@@ -631,9 +692,29 @@ class BillingService:
             # 6. commit
             await db.commit()
 
+            logger.info(
+                "[Webhook:%s] Subscription created office_id=%s status=%s trial_active=%s",
+                event_id,
+                billing.office_id,
+                new_status.value,
+                is_trial_active,
+            )
+
         except Exception as e:
             await db.rollback()
-            logger.error("[Webhook:%s] Subscription creation processing error: %s", event_id, type(e).__name__)
+            logger.error(
+                "[Webhook:%s] Subscription creation processing error: "
+                "error=%s customer_present=%s, subscription_present=%s, stripe_status=%s, "
+                "cancel_at_period_end=%s, cancel_at=%s, latest_invoice=%s",
+                event_id,
+                type(e).__name__,
+                bool(subscription_data.get('customer')),
+                bool(subscription_data.get('id')),
+                subscription_data.get('status'),
+                subscription_data.get('cancel_at_period_end'),
+                subscription_data.get('cancel_at'),
+                subscription_data.get('latest_invoice'),
+            )
             raise
 
     async def process_subscription_updated(
@@ -665,12 +746,35 @@ class BillingService:
             subscription_status = subscription_data.get('status')
             subscription_id = subscription_data.get('id')
 
+            logger.info(
+                "[Webhook:%s] Subscription updated payload: customer_present=%s, "
+                "subscription_present=%s, stripe_status=%s, cancel_at_period_end=%s, "
+                "cancel_at=%s, canceled_at=%s, cancellation_reason=%s, "
+                "trial_start=%s, trial_end=%s, current_period_end=%s, latest_invoice=%s",
+                event_id,
+                bool(customer_id),
+                bool(subscription_id),
+                subscription_status,
+                cancel_at_period_end,
+                cancel_at,
+                subscription_data.get('canceled_at'),
+                subscription_data.get('cancellation_details', {}).get('reason')
+                if isinstance(subscription_data.get('cancellation_details'), dict)
+                else None,
+                subscription_data.get('trial_start'),
+                subscription_data.get('trial_end'),
+                subscription_data.get('current_period_end'),
+                subscription_data.get('latest_invoice'),
+            )
+
             billing = await crud.billing.get_by_stripe_customer_id(
                 db=db,
                 stripe_customer_id=customer_id
             )
 
             if not billing:
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
+
                 await crud.webhook_event.create_event_record(
                     db=db,
                     event_id=event_id,
@@ -690,19 +794,60 @@ class BillingService:
                 return
 
             previous_status = billing.billing_status
+            logger.info(
+                "[Webhook:%s] Current billing before subscription update: "
+                "billing_id=%s, office_id=%s, billing_status=%s, "
+                "db_trial_end_date=%s, db_subscription_start_date=%s, "
+                "db_last_payment_date=%s, db_scheduled_cancel_at=%s, "
+                "db_stripe_subscription_id=%s",
+                event_id,
+                billing.id,
+                billing.office_id,
+                previous_status.value if previous_status else None,
+                billing.trial_end_date.isoformat() if billing.trial_end_date else None,
+                billing.subscription_start_date.isoformat() if billing.subscription_start_date else None,
+                billing.last_payment_date.isoformat() if billing.last_payment_date else None,
+                billing.scheduled_cancel_at.isoformat() if billing.scheduled_cancel_at else None,
+                bool(billing.stripe_subscription_id),
+            )
 
             now = datetime.now(timezone.utc)
             trial_end_date = self._normalize_trial_end_date(billing.trial_end_date)
             is_stale_unpaid_expired_trial = (
-                billing.billing_status in [BillingStatus.free, BillingStatus.canceling]
-                and trial_end_date is not None
-                and trial_end_date < now
-                and billing.last_payment_date is None
-                and billing.subscription_start_date is None
+                self.status_transition_service.is_stale_unpaid_expired_trial(
+                    billing_status=billing.billing_status,
+                    trial_end_date=trial_end_date,
+                    last_payment_date=billing.last_payment_date,
+                    subscription_start_date=billing.subscription_start_date,
+                    now=now,
+                )
             )
             should_cancel_trial_expired_immediately = (
-                (billing.billing_status == BillingStatus.trial_expired or is_stale_unpaid_expired_trial)
-                and (cancel_at_period_end or cancel_at)
+                self.status_transition_service.should_cancel_trial_expired_immediately(
+                    billing_status=billing.billing_status,
+                    trial_end_date=trial_end_date,
+                    last_payment_date=billing.last_payment_date,
+                    subscription_start_date=billing.subscription_start_date,
+                    cancel_at_period_end=cancel_at_period_end,
+                    cancel_at=cancel_at,
+                    now=now,
+                )
+            )
+            logger.info(
+                "[Webhook:%s] Subscription update status decision flags: billing_id=%s, "
+                "previous_status=%s, stripe_status=%s, is_stale_unpaid_expired_trial=%s, "
+                "should_cancel_trial_expired_immediately=%s, cancel_at_period_end=%s, "
+                "cancel_at=%s, normalized_trial_end_date=%s, now=%s",
+                event_id,
+                billing.id,
+                previous_status.value if previous_status else None,
+                subscription_status,
+                is_stale_unpaid_expired_trial,
+                should_cancel_trial_expired_immediately,
+                cancel_at_period_end,
+                cancel_at,
+                trial_end_date.isoformat() if trial_end_date else None,
+                now.isoformat(),
             )
 
             # スケジュールされたキャンセル日時を保存
@@ -714,23 +859,30 @@ class BillingService:
                         "billing_status": BillingStatus.canceled,
                         "scheduled_cancel_at": None,
                     },
-                        auto_commit=False
-                    )
+                    auto_commit=False
+                )
+                logger.info(
+                    f"[Webhook:{event_id}] Trial expired subscription canceled immediately "
+                    f"for billing_id={billing.id}, previous_status={previous_status.value if previous_status else None}, "
+                    f"reason=cancel_signal_on_trial_expired_or_stale_unpaid_expired_trial"
+                )
             elif cancel_at:
                 cancel_at_datetime = datetime.fromtimestamp(cancel_at, tz=timezone.utc)
                 await crud.billing.update(
                     db=db,
                     db_obj=billing,
                     obj_in={"scheduled_cancel_at": cancel_at_datetime},
-                        auto_commit=False
-                    )
+                    auto_commit=False
+                )
+                logger.info("[Webhook] Scheduled cancellation set")
             elif billing.scheduled_cancel_at is not None:
                 await crud.billing.update(
                     db=db,
                     db_obj=billing,
                     obj_in={"scheduled_cancel_at": None},
-                        auto_commit=False
-                    )
+                    auto_commit=False
+                )
+                logger.info("[Webhook] Scheduled cancellation cleared")
 
             # cancel_at_period_end=true または cancel_at が設定されている場合、キャンセル予定状態に
             if not should_cancel_trial_expired_immediately and (cancel_at_period_end or cancel_at):
@@ -741,6 +893,8 @@ class BillingService:
                     auto_commit=False
                 )
 
+                logger.info("[Webhook] Subscription set to canceling")
+
             # キャンセルが完全にクリアされた場合（cancel_at_period_end=false かつ cancel_at=null）、元のステータスに復元
             elif (
                 not should_cancel_trial_expired_immediately
@@ -750,19 +904,16 @@ class BillingService:
             ):
                 # 元のステータスを判定: trial期間内 or 課金期間中
                 now = datetime.now(timezone.utc)
-                is_in_trial = now < billing.trial_end_date
                 has_subscription = billing.stripe_subscription_id is not None
 
                 # 復元先のステータスを決定
-                if is_in_trial and has_subscription:
-                    # 無料期間中かつ課金設定済み → early_payment
-                    restored_status = BillingStatus.early_payment
-                elif is_in_trial and not has_subscription:
-                    # 無料期間中かつ課金未設定 → free
-                    restored_status = BillingStatus.free
-                else:
-                    # 課金期間中 → active
-                    restored_status = BillingStatus.active
+                restored_status = (
+                    self.status_transition_service.determine_canceling_restore_status(
+                        trial_end_date=billing.trial_end_date,
+                        has_subscription=has_subscription,
+                        now=now,
+                    )
+                )
 
                 await crud.billing.update_status(
                     db=db,
@@ -770,6 +921,11 @@ class BillingService:
                     status=restored_status,
                     auto_commit=False
                 )
+
+                logger.info("[Webhook] Subscription cancellation reverted")
+            else:
+                # どの条件にも当てはまらない場合（通常の更新）
+                logger.info("[Webhook] Subscription updated but no status change needed")
 
             # Webhookイベント記録
             await crud.webhook_event.create_event_record(
@@ -808,10 +964,32 @@ class BillingService:
 
             # commit
             await db.commit()
+            logger.info(
+                "[Webhook:%s] Subscription update committed: billing_id=%s, "
+                "previous_status=%s, cancel_at_period_end=%s, cancel_at=%s, "
+                "stripe_status=%s",
+                event_id,
+                billing.id,
+                previous_status.value if previous_status else None,
+                cancel_at_period_end,
+                cancel_at,
+                subscription_status,
+            )
 
         except Exception as e:
             await db.rollback()
-            logger.error("[Webhook:%s] Subscription update processing error: %s", event_id, type(e).__name__)
+            logger.error(
+                "[Webhook:%s] Subscription update processing error: "
+                "error=%s customer_present=%s, subscription_present=%s, stripe_status=%s, "
+                "cancel_at_period_end=%s, cancel_at=%s",
+                event_id,
+                type(e).__name__,
+                bool(subscription_data.get('customer')),
+                bool(subscription_data.get('id')),
+                subscription_data.get('status'),
+                subscription_data.get('cancel_at_period_end'),
+                subscription_data.get('cancel_at'),
+            )
             raise
 
     async def process_subscription_deleted(
@@ -839,6 +1017,8 @@ class BillingService:
             )
 
             if not billing:
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
+
                 await crud.webhook_event.create_event_record(
                     db=db,
                     event_id=event_id,
@@ -861,9 +1041,24 @@ class BillingService:
                 since=recent_payment_failed_cutoff
             )
             new_status = (
-                BillingStatus.payment_failed
-                if has_recent_payment_failed
-                else BillingStatus.canceled
+                self.status_transition_service.determine_subscription_deleted_status(
+                    has_recent_payment_failed=has_recent_payment_failed,
+                )
+            )
+            logger.info(
+                "[Webhook:%s] Subscription deleted payload: customer_present=%s, "
+                "billing_id=%s, office_id=%s, previous_status=%s, "
+                "db_stripe_subscription_id=%s, has_recent_payment_failed=%s, "
+                "recent_payment_failed_cutoff=%s, new_status=%s",
+                event_id,
+                bool(customer_id),
+                billing.id,
+                billing.office_id,
+                previous_status.value if previous_status else None,
+                bool(billing.stripe_subscription_id),
+                has_recent_payment_failed,
+                recent_payment_failed_cutoff.isoformat(),
+                new_status.value,
             )
 
             # 1. ステータス更新とスケジュールキャンセルのクリア（auto_commit=False）
@@ -915,7 +1110,21 @@ class BillingService:
             # 4. commit
             await db.commit()
 
+            logger.info(
+                "[Webhook:%s] Subscription deleted committed: billing_id=%s, "
+                "previous_status=%s, new_status=%s",
+                event_id,
+                billing.id,
+                previous_status.value if previous_status else None,
+                new_status.value,
+            )
+
         except Exception as e:
             await db.rollback()
-            logger.error("[Webhook:%s] Subscription deletion processing error: %s", event_id, type(e).__name__)
+            logger.error(
+                "[Webhook:%s] Subscription deletion processing error: %s customer_present=%s",
+                event_id,
+                type(e).__name__,
+                bool(customer_id),
+            )
             raise

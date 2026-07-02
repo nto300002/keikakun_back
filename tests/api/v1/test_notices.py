@@ -19,6 +19,13 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
+async def get_csrf_tokens(async_client: AsyncClient) -> tuple[str, str]:
+    csrf_response = await async_client.get("/api/v1/csrf-token")
+    csrf_token = csrf_response.json()["csrf_token"]
+    csrf_cookie = csrf_response.cookies.get("fastapi-csrf-token")
+    return csrf_token, csrf_cookie
+
+
 # ========================================
 # GET /api/v1/notices
 # ========================================
@@ -333,9 +340,14 @@ async def test_mark_notice_as_read(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
+    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
-    response = await async_client.patch(f"/api/v1/notices/{notice.id}/read")
+    response = await async_client.patch(
+        f"/api/v1/notices/{notice.id}/read",
+        headers={"X-CSRF-Token": csrf_token},
+    )
 
     # Assert
     assert response.status_code == 200
@@ -414,9 +426,14 @@ async def test_mark_all_notices_as_read(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
+    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
-    response = await async_client.patch("/api/v1/notices/read-all")
+    response = await async_client.patch(
+        "/api/v1/notices/read-all",
+        headers={"X-CSRF-Token": csrf_token},
+    )
 
     # Assert
     assert response.status_code == 200
@@ -457,9 +474,14 @@ async def test_delete_notice(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
+    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
-    response = await async_client.delete(f"/api/v1/notices/{notice.id}")
+    response = await async_client.delete(
+        f"/api/v1/notices/{notice.id}",
+        headers={"X-CSRF-Token": csrf_token},
+    )
 
     # Assert
     assert response.status_code == 204

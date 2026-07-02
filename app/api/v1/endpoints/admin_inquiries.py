@@ -190,16 +190,16 @@ async def update_inquiry(
             id=inquiry_id,
             message="更新しました"
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="問い合わせが見つかりません"
         )
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"問い合わせの更新に失敗しました: {str(e)}"
+            detail="問い合わせの更新に失敗しました"
         )
 
 
@@ -280,17 +280,17 @@ async def reply_to_inquiry(
             id=reply_message_id,
             message=message_text
         )
-    except ValueError as e:
+    except ValueError:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="問い合わせが見つかりません"
         )
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"返信の送信に失敗しました: {str(e)}"
+            detail="返信の送信に失敗しました"
         )
 
 
@@ -325,9 +325,9 @@ async def delete_inquiry(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"問い合わせの削除に失敗しました: {str(e)}"
+            detail="問い合わせの削除に失敗しました"
         )

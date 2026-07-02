@@ -67,6 +67,12 @@ async def subscribe_push(
             user_agent=user_agent
         )
 
+        logger.info(
+            "[PUSH_SUBSCRIPTION] Staff subscribed staff_id=%s subscription_id=%s",
+            current_user.id,
+            new_subscription.id,
+        )
+
         return new_subscription
 
     except Exception as e:
@@ -112,6 +118,8 @@ async def unsubscribe_push(
 
         if not deleted:
             raise HTTPException(status_code=404, detail="Subscription not found")
+
+        logger.info("[PUSH_SUBSCRIPTION] Staff unsubscribed")
 
         return {"message": "Unsubscribed successfully"}
 

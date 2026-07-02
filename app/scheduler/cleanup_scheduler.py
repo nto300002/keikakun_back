@@ -43,6 +43,7 @@ class CleanupScheduler:
         """
         logger.info("=" * 80)
         logger.info("物理削除クリーンアップジョブ開始")
+        logger.info(f"閾値: {self.days_threshold}日前までに論理削除されたレコード")
         logger.info("=" * 80)
 
         try:
@@ -64,17 +65,14 @@ class CleanupScheduler:
                 )
 
                 if errors:
-                    logger.error("物理削除クリーンアップでエラーが発生しました")
+                    logger.error(f"{len(errors)}件のエラーが発生しました:")
                     for error in errors:
-                        logger.error("物理削除クリーンアップの個別エラーを記録しました")
+                        logger.error(f"  - {error}")
                 elif deleted_staff == 0 and deleted_offices == 0:
                     logger.info("物理削除対象のレコードはありませんでした")
 
         except Exception as e:
-            logger.error(
-                "物理削除クリーンアップジョブでエラーが発生しました: %s",
-                type(e).__name__,
-            )
+            logger.error("物理削除クリーンアップジョブでエラーが発生しました: %s", type(e).__name__)
 
         logger.info("=" * 80)
         logger.info("物理削除クリーンアップジョブ終了")

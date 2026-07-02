@@ -1,5 +1,6 @@
 from typing import List, Optional
 from uuid import uuid4, UUID
+import logging
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,6 +19,9 @@ from app.schemas.welfare_recipient import (
     WelfareRecipientUpdate,
     UserRegistrationRequest
 )
+
+logger = logging.getLogger(__name__)
+
 
 class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, WelfareRecipientUpdate]):
 
@@ -72,6 +76,7 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         office_id: UUID
     ) -> None:
         """Create related data for a welfare recipient."""
+
         contact_address = registration_data.contact_address
         detail = ServiceRecipientDetail(
             welfare_recipient_id=welfare_recipient.id,

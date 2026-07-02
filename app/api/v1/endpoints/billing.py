@@ -14,11 +14,11 @@ import logging
 from app import crud
 from app.api import deps
 from app.models.staff import Staff
-from app.models.enums import BillingStatus
 from app.schemas.billing import BillingStatusResponse
 from app.core.config import settings
 from app.messages import ja
 from app.services import BillingService
+from app.services.billing.status_transition import BillingStatusTransitionService
 
 
 def get_stripe_secret_key() -> str:
@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 # サービス層のインスタンス化
 billing_service = BillingService()
+status_transition_service = BillingStatusTransitionService()
 
 
 @router.get("/status", response_model=BillingStatusResponse)
@@ -78,19 +79,18 @@ async def get_billing_status(
 
     # Billing情報が存在しない場合、自動的に作成（既存Officeの救済措置）
     if not billing:
-        logger.warning("Billing not found for office; auto-creating with trial")
+        logger.warning("Billing not found, auto-creating with 180-day trial")
         billing = await crud.billing.create_for_office(
             db=db,
             office_id=office_id,
             trial_days=180
         )
+        logger.info("Auto-created billing record")
 
     if billing.trial_end_date and billing.trial_end_date < datetime.now(timezone.utc):
-        expired_status = None
-        if billing.billing_status == BillingStatus.free:
-            expired_status = BillingStatus.trial_expired
-        elif billing.billing_status == BillingStatus.early_payment:
-            expired_status = BillingStatus.active
+        expired_status = status_transition_service.determine_trial_expiration_status(
+            current_status=billing.billing_status,
+        )
 
         if expired_status:
             billing = await crud.billing.update_status(
@@ -99,7 +99,11 @@ async def get_billing_status(
                 status=expired_status,
                 auto_commit=True
             )
-            logger.info("Expired trial billing corrected during status fetch")
+            logger.info(
+                "Expired trial billing corrected during status fetch: "
+                f"billing_id={billing.id}, office_id={office_id}, "
+                f"status={expired_status.value}"
+            )
 
     if billing is None:
         raise HTTPException(
@@ -313,10 +317,23 @@ async def stripe_webhook(
     event_data: dict = event_dict['data']['object']
     event_id: str = event_dict.get('id', 'unknown')
 
+    logger.info(
+        "[Webhook:%s] Received event type=%s object_id=%s customer=%s "
+        "subscription=%s payment_intent=%s invoice=%s status=%s",
+        event_id,
+        event_type,
+        event_data.get('id'),
+        event_data.get('customer'),
+        event_data.get('subscription'),
+        event_data.get('payment_intent'),
+        event_data.get('invoice'),
+        event_data.get('status'),
+    )
+
     # 【Phase 7】冪等性チェック: 既に処理済みのイベントはスキップ
     is_processed = await crud.webhook_event.is_event_processed(db=db, event_id=event_id)
     if is_processed:
-        logger.info("[Webhook:%s] Event already processed - skipping", event_id)
+        logger.info("[Webhook] Event already processed - skipping")
         return {"status": "success", "message": "Event already processed"}
 
     # サービス層で処理（トランザクション整合性保証）
@@ -366,24 +383,35 @@ async def stripe_webhook(
 
         else:
             # 未対応のイベントタイプ
-            logger.info("[Webhook:%s] Unhandled event type=%s", event_id, event_type)
+            logger.info(
+                "[Webhook:%s] Unhandled event type=%s object_id=%s customer=%s "
+                "subscription=%s payment_intent=%s invoice=%s status=%s",
+                event_id,
+                event_type,
+                event_data.get('id'),
+                event_data.get('customer'),
+                event_data.get('subscription'),
+                event_data.get('payment_intent'),
+                event_data.get('invoice'),
+                event_data.get('status'),
+            )
 
         return {"status": "success"}
 
     except IntegrityError as e:
         # 冪等性: 既に処理済みのイベント（UniqueViolation）
         if "duplicate key" in str(e) and "webhook_events_event_id_key" in str(e):
-            logger.info("[Webhook:%s] Event already processed (detected via IntegrityError)", event_id)
+            logger.info("[Webhook] Event already processed (detected via IntegrityError) - returning success")
             return {"status": "success", "message": "Event already processed"}
         # その他のIntegrityError
-        logger.error("[Webhook:%s] Integrity error: %s", event_id, type(e).__name__)
+        logger.error("[Webhook] Integrity error: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.BILLING_WEBHOOK_PROCESSING_FAILED
         )
     except Exception as e:
         # エラーはサービス層で既にロールバック済み
-        logger.error("[Webhook:%s] Webhook処理エラー: %s", event_id, type(e).__name__)
+        logger.error("[Webhook] Webhook処理エラー: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.BILLING_WEBHOOK_PROCESSING_FAILED

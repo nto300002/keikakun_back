@@ -329,11 +329,11 @@ async def update_office_info(
 
         return updated_office
 
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update office info: {str(e)}"
+            detail="事業所情報の更新に失敗しました"
         )
 
 

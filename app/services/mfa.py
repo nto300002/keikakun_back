@@ -23,6 +23,7 @@ class MfaService:
 
         # is_mfa_enabled は verify で有効にするのでここでは True にしない
         # NOTE: トランザクション管理はエンドポイント層で行う
+        logger.info("[MFA ENROLL] Enrollment data generated")
 
         # QRコードURIは平文のシークレットを使用
         qr_code_uri = generate_totp_uri(user.email, mfa_secret)
@@ -35,26 +36,27 @@ class MfaService:
         logger = logging.getLogger(__name__)
 
         if not user.mfa_secret:
-            logger.warning("[MFA VERIFY] No mfa_secret for user")
+            logger.warning("[MFA VERIFY] No MFA secret")
             return False
 
+        logger.info("[MFA VERIFY] Starting verification")
 
         # mfa_secretは暗号化されているため、復号化が必要
         try:
             secret = user.get_mfa_secret()
-        except ValueError as e:
+        except ValueError:
             # 復号化失敗をログに記録して False を返す
-            logger.error("[MFA VERIFY] Decryption failed: %s", type(e).__name__)
+            logger.error("[MFA VERIFY] Decryption failed")
             return False
 
         if not secret:
-            logger.warning("[MFA VERIFY] Decryption returned None")
+            logger.warning("[MFA VERIFY] Decryption returned no secret")
             return False
-
 
         if verify_totp(secret=secret, token=totp_code):
             user.is_mfa_enabled = True
             # NOTE: トランザクション管理はエンドポイント層で行う（テストではコミットが必要）
+            logger.info("[MFA VERIFY] Verification successful")
             return True
 
         logger.warning("[MFA VERIFY] Verification failed")
@@ -78,27 +80,29 @@ class MfaService:
         logger = logging.getLogger(__name__)
 
         if not user.mfa_secret:
-            logger.warning("[MFA VERIFY] No mfa_secret for user")
+            logger.warning("[MFA VERIFY] No MFA secret")
             return False
 
+        logger.info("[MFA VERIFY TOTP] Starting verification")
 
         # mfa_secretは暗号化されているため、復号化が必要
         try:
             secret = user.get_mfa_secret()
-        except ValueError as e:
+        except ValueError:
             # 復号化失敗をログに記録して False を返す
-            logger.error("[MFA VERIFY TOTP] Decryption failed: %s", type(e).__name__)
+            logger.error("[MFA VERIFY TOTP] Decryption failed")
             return False
 
         if not secret:
-            logger.warning("[MFA VERIFY TOTP] Decryption returned None")
+            logger.warning("[MFA VERIFY TOTP] Decryption returned no secret")
             return False
-
 
         # TOTP検証のみ実行（コミットしない）
         is_valid = verify_totp(secret=secret, token=totp_code)
 
-        if not is_valid:
+        if is_valid:
+            logger.info("[MFA VERIFY TOTP] Verification successful")
+        else:
             logger.warning("[MFA VERIFY TOTP] Verification failed")
 
         return is_valid

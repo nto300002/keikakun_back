@@ -42,7 +42,7 @@ async def get_billing():
             print("ERROR:Billing not found")
             return
 
-        print(f"{billing.id}|{billing.office_id}|{billing.billing_status.value}|{billing.trial_end_date}|{billing.scheduled_cancel_at}|{billing.stripe_customer_id}|{billing.stripe_subscription_id}")
+        print(f"{billing.id}|{billing.office_id}|{billing.billing_status.value}|{billing.trial_end_date}|{billing.scheduled_cancel_at}")
 
 asyncio.run(get_billing())
 EOF
@@ -317,8 +317,8 @@ async def update_billing():
 
         print(f'✅ Billing更新完了')
         print(f'   billing_status: {billing.billing_status.value}')
-        print(f'   stripe_customer_id: {billing.stripe_customer_id}')
-        print(f'   stripe_subscription_id: {billing.stripe_subscription_id or "None"}')
+        print(f'   stripe_customer_id: {"present" if billing.stripe_customer_id else "absent"}')
+        print(f'   stripe_subscription_id: {"present" if billing.stripe_subscription_id else "absent"}')
         if '$CURRENT_STATUS' == 'canceling':
             print(f'   scheduled_cancel_at: {billing.scheduled_cancel_at}')
         else:
@@ -369,7 +369,7 @@ async def process_webhook_via_service():
     # まず、Subscriptionから Customer IDを取得
     subscription = stripe.Subscription.retrieve('$SUBSCRIPTION_ID')
     customer_id = subscription.customer
-    print(f'   Customer ID: {customer_id}')
+    print('   Customer ID: <hidden>')
 
     # Customer IDで invoice.payment_succeeded イベントを検索
     events = stripe.Event.list(limit=50, type='invoice.payment_succeeded')
@@ -414,9 +414,7 @@ async def process_webhook_via_service():
             )
             print(f'   ✅ Webhookサービス層での処理完了 (invoice.payment_succeeded)')
         except Exception as e:
-            print(f'   ❌ エラー: {e}')
-            import traceback
-            traceback.print_exc()
+            print(f'   ❌ エラー: {type(e).__name__}')
             raise
 
     # 処理後のステータス確認（別セッション）
@@ -452,7 +450,7 @@ async def process_webhook_via_service():
     # Subscriptionから Customer IDを取得
     subscription = stripe.Subscription.retrieve('$SUBSCRIPTION_ID')
     customer_id = subscription.customer
-    print(f'   Customer ID: {customer_id}')
+    print('   Customer ID: <hidden>')
 
     # Customer IDで customer.subscription.created イベントを検索
     events = stripe.Event.list(limit=50, type='customer.subscription.created')
@@ -498,9 +496,7 @@ async def process_webhook_via_service():
             )
             print(f'   ✅ Webhookサービス層での処理完了 (customer.subscription.created)')
         except Exception as e:
-            print(f'   ❌ エラー: {e}')
-            import traceback
-            traceback.print_exc()
+            print(f'   ❌ エラー: {type(e).__name__}')
             raise
 
     # 処理後のステータス確認（別セッション）

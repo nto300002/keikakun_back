@@ -39,6 +39,9 @@ from app.services.google_calendar_client import (
     GoogleCalendarAuthenticationError,
     GoogleCalendarAPIError
 )
+from app.services.calendar.calendar_event_ledger_service import CalendarEventLedgerService
+from app.services.calendar.google_calendar_gateway import GoogleCalendarGateway
+from app.services.calendar.google_calendar_sync_service import GoogleCalendarSyncService
 from app.messages import ja
 
 logger = logging.getLogger(__name__)
@@ -46,6 +49,23 @@ logger = logging.getLogger(__name__)
 
 class CalendarService:
     """カレンダー連携サービス"""
+
+    def __init__(
+        self,
+        *,
+        event_ledger_service: Optional[CalendarEventLedgerService] = None,
+        google_sync_service: Optional[GoogleCalendarSyncService] = None,
+        google_gateway: Optional[GoogleCalendarGateway] = None,
+    ):
+        self.event_ledger_service = event_ledger_service or CalendarEventLedgerService()
+        self.google_gateway = google_gateway
+        self.google_sync_service = google_sync_service or GoogleCalendarSyncService(
+            gateway=google_gateway or self._google_gateway(),
+            event_ledger_service=self.event_ledger_service,
+        )
+
+    def _google_gateway(self) -> GoogleCalendarGateway:
+        return self.google_gateway or GoogleCalendarGateway(client_class=GoogleCalendarClient)
 
     async def setup_office_calendar(
         self,
@@ -283,10 +303,7 @@ class CalendarService:
                     detail=ja.SERVICE_ACCOUNT_KEY_NOT_FOUND
                 )
 
-
-            # Google Calendar APIクライアントを作成して認証
-            client = GoogleCalendarClient(service_account_json)
-            client.authenticate()
+            logger.info("カレンダー接続テスト開始")
 
             # テストイベントを作成して接続を確認（すぐに削除）
             test_title = "Connection Test"
@@ -294,7 +311,9 @@ class CalendarService:
             test_start = datetime.now()
             test_end = test_start + timedelta(hours=1)  # 23時台でもエラーが発生しないようにtimedeltaを使用
 
-            event_id = client.create_event(
+            google_gateway = self._google_gateway()
+            event_id = google_gateway.create_event(
+                service_account_json=service_account_json,
                 calendar_id=account.google_calendar_id,
                 title=test_title,
                 description=test_description,
@@ -303,7 +322,8 @@ class CalendarService:
             )
 
             # テストイベントを削除
-            client.delete_event(
+            google_gateway.delete_event(
+                service_account_json=service_account_json,
                 calendar_id=account.google_calendar_id,
                 event_id=event_id
             )
@@ -316,15 +336,14 @@ class CalendarService:
                 error_message=None
             )
 
+            logger.info("カレンダー接続テスト成功")
+
             return True
 
         except (GoogleCalendarAuthenticationError, GoogleCalendarAPIError, Exception) as e:
             # 接続エラー
             error_message = str(e)
-            logger.error("=" * 80)
-            logger.error("カレンダー接続テスト失敗")
-            logger.error("  エラー: %s", type(e).__name__)
-            logger.error("=" * 80)
+            logger.error("カレンダー接続テスト失敗: %s", type(e).__name__)
 
             await crud_office_calendar_account.update_connection_status(
                 db=db,
@@ -358,89 +377,13 @@ class CalendarService:
         Returns:
             作成されたイベントIDのリスト（1要素、またはカレンダー未設定時・重複時は空リスト）
         """
-        # 重複チェック: 同じcycle_id + event_typeのイベントが既に存在するか
-        # ※ SELECT文なので、現在のトランザクション内の変更も含めて検索される
-        existing_event_result = await db.execute(
-            select(CalendarEvent).where(
-                CalendarEvent.support_plan_cycle_id == cycle_id,
-                CalendarEvent.event_type == CalendarEventType.renewal_deadline
-            ).limit(1)
-        )
-        existing_event = existing_event_result.scalar_one_or_none()
-
-        if existing_event:
-            return []
-
-        # カレンダーアカウントを取得
-        account = await crud_office_calendar_account.get_by_office_id(
+        return await self.event_ledger_service.create_renewal_deadline_events(
             db=db,
-            office_id=office_id
-        )
-
-        if not account:
-            return []
-
-        # 属性を事前に取得（ループ内でアクセスするとgreenletエラーが発生するため）
-        account_calendar_id = account.google_calendar_id
-        account_status = account.connection_status
-
-        if account_status != CalendarConnectionStatus.connected:
-            return []
-
-        # 利用者情報を取得
-        result = await db.execute(
-            select(WelfareRecipient).where(WelfareRecipient.id == welfare_recipient_id)
-        )
-        recipient = result.scalar_one_or_none()
-
-        if not recipient:
-            return []
-
-        # サイクル情報を取得（cycle_numberを取得するため）
-        from app.models.support_plan_cycle import SupportPlanCycle
-        cycle_result = await db.execute(
-            select(SupportPlanCycle).where(SupportPlanCycle.id == cycle_id)
-        )
-        cycle = cycle_result.scalar_one_or_none()
-
-        if not cycle:
-            return []
-
-        # 利用者名とサイクル番号を事前に取得
-        recipient_last_name = recipient.last_name
-        recipient_first_name = recipient.first_name
-        cycle_number = cycle.cycle_number
-        event_title = f"{recipient_last_name} {recipient_first_name} 更新期限まで残り1ヶ月"
-
-        # 1つのイベントで150日目9:00～180日目18:00の期間を表現
-        # JST（日本時間）で明示的に指定
-        jst = ZoneInfo("Asia/Tokyo")
-
-        # 開始: 150日目の9:00 JST
-        event_start_date = date.today() + timedelta(days=150)
-        event_start = datetime.combine(event_start_date, time(9, 0), tzinfo=jst)
-
-        # 終了: 180日目（更新期限日）の18:00 JST
-        event_end = datetime.combine(next_renewal_deadline, time(18, 0), tzinfo=jst)
-
-        event = CalendarEvent(
             office_id=office_id,
             welfare_recipient_id=welfare_recipient_id,
-            support_plan_cycle_id=cycle_id,
-            event_type=CalendarEventType.renewal_deadline,
-            google_calendar_id=account_calendar_id,
-            event_title=event_title,
-            event_description=f"個別支援計画の更新期限です（{cycle_number}回目）。\n期限: {next_renewal_deadline}",
-            event_start_datetime=event_start,
-            event_end_datetime=event_end,
-            created_by_system=True,
-            sync_status=CalendarSyncStatus.pending
+            cycle_id=cycle_id,
+            next_renewal_deadline=next_renewal_deadline,
         )
-        db.add(event)
-
-        await db.flush()
-
-        return [event.id]
 
     async def create_next_plan_start_date_events(
         self,
@@ -466,82 +409,15 @@ class CalendarService:
         Returns:
             作成されたイベントIDのリスト、またはNone（status_id未指定の場合）
         """
-        # status_idが指定されていない場合はイベントを作成しない
-        if not status_id:
-            return []
-
-        # 重複チェック: 同じstatus_id + event_typeのイベントが既に存在するか
-        existing_event_result = await db.execute(
-            select(CalendarEvent).where(
-                CalendarEvent.support_plan_status_id == status_id,
-                CalendarEvent.event_type == CalendarEventType.next_plan_start_date
-            ).limit(1)
-        )
-        existing_event = existing_event_result.scalar_one_or_none()
-
-        if existing_event:
-            return []
-
-        # カレンダーアカウントを取得
-        account = await crud_office_calendar_account.get_by_office_id(
+        return await self.event_ledger_service.create_next_plan_start_date_events(
             db=db,
-            office_id=office_id
-        )
-
-        if not account:
-            return []
-
-        # 属性を事前に取得（ループ内でアクセスするとgreenletエラーが発生するため）
-        account_calendar_id = account.google_calendar_id
-        account_status = account.connection_status
-
-        if account_status != CalendarConnectionStatus.connected:
-            return []
-
-        # 利用者情報を取得
-        result = await db.execute(
-            select(WelfareRecipient).where(WelfareRecipient.id == welfare_recipient_id)
-        )
-        recipient = result.scalar_one_or_none()
-
-        if not recipient:
-            return []
-
-        # 利用者名を事前に取得
-        recipient_last_name = recipient.last_name
-        recipient_first_name = recipient.first_name
-        event_title = f"{recipient_last_name} {recipient_first_name} 次の個別支援計画の開始期限"
-
-        # 1つのイベントで登録日当日9:00～7日後18:00の期間（1週間）を表現
-        # JST（日本時間）で明示的に指定
-        jst = ZoneInfo("Asia/Tokyo")
-
-        # 開始: cycle開始日（登録日当日）の9:00 JST
-        event_start_date = cycle_start_date
-        event_start = datetime.combine(event_start_date, time(9, 0), tzinfo=jst)
-
-        # 終了: cycle開始7日後の18:00 JST
-        event_end_date = cycle_start_date + timedelta(days=7)
-        event_end = datetime.combine(event_end_date, time(18, 0), tzinfo=jst)
-
-        event = CalendarEvent(
             office_id=office_id,
             welfare_recipient_id=welfare_recipient_id,
-            support_plan_status_id=status_id,
-            event_type=CalendarEventType.next_plan_start_date,
-            google_calendar_id=account_calendar_id,
-            event_title=event_title,
-            event_description=f"次の個別支援計画の開始期限です（{cycle_number}回目）。",
-            event_start_datetime=event_start,
-            event_end_datetime=event_end,
-            created_by_system=True,
-            sync_status=CalendarSyncStatus.pending
+            cycle_id=cycle_id,
+            cycle_start_date=cycle_start_date,
+            cycle_number=cycle_number,
+            status_id=status_id,
         )
-        db.add(event)
-
-        await db.flush()
-
-        return [event.id]
 
     async def create_next_plan_start_date_event(
         self,
@@ -573,6 +449,10 @@ class CalendarService:
         existing_event = existing_event_result.scalar_one_or_none()
 
         if existing_event:
+            logger.info(
+                f"Monitoring deadline event already exists for status_id={status_id}. "
+                f"Skipping creation."
+            )
             return None
 
         # カレンダーアカウントを取得
@@ -701,120 +581,11 @@ class CalendarService:
         Returns:
             同期結果の辞書 {"synced": 成功数, "failed": 失敗数}
         """
-        synced_count = 0
-        failed_count = 0
-
-        # 未同期イベントを取得
-        pending_events = await crud_calendar_event.get_pending_sync_events(db=db)
-
-        # office_idが指定されている場合はフィルタ
-        if office_id:
-            pending_events = [e for e in pending_events if e.office_id == office_id]
-
-        if not pending_events:
-            return {"synced": 0, "failed": 0}
-
-        # 事業所ごとにグループ化
-        events_by_office: Dict[UUID, list] = {}
-        for event in pending_events:
-            if event.office_id not in events_by_office:
-                events_by_office[event.office_id] = []
-            events_by_office[event.office_id].append(event)
-
-        # 事業所ごとに同期
-        for office_id, events in events_by_office.items():
-            # カレンダーアカウントを取得
-            account = await crud_office_calendar_account.get_by_office_id(
-                db=db,
-                office_id=office_id
-            )
-
-            if not account:
-                # 全イベントを失敗としてマーク
-                for event in events:
-                    update_data = CalendarEventUpdate(
-                        sync_status=CalendarSyncStatus.failed,
-                        last_error_message="Calendar account not found",
-                        last_sync_at=datetime.now()
-                    )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
-                    failed_count += 1
-                continue
-
-            # refresh()を呼び出すと、非同期セッションの状態が不整合になり、greenletエラーを引き起こす
-            # クエリ結果から直接属性にアクセス可能
-
-            if account.connection_status != CalendarConnectionStatus.connected:
-                # 全イベントを失敗としてマーク
-                for event in events:
-                    update_data = CalendarEventUpdate(
-                        sync_status=CalendarSyncStatus.failed,
-                        last_error_message="Calendar account not connected",
-                        last_sync_at=datetime.now()
-                    )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
-                    failed_count += 1
-                continue
-
-            # サービスアカウントキーを復号化
-            try:
-                service_account_json = account.decrypt_service_account_key()
-                if not service_account_json:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=ja.SERVICE_ACCOUNT_KEY_NOT_FOUND
-                    )
-
-                # Google Calendar APIクライアントを作成
-                client = GoogleCalendarClient(service_account_json)
-                client.authenticate()
-
-            except Exception as e:
-                # 全イベントを失敗としてマーク
-                for event in events:
-                    update_data = CalendarEventUpdate(
-                        sync_status=CalendarSyncStatus.failed,
-                        last_error_message=f"Authentication failed: {str(e)}",
-                        last_sync_at=datetime.now()
-                    )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
-                    failed_count += 1
-                continue
-
-            # イベントごとに同期
-            for event in events:
-                try:
-                    # Google Calendarにイベントを作成
-                    google_event_id = client.create_event(
-                        calendar_id=event.google_calendar_id,
-                        title=event.event_title,
-                        description=event.event_description,
-                        start_datetime=event.event_start_datetime,
-                        end_datetime=event.event_end_datetime
-                    )
-
-                    # イベントを更新
-                    update_data = CalendarEventUpdate(
-                        google_event_id=google_event_id,
-                        sync_status=CalendarSyncStatus.synced,
-                        last_sync_at=datetime.now(),
-                        last_error_message=None
-                    )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
-
-                    synced_count += 1
-
-                except (GoogleCalendarAPIError, Exception) as e:
-                    # イベントを失敗としてマーク
-                    update_data = CalendarEventUpdate(
-                        sync_status=CalendarSyncStatus.failed,
-                        last_error_message=str(e),
-                        last_sync_at=datetime.now()
-                    )
-                    await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)
-                    failed_count += 1
-
-        return {"synced": synced_count, "failed": failed_count}
+        self.google_sync_service.gateway = self._google_gateway()
+        return await self.google_sync_service.sync_pending_events(
+            db=db,
+            office_id=office_id,
+        )
 
     async def delete_event_by_cycle(
         self,
@@ -832,44 +603,12 @@ class CalendarService:
         Returns:
             削除に成功した場合True、イベントが存在しない場合False
         """
-        # イベントを検索
-        result = await db.execute(
-            select(CalendarEvent).where(
-                CalendarEvent.support_plan_cycle_id == cycle_id,
-                CalendarEvent.event_type == event_type
-            )
+        self.google_sync_service.gateway = self._google_gateway()
+        return await self.google_sync_service.delete_event_by_cycle(
+            db=db,
+            cycle_id=cycle_id,
+            event_type=event_type,
         )
-        event = result.scalar_one_or_none()
-
-        if not event:
-            return False
-
-        # Google Calendarからイベントを削除（google_event_idがある場合のみ）
-        if event.google_event_id:
-            try:
-                # カレンダーアカウントを取得
-                account = await crud_office_calendar_account.get_by_office_id(
-                    db=db,
-                    office_id=event.office_id
-                )
-
-                if account and account.connection_status == CalendarConnectionStatus.connected:
-                    # Google Calendar APIクライアントで削除
-                    client = google_calendar_client
-                    client.authenticate(account.service_account_key)
-                    await client.delete_event(
-                        calendar_id=event.google_calendar_id,
-                        event_id=event.google_event_id
-                    )
-            except Exception as e:
-                logger.warning("Failed to delete event from Google Calendar: %s", type(e).__name__)
-                # Google Calendar削除失敗してもDBからは削除する
-
-        # DBからイベントを削除
-        await db.delete(event)
-        await db.flush()
-
-        return True
 
     async def delete_event_by_status(
         self,
@@ -887,44 +626,12 @@ class CalendarService:
         Returns:
             削除に成功した場合True、イベントが存在しない場合False
         """
-        # イベントを検索
-        result = await db.execute(
-            select(CalendarEvent).where(
-                CalendarEvent.support_plan_status_id == status_id,
-                CalendarEvent.event_type == event_type
-            )
+        self.google_sync_service.gateway = self._google_gateway()
+        return await self.google_sync_service.delete_event_by_status(
+            db=db,
+            status_id=status_id,
+            event_type=event_type,
         )
-        event = result.scalar_one_or_none()
-
-        if not event:
-            return False
-
-        # Google Calendarからイベントを削除（google_event_idがある場合のみ）
-        if event.google_event_id:
-            try:
-                # カレンダーアカウントを取得
-                account = await crud_office_calendar_account.get_by_office_id(
-                    db=db,
-                    office_id=event.office_id
-                )
-
-                if account and account.connection_status == CalendarConnectionStatus.connected:
-                    # Google Calendar APIクライアントで削除
-                    client = google_calendar_client
-                    client.authenticate(account.service_account_key)
-                    await client.delete_event(
-                        calendar_id=event.google_calendar_id,
-                        event_id=event.google_event_id
-                    )
-            except Exception as e:
-                logger.warning("Failed to delete event from Google Calendar: %s", type(e).__name__)
-                # Google Calendar削除失敗してもDBからは削除する
-
-        # DBからイベントを削除
-        await db.delete(event)
-        await db.flush()
-
-        return True
 
 
 # シングルトンインスタンス

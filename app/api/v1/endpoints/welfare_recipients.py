@@ -1,5 +1,6 @@
 from typing import Any, List
 from uuid import UUID
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -28,6 +29,7 @@ from app.core.exceptions import (
 from app.messages import ja
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=UserRegistrationResponse, status_code=status.HTTP_201_CREATED)
@@ -87,7 +89,8 @@ async def create_welfare_recipient(
 
         try:
             await db.commit()
-        except Exception:
+        except Exception as commit_error:
+            logger.error("Welfare recipient creation commit failed: %s", type(commit_error).__name__)
             raise
 
         return UserRegistrationResponse(
@@ -98,6 +101,7 @@ async def create_welfare_recipient(
         )
 
     except psycopg_errors.InvalidTextRepresentation as e:
+        logger.error("Welfare recipient creation invalid text representation")
         await db.rollback()
 
         if "disability_category" in str(e):
@@ -110,18 +114,20 @@ async def create_welfare_recipient(
             detail=ja.RECIPIENT_INVALID_INPUT
         )
 
-    except ValueError as e:
+    except ValueError:
         await db.rollback()
-        raise BadRequestException(str(e))
-    except HTTPException:
+        raise BadRequestException("利用者情報が不正です")
+    except HTTPException as e:
+        logger.warning("Welfare recipient creation rejected: status_code=%s", e.status_code)
         await db.rollback()
         raise
     except Exception as e:
+        logger.error("Welfare recipient creation failed: %s", type(e).__name__)
         await db.rollback()
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.RECIPIENT_CREATE_FAILED.format(error=str(e))
+            detail=ja.RECIPIENT_CREATE_FAILED.format(error=type(e).__name__)
         )
 
 @router.get("/", response_model=WelfareRecipientListResponse)
@@ -307,12 +313,12 @@ async def update_welfare_recipient(
 
         return updated_recipient
 
-    except ValueError as e:
-        raise BadRequestException(str(e))
-    except Exception as e:
+    except ValueError:
+        raise BadRequestException("利用者情報が不正です")
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.RECIPIENT_UPDATE_FAILED.format(error=str(e))
+            detail="利用者情報の更新に失敗しました"
         )
 
 

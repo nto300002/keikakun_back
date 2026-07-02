@@ -125,12 +125,13 @@ async def get_dashboard(
 
     # Billing情報が存在しない場合、自動的に作成（既存Officeの救済措置）
     if not billing:
-        logger.warning("Billing not found for office; auto-creating with trial")
+        logger.warning(f"Billing not found for office {office.id}, auto-creating with 180-day trial")
         billing = await crud.billing.create_for_office(
             db=db,
             office_id=office.id,
             trial_days=180
         )
+        logger.info("Auto-created billing record")
 
     # 8. 最終的なDashboardDataを構築
     max_user_count = service._get_max_user_count(billing.billing_status)

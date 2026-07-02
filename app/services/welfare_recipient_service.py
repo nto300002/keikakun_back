@@ -9,7 +9,7 @@ from typing import Optional, List, Dict
 from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy import select, func, exists
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 import uuid
@@ -21,6 +21,14 @@ from app.models.enums import SupportPlanStep, CYCLE_STEPS
 from app.schemas.welfare_recipient import UserRegistrationRequest
 from app.schemas.deadline_alert import DeadlineAlertResponse, DeadlineAlertItem
 from app.core.exceptions import BadRequestException, InternalServerException
+from app.services.welfare_recipient.deadline_alert_service import DeadlineAlertService
+from app.services.welfare_recipient.support_plan_integrity_service import (
+    SupportPlanIntegrityService,
+)
+from app.services.calendar.google_calendar_sync_service import GoogleCalendarSyncService
+from app.services.calendar.support_plan_calendar_event_service import (
+    support_plan_calendar_event_service,
+)
 from datetime import timedelta
 import logging
 import inspect
@@ -42,6 +50,9 @@ class WelfareRecipientService:
     全ての処理は単一トランザクション内で実行され、
     エラー発生時は自動的にロールバックされます。
     """
+
+    deadline_alert_service = DeadlineAlertService()
+    support_plan_integrity_service = SupportPlanIntegrityService()
 
     @staticmethod
     async def create_recipient_with_initial_plan(
@@ -72,7 +83,6 @@ class WelfareRecipientService:
             # その後の処理（flush等）でオブジェクトがexpired状態になり、
             # 再度welfare_recipient.idにアクセスするとgreenletエラーが発生するため
             recipient_id = welfare_recipient.id
-
             # 3. 関連データの作成
             await crud_welfare_recipient.create_related_data(
                 db=db,
@@ -88,15 +98,18 @@ class WelfareRecipientService:
             # 5. IDを返す (コミット/ロールバックは呼び出し元で行う)
             return recipient_id
 
-        except IntegrityError:
+        except IntegrityError as e:
+            logger.error("create_recipient_with_initial_plan integrity error: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise BadRequestException("データの整合性エラーが発生しました。")
 
         except SQLAlchemyError as e:
+            logger.error("create_recipient_with_initial_plan database error: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
-            raise InternalServerException(f"データベースエラーが発生しました: {e}")
+            raise InternalServerException("データベースエラーが発生しました")
 
-        except Exception:
+        except Exception as e:
+            logger.error("create_recipient_with_initial_plan failed: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise
 
@@ -148,45 +161,21 @@ class WelfareRecipientService:
 
         # カレンダーイベントを自動作成（ベストエフォート：失敗してもサイクル作成は継続）
         try:
-            from app.services.calendar_service import calendar_service
             from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 
-            # 更新期限イベント（150日目～180日目の1イベント）
             try:
-                await calendar_service.create_renewal_deadline_events(
+                await support_plan_calendar_event_service.create_cycle_events(
                     db=db,
-                    office_id=office_id,
-                    welfare_recipient_id=welfare_recipient_id,
-                    cycle_id=cycle.id,
-                    next_renewal_deadline=cycle.next_renewal_deadline
+                    cycle=cycle,
                 )
             except SQLAlchemyIntegrityError:
-                # 重複エラーの場合は警告のみ（既にイベントが存在する）
-                pass
+                logger.warning("[DEBUG] Calendar deadline event already exists")
             except Exception as e:
-                # その他のエラーも警告のみ（カレンダー設定がない等）
-                logger.warning("Could not create renewal deadline calendar events: %s", type(e).__name__)
-
-            # 次回計画開始期限イベント（cycle_number>=2の場合のみ、1~7日の7イベント）
-            try:
-                await calendar_service.create_next_plan_start_date_events(
-                    db=db,
-                    office_id=office_id,
-                    welfare_recipient_id=welfare_recipient_id,
-                    cycle_id=cycle.id,
-                    cycle_start_date=cycle.plan_cycle_start_date,
-                    cycle_number=new_cycle_number
-                )
-            except SQLAlchemyIntegrityError:
-                # 重複エラーの場合は警告のみ（既にイベントが存在する）
-                pass
-            except Exception as e:
-                # その他のエラーも警告のみ（cycle_number=1等）
-                logger.warning("Could not create next plan start date calendar events: %s", type(e).__name__)
+                logger.warning("[DEBUG] Could not create calendar deadline events: %s", type(e).__name__)
 
         except Exception as e:
-            # calendar_service自体のインポートエラー等、予期しないエラー
-            logger.warning("Could not initialize calendar event creation: %s", type(e).__name__)
+            # カレンダーイベント作成の予期しないエラー
+            logger.error("[DEBUG] Unexpected error during calendar event creation: %s", type(e).__name__)
             # カレンダーイベント作成の失敗は利用者登録を妨げない
 
     @staticmethod
@@ -223,140 +212,24 @@ class WelfareRecipientService:
     # ... (check_data_integrity, repair_support_plan_data, _repair_missing_statuses は同期のまま)
     @staticmethod
     def check_data_integrity(db: Session, welfare_recipient_id: UUID) -> dict:
-        """
-        利用者データの整合性チェック
-
-        mini.mdで定義された修復機能のための検証ロジック
-
-        Args:
-            db: データベースセッション
-            welfare_recipient_id: 利用者ID
-
-        Returns:
-            整合性チェック結果
-        """
-        result = {
-            "is_valid": True,
-            "missing_components": [],
-            "issues": []
-        }
-
-        try:
-            # 利用者情報の存在確認
-            welfare_recipient = crud_welfare_recipient.get(db, welfare_recipient_id)
-            if not welfare_recipient:
-                result["is_valid"] = False
-                result["issues"].append("利用者情報が見つかりません")
-                return result
-
-            # 支援計画サイクルの存在確認
-            from sqlalchemy import select
-            cycle_stmt = select(SupportPlanCycle).where(
-                SupportPlanCycle.welfare_recipient_id == welfare_recipient_id,
-                SupportPlanCycle.is_latest_cycle == True
-            )
-            latest_cycle = db.execute(cycle_stmt).scalars().first()
-
-            if not latest_cycle:
-                result["is_valid"] = False
-                result["missing_components"].append("支援計画サイクル")
-            else:
-                # ステータスの存在確認
-                status_stmt = select(SupportPlanStatus).where(
-                    SupportPlanStatus.support_plan_cycle_id == latest_cycle.id
-                )
-                statuses = list(db.execute(status_stmt).scalars().all())
-
-                existing_steps = [status.step for status in statuses]
-                missing_steps = [step for step in CYCLE_STEPS if step not in existing_steps]
-
-                if missing_steps:
-                    result["is_valid"] = False
-                    result["missing_components"].extend([f"ステップ_{step.value}" for step in missing_steps])
-
-            return result
-
-        except Exception as e:
-            logger.warning("Error checking data integrity: %s", type(e).__name__)
-            result["is_valid"] = False
-            result["issues"].append(f"整合性チェック中にエラーが発生しました: {str(e)}")
-            return result
+        return WelfareRecipientService.support_plan_integrity_service.check_data_integrity(
+            db,
+            welfare_recipient_id,
+        )
 
     @staticmethod
     def repair_support_plan_data(db: Session, welfare_recipient_id: UUID) -> bool:
-        """
-        支援計画データの修復
-
-
-        Args:
-            db: データベースセッション
-            welfare_recipient_id: 利用者ID
-
-        Returns:
-            修復成功フラグ
-        """
-        try:
-
-            # 整合性チェック
-            integrity_result = WelfareRecipientService.check_data_integrity(db, welfare_recipient_id)
-
-            if integrity_result["is_valid"]:
-                return True
-
-            # 修復処理
-            if "支援計画サイクル" in integrity_result["missing_components"]:
-                # サイクル自体が存在しない場合は新規作成
-                WelfareRecipientService._create_initial_support_plan_sync(db, welfare_recipient_id)
-            else:
-                # ステータスのみ不足している場合は部分修復
-                WelfareRecipientService._repair_missing_statuses(db, welfare_recipient_id)
-
-            db.commit()
-            return True
-
-        except Exception as e:
-            logger.warning("Error during support plan repair: %s", type(e).__name__)
-            db.rollback()
-            return False
+        return WelfareRecipientService.support_plan_integrity_service.repair_support_plan_data(
+            db,
+            welfare_recipient_id,
+        )
 
     @staticmethod
     def _repair_missing_statuses(db: Session, welfare_recipient_id: UUID) -> None:
-        """
-        不足しているステータスの修復
-
-        Args:
-            db: データベースセッション
-            welfare_recipient_id: 利用者ID
-        """
-        from sqlalchemy import select
-
-        # 最新サイクルを取得
-        cycle_stmt = select(SupportPlanCycle).where(
-            SupportPlanCycle.welfare_recipient_id == welfare_recipient_id,
-            SupportPlanCycle.is_latest_cycle == True
+        WelfareRecipientService.support_plan_integrity_service.repair_missing_statuses(
+            db,
+            welfare_recipient_id,
         )
-        latest_cycle = db.execute(cycle_stmt).scalars().first()
-
-        if not latest_cycle:
-            raise Exception("最新の支援計画サイクルが見つかりません")
-
-        # 既存のステータスを確認
-        status_stmt = select(SupportPlanStatus).where(
-            SupportPlanStatus.support_plan_cycle_id == latest_cycle.id
-        )
-        existing_statuses = list(db.execute(status_stmt).scalars().all())
-        existing_steps = [status.step for status in existing_statuses]
-
-        # 不足しているステップを追加
-        for step in CYCLE_STEPS:
-            if step not in existing_steps:
-                status = SupportPlanStatus(
-                    support_plan_cycle_id=latest_cycle.id,
-                    step=step,
-                    completed=False,
-                    completed_at=None
-                )
-                db.add(status)
 
     @staticmethod
     async def create_recipient_with_details(db: AsyncSession, registration_data: UserRegistrationRequest, office_id: UUID, **kwargs):
@@ -369,156 +242,46 @@ class WelfareRecipientService:
         )
 
     def check_and_repair_plan_data(self, db, welfare_recipient_id):
-        """
-        同期呼び出し向け互換メソッド。
-        - 存在しない場合は初期サイクルを作成する
-        - サイクルはあるがステータスが不足している場合は補完する
-        戻り値: (repaired: bool, message: str)
-        """
-        from sqlalchemy import select
-
-        try:
-            cycle_stmt = select(SupportPlanCycle).where(
-                SupportPlanCycle.welfare_recipient_id == welfare_recipient_id,
-                SupportPlanCycle.is_latest_cycle == True
-            )
-            latest_cycle = db.execute(cycle_stmt).scalars().first()
-
-            if not latest_cycle:
-                # 初期サイクルが無ければ作成
-                self._create_initial_support_plan_sync(db, welfare_recipient_id)
-                try:
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                return True, "初期支援計画サイクルとステータスを作成しました"
-
-            # サイクルは存在 -> 不足ステータスを修復
-            try:
-                self._repair_missing_statuses(db, welfare_recipient_id)
-                try:
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                return True, "不足しているステータスを確認・修復しました"
-            except Exception as e:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                return False, f"修復中にエラー: {e}"
-
-        except Exception as e:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            return False, f"チェック実行中にエラー: {e}"
+        return self.support_plan_integrity_service.check_and_repair_plan_data(
+            db,
+            welfare_recipient_id,
+        )
 
     async def repair_recipient_support_plan(self, db: AsyncSession, welfare_recipient_id: uuid.UUID, performed_by: uuid.UUID | None = None) -> tuple[bool, str]:
-        """
-        利用者の支援計画データを点検・修復する (async)。
-        戻り値: (repaired: bool, message: str)
-        """
+        original_repair_method = getattr(
+            self.support_plan_integrity_service,
+            "repair_missing_statuses_async",
+            None,
+        )
+
+        async def repair_missing_statuses_proxy(**kwargs):
+            return await self._repair_missing_statuses_async(
+                db=kwargs["db"],
+                welfare_recipient_id=kwargs["welfare_recipient_id"],
+                latest_cycle=kwargs["latest_cycle"],
+            )
+
+        self.support_plan_integrity_service.repair_missing_statuses_async = (
+            repair_missing_statuses_proxy
+        )
         try:
-            # 利用者の office_id を取得
-            from app.models.welfare_recipient import OfficeWelfareRecipient
-            office_stmt = select(OfficeWelfareRecipient.office_id).where(
-                OfficeWelfareRecipient.welfare_recipient_id == welfare_recipient_id
-            ).limit(1)
-            office_result = await db.execute(office_stmt)
-            office_id = office_result.scalar_one_or_none()
-
-            if not office_id:
-                return False, "利用者の事業所情報が見つかりません"
-
-            # 最新サイクルを取得
-            stmt = select(SupportPlanCycle).where(
-                SupportPlanCycle.welfare_recipient_id == welfare_recipient_id,
-                SupportPlanCycle.is_latest_cycle == True
-            ).options(selectinload(SupportPlanCycle.statuses)) # Eager load statuses
-            res = await db.execute(stmt)
-            latest_cycle = res.scalars().first()
-
-            if not latest_cycle:
-                # 初期サイクルと初期ステータスを作成
-                cycle = SupportPlanCycle(
-                    welfare_recipient_id=welfare_recipient_id,
-                    office_id=office_id,
-                    is_latest_cycle=True,
-                    plan_cycle_start_date=date.today(),
-                    next_renewal_deadline=date.today()
+            return await self.support_plan_integrity_service.repair_recipient_support_plan(
+                db=db,
+                welfare_recipient_id=welfare_recipient_id,
+                performed_by=performed_by,
+            )
+        finally:
+            if original_repair_method is not None:
+                self.support_plan_integrity_service.repair_missing_statuses_async = (
+                    original_repair_method
                 )
-                db.add(cycle)
-                await db.flush()
-
-                initial_steps = [
-                    SupportPlanStep.assessment,
-                    SupportPlanStep.draft_plan,
-                    SupportPlanStep.staff_meeting,
-                ]
-
-                for step in initial_steps:
-                    st = SupportPlanStatus(
-                        plan_cycle_id=cycle.id,
-                        welfare_recipient_id=welfare_recipient_id,
-                        office_id=office_id,
-                        step_type=step,
-                        completed=False
-                    )
-                    db.add(st)
-                await db.flush()
-                await db.commit()
-                return True, "初期支援計画サイクルとステータスを作成しました"
-
-            # 既存サイクル -> 不足ステータス補完
-            created = await self._repair_missing_statuses_async(db, welfare_recipient_id, latest_cycle)
-            if created > 0:
-                await db.commit()
-                return True, f"不足していた {created} 件のステータスを作成しました"
-
-            return False, "データは正常です"
-
-        except Exception as e:
-            try:
-                await db.rollback()
-            except Exception:
-                pass
-            return False, f"修復中にエラー: {e}"
 
     async def _repair_missing_statuses_async(self, db: AsyncSession, welfare_recipient_id: uuid.UUID, latest_cycle: SupportPlanCycle) -> int:
-        """
-        最新サイクルの不足ステータスを補完する (async)。
-        返却: 追加したステータス数
-        """
-        if not latest_cycle:
-            raise Exception("最新サイクルが見つかりません")
-
-        # 要件に合わせるべき初期ステータス定義
-        required_steps = [
-            SupportPlanStep.assessment,
-            SupportPlanStep.draft_plan,
-            SupportPlanStep.staff_meeting,
-        ]
-
-        # 既存ステップを取得
-        # latest_cycle.statuses を直接使うことで、遅延読み込みをトリガーする
-        existing_steps = [s.step_type for s in latest_cycle.statuses]
-
-        to_create = [step for step in required_steps if step not in existing_steps]
-        for step in to_create:
-            st = SupportPlanStatus(
-                plan_cycle_id=latest_cycle.id,
-                welfare_recipient_id=latest_cycle.welfare_recipient_id,
-                office_id=latest_cycle.office_id,
-                step_type=step,
-                completed=False
-            )
-            db.add(st)
-
-        if to_create:
-            await db.flush()
-        return len(to_create)
+        return await SupportPlanIntegrityService().repair_missing_statuses_async(
+            db=db,
+            welfare_recipient_id=welfare_recipient_id,
+            latest_cycle=latest_cycle,
+        )
 
     async def delete_recipient(
         self,
@@ -544,56 +307,25 @@ class WelfareRecipientService:
         Returns:
             削除成功フラグ
         """
-        # 1. 利用者に紐づくカレンダーイベントを取得
-        from app.models.calendar_events import CalendarEvent
-        from app.crud.crud_office_calendar_account import crud_office_calendar_account
+        try:
+            deleted_count = await GoogleCalendarSyncService().delete_google_events_for_recipient(
+                db=db,
+                recipient_id=recipient_id,
+            )
+            logger.debug("[DEBUG] Deleted %s Google Calendar events for recipient", deleted_count)
+        except Exception as e:
+            logger.warning(
+                "[DEBUG] Failed to delete Google Calendar events for recipient: %s",
+                type(e).__name__,
+            )
 
-        stmt = select(CalendarEvent).where(
-            CalendarEvent.welfare_recipient_id == recipient_id
-        )
-        result = await db.execute(stmt)
-        events = result.scalars().all()
-
-        # 2. Google Calendarから各イベントを削除
-        for event in events:
-            # MissingGreenletエラーを防ぐため、必要な属性を事前に変数に保存
-            google_event_id = event.google_event_id
-            office_id = event.office_id
-
-            if google_event_id:
-                try:
-                    # カレンダーアカウント取得
-                    account = await crud_office_calendar_account.get_by_office_id(
-                        db=db,
-                        office_id=office_id
-                    )
-
-                    if account:
-                        # Google Calendarクライアント初期化
-                        from app.services.google_calendar_client import GoogleCalendarClient
-
-                        # decrypt_service_account_key() はメソッドなので呼び出す必要がある
-                        decrypted_key = account.decrypt_service_account_key()
-
-                        calendar_client = GoogleCalendarClient(
-                            service_account_json=decrypted_key,
-                            calendar_id=account.google_calendar_id
-                        )
-
-                        # Google Calendarからイベント削除
-                        await calendar_client.delete_event(google_event_id)
-
-                except Exception as e:
-                    # Google Calendar削除に失敗してもDB削除は継続
-                    logger.warning("Failed to delete event from Google Calendar: %s", type(e).__name__)
-
-        # 3. 利用者削除（CASCADE でイベントも削除される）
         recipient = await db.get(WelfareRecipient, recipient_id)
         if recipient:
             await db.delete(recipient)
             await db.flush()
             return True
 
+        logger.warning("[DEBUG] delete_recipient END: recipient not found")
         return False
 
     @staticmethod
@@ -604,180 +336,13 @@ class WelfareRecipientService:
         limit: Optional[int] = None,
         offset: int = 0
     ) -> DeadlineAlertResponse:
-        """
-        更新期限が近い利用者のアラート一覧を取得します。
-
-        Args:
-            db: データベースセッション
-            office_id: 事業所ID
-            threshold_days: 通知する残り日数の閾値（デフォルト: 30日）
-            limit: 取得件数上限（Noneの場合は全件）
-            offset: ページネーション用オフセット
-
-        Returns:
-            期限が近い利用者のリスト（残り日数が少ない順）+ アセスメント未完了の利用者リスト
-        """
-        import os
-        from app.models.support_plan_cycle import PlanDeliverable
-        from app.models.enums import DeliverableType
-
-        today = date.today()
-        threshold_date = today + timedelta(days=threshold_days)
-
-        # テスト環境かどうかをチェック
-        is_testing = os.getenv("TESTING") == "1"
-
-        # 1. 更新期限アラート（期限切れを含む）
-        # 期限切れ（0日を含む）のアイテムも含めるため、>= today の条件を削除
-        renewal_conditions = [
-            SupportPlanCycle.office_id == office_id,
-            SupportPlanCycle.is_latest_cycle == True,
-            SupportPlanCycle.next_renewal_deadline.isnot(None),
-            SupportPlanCycle.next_renewal_deadline <= threshold_date
-        ]
-        if not is_testing:
-            renewal_conditions.append(WelfareRecipient.is_test_data == False)
-
-        renewal_count_stmt = (
-            select(func.count())
-            .select_from(WelfareRecipient)
-            .join(
-                SupportPlanCycle,
-                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .where(*renewal_conditions)
+        return await WelfareRecipientService.deadline_alert_service.get_deadline_alerts(
+            db=db,
+            office_id=office_id,
+            threshold_days=threshold_days,
+            limit=limit,
+            offset=offset,
         )
-        renewal_count = (await db.execute(renewal_count_stmt)).scalar_one()
-
-        assessment_missing_condition = ~exists(
-            select(1)
-            .select_from(PlanDeliverable)
-            .where(
-                PlanDeliverable.plan_cycle_id == SupportPlanCycle.id,
-                PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
-            )
-        )
-
-        assessment_conditions = [
-            SupportPlanCycle.office_id == office_id,
-            SupportPlanCycle.is_latest_cycle == True,
-            assessment_missing_condition
-        ]
-        if not is_testing:
-            assessment_conditions.append(WelfareRecipient.is_test_data == False)
-
-        assessment_count_stmt = (
-            select(func.count())
-            .select_from(WelfareRecipient)
-            .join(
-                SupportPlanCycle,
-                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .where(*assessment_conditions)
-        )
-        assessment_count = (await db.execute(assessment_count_stmt)).scalar_one()
-
-        total = renewal_count + assessment_count
-        alerts = []
-
-        if limit is None:
-            renewal_offset = 0
-            renewal_limit = None
-            assessment_offset = 0
-            assessment_limit = None
-        else:
-            remaining_limit = max(limit, 0)
-            normalized_offset = max(offset, 0)
-
-            renewal_offset = min(normalized_offset, renewal_count)
-            renewal_available = max(renewal_count - renewal_offset, 0)
-            renewal_limit = min(remaining_limit, renewal_available)
-
-            remaining_limit -= renewal_limit
-            assessment_offset = max(normalized_offset - renewal_count, 0)
-            assessment_limit = remaining_limit
-
-        renewal_stmt = (
-            select(WelfareRecipient, SupportPlanCycle)
-            .join(
-                SupportPlanCycle,
-                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .where(*renewal_conditions)
-            .order_by(
-                SupportPlanCycle.next_renewal_deadline.asc(),
-                WelfareRecipient.last_name.asc(),
-                WelfareRecipient.first_name.asc()
-            )
-        )
-
-        if limit is not None:
-            renewal_stmt = renewal_stmt.offset(renewal_offset).limit(renewal_limit)
-
-        renewal_rows = []
-        if limit is None or renewal_limit > 0:
-            renewal_result = await db.execute(renewal_stmt)
-            renewal_rows = renewal_result.all()
-
-        for recipient, cycle in renewal_rows:
-            days_remaining = (cycle.next_renewal_deadline - today).days
-            full_name = f"{recipient.last_name} {recipient.first_name}"
-
-            # 期限切れ（0日を含む）の場合は特別なメッセージと alert_type
-            if days_remaining <= 0:
-                alert_type = "renewal_overdue"
-                message = f"!{full_name}の更新期限が過ぎています!"
-            else:
-                alert_type = "renewal_deadline"
-                message = f"{full_name}の更新期限まで残り{days_remaining}日"
-
-            alert_item = DeadlineAlertItem(
-                id=str(recipient.id),
-                full_name=full_name,
-                alert_type=alert_type,
-                message=message,
-                next_renewal_deadline=cycle.next_renewal_deadline,
-                days_remaining=days_remaining,
-                current_cycle_number=cycle.cycle_number
-            )
-            alerts.append(alert_item)
-
-        # 2. アセスメント未完了アラート（新機能）
-        # アセスメントPDFがアップロードされていない利用者を全て含める（cycle_numberに関わらず）
-        assessment_stmt = (
-            select(WelfareRecipient, SupportPlanCycle)
-            .join(
-                SupportPlanCycle,
-                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .where(*assessment_conditions)
-            .order_by(
-                WelfareRecipient.last_name.asc(),
-                WelfareRecipient.first_name.asc()
-            )
-        )
-
-        if limit is not None:
-            assessment_stmt = assessment_stmt.offset(assessment_offset).limit(assessment_limit)
-
-        if limit is None or assessment_limit > 0:
-            assessment_result = await db.execute(assessment_stmt)
-            assessment_rows = assessment_result.all()
-
-            for recipient, cycle in assessment_rows:
-                full_name = f"{recipient.last_name} {recipient.first_name}"
-                alert_item = DeadlineAlertItem(
-                    id=str(recipient.id),
-                    full_name=full_name,
-                    alert_type="assessment_incomplete",
-                    message=f"{recipient.last_name} {recipient.first_name}のアセスメントが完了していません",
-                    next_renewal_deadline=None,
-                    days_remaining=None,
-                    current_cycle_number=cycle.cycle_number
-                )
-                alerts.append(alert_item)
-
-        return DeadlineAlertResponse(alerts=alerts, total=total)
 
     @staticmethod
     async def get_deadline_alerts_batch(
@@ -785,140 +350,11 @@ class WelfareRecipientService:
         office_ids: List[UUID],
         threshold_days: int = 30
     ) -> Dict[UUID, DeadlineAlertResponse]:
-        """
-        複数事業所のアラートを一括取得（N+1問題解消）
-
-        Args:
-            db: データベースセッション
-            office_ids: 事業所IDのリスト
-            threshold_days: 通知閾値
-
-        Returns:
-            {office_id: DeadlineAlertResponse} の辞書
-        """
-        import os
-        from app.models.support_plan_cycle import PlanDeliverable
-        from app.models.enums import DeliverableType
-
-        if not office_ids:
-            return {}
-
-        today = date.today()
-        threshold_date = today + timedelta(days=threshold_days)
-        is_testing = os.getenv("TESTING") == "1"
-
-        # 1. 更新期限アラート（複数事業所を一括取得）
-        renewal_conditions = [
-            SupportPlanCycle.office_id.in_(office_ids),
-            SupportPlanCycle.is_latest_cycle == True,
-            SupportPlanCycle.next_renewal_deadline.isnot(None),
-            SupportPlanCycle.next_renewal_deadline <= threshold_date
-        ]
-        if not is_testing:
-            renewal_conditions.append(WelfareRecipient.is_test_data == False)
-
-        renewal_stmt = (
-            select(WelfareRecipient, SupportPlanCycle)
-            .join(
-                SupportPlanCycle,
-                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .where(*renewal_conditions)
-            .order_by(
-                SupportPlanCycle.office_id.asc(),
-                SupportPlanCycle.next_renewal_deadline.asc(),
-                WelfareRecipient.last_name.asc(),
-                WelfareRecipient.first_name.asc()
-            )
+        return await WelfareRecipientService.deadline_alert_service.get_deadline_alerts_batch(
+            db=db,
+            office_ids=office_ids,
+            threshold_days=threshold_days,
         )
-
-        renewal_result = await db.execute(renewal_stmt)
-        renewal_rows = renewal_result.all()
-
-        # 2. アセスメント未完了アラート（複数事業所を一括取得）
-        assessment_missing_condition = ~exists(
-            select(1)
-            .select_from(PlanDeliverable)
-            .where(
-                PlanDeliverable.plan_cycle_id == SupportPlanCycle.id,
-                PlanDeliverable.deliverable_type == DeliverableType.assessment_sheet
-            )
-        )
-
-        assessment_conditions = [
-            SupportPlanCycle.office_id.in_(office_ids),
-            SupportPlanCycle.is_latest_cycle == True,
-            assessment_missing_condition
-        ]
-        if not is_testing:
-            assessment_conditions.append(WelfareRecipient.is_test_data == False)
-
-        assessment_stmt = (
-            select(WelfareRecipient, SupportPlanCycle)
-            .join(
-                SupportPlanCycle,
-                SupportPlanCycle.welfare_recipient_id == WelfareRecipient.id
-            )
-            .where(*assessment_conditions)
-            .order_by(
-                SupportPlanCycle.office_id.asc(),
-                WelfareRecipient.last_name.asc(),
-                WelfareRecipient.first_name.asc()
-            )
-        )
-
-        assessment_result = await db.execute(assessment_stmt)
-        assessment_rows = assessment_result.all()
-
-        # 3. 事業所ごとにアラートをグループ化
-        alerts_by_office: Dict[UUID, List[DeadlineAlertItem]] = {office_id: [] for office_id in office_ids}
-
-        # 更新期限アラートを追加
-        for recipient, cycle in renewal_rows:
-            days_remaining = (cycle.next_renewal_deadline - today).days
-            full_name = f"{recipient.last_name} {recipient.first_name}"
-
-            if days_remaining <= 0:
-                alert_type = "renewal_overdue"
-                message = f"!{full_name}の更新期限が過ぎています!"
-            else:
-                alert_type = "renewal_deadline"
-                message = f"{full_name}の更新期限まで残り{days_remaining}日"
-
-            alert_item = DeadlineAlertItem(
-                id=str(recipient.id),
-                full_name=full_name,
-                alert_type=alert_type,
-                message=message,
-                next_renewal_deadline=cycle.next_renewal_deadline,
-                days_remaining=days_remaining,
-                current_cycle_number=cycle.cycle_number
-            )
-            alerts_by_office[cycle.office_id].append(alert_item)
-
-        # アセスメント未完了アラートを追加
-        for recipient, cycle in assessment_rows:
-            full_name = f"{recipient.last_name} {recipient.first_name}"
-            alert_item = DeadlineAlertItem(
-                id=str(recipient.id),
-                full_name=full_name,
-                alert_type="assessment_incomplete",
-                message=f"{recipient.last_name} {recipient.first_name}のアセスメントが完了していません",
-                next_renewal_deadline=None,
-                days_remaining=None,
-                current_cycle_number=cycle.cycle_number
-            )
-            alerts_by_office[cycle.office_id].append(alert_item)
-
-        # 4. 各事業所のレスポンスを作成
-        result: Dict[UUID, DeadlineAlertResponse] = {}
-        for office_id, alerts in alerts_by_office.items():
-            result[office_id] = DeadlineAlertResponse(
-                alerts=alerts,
-                total=len(alerts)
-            )
-
-        return result
 
     @staticmethod
     async def get_staffs_by_offices_batch(

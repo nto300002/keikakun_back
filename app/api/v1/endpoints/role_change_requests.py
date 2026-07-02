@@ -69,10 +69,10 @@ async def create_role_change_request(
         await db.commit()
         await db.refresh(request)
         return request
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="リクエスト内容が不正です"
         )
 
 
@@ -117,8 +117,7 @@ async def get_role_change_requests(
     if status_filter:
         all_requests = [req for req in all_requests if req.status == status_filter]
 
-    result = list(all_requests)
-    return result
+    return list(all_requests)
 
 
 @router.patch("/{request_id}/approve", response_model=RoleChangeRequestRead)
@@ -168,10 +167,10 @@ async def approve_role_change_request(
         await db.commit()
         await db.refresh(approved_request)
         return approved_request
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="リクエストの承認に失敗しました"
         )
 
 
@@ -220,10 +219,10 @@ async def reject_role_change_request(
         await db.commit()
         await db.refresh(rejected_request)
         return rejected_request
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="リクエストの却下に失敗しました"
         )
 
 

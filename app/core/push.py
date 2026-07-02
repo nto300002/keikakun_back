@@ -79,13 +79,14 @@ async def send_push_notification(
             vapid_claims={"sub": settings.VAPID_SUBJECT}
         )
 
+        logger.info("[PUSH] Notification sent successfully")
         return (True, False)
 
     except WebPushException as e:
         # Response オブジェクトの bool() は False を返すことがあるため、is not None で確認
         if e.response is not None and hasattr(e.response, 'status_code') and e.response.status_code in [404, 410]:
             logger.warning(
-                "[PUSH] Subscription expired (HTTP %s); marking for deletion",
+                "[PUSH] Subscription expired (HTTP %s) - Marking for deletion from database",
                 e.response.status_code,
             )
             return (False, True)

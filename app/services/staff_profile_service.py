@@ -530,8 +530,10 @@ class StaffProfileService:
         6. 旧メールアドレスに完了通知送信
         7. 監査ログ記録
         """
+        logger.debug("verify_email_change started")
 
         # トークンでリクエストを検索
+        logger.debug("Searching for email change request")
         stmt = (
             select(EmailChangeRequestModel)
             .where(EmailChangeRequestModel.verification_token == verification_token)
@@ -546,8 +548,10 @@ class StaffProfileService:
                 detail="無効な確認トークンです"
             )
 
+        logger.debug("Found email change request")
 
         # 有効期限チェック
+        logger.debug("Checking email change request expiration")
         if datetime.now(timezone.utc) > email_request.expires_at:
             logger.warning("Email change token expired")
             raise HTTPException(
@@ -556,14 +560,16 @@ class StaffProfileService:
             )
 
         # ステータスチェック
+        logger.debug("Checking email change request status")
         if email_request.status != "pending":
-            logger.warning("Email change request status is not pending: %s", email_request.status)
+            logger.warning("Email change request status is not pending")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="この変更リクエストは既に処理されています"
             )
 
         # スタッフ情報取得
+        logger.debug("Fetching staff for email change")
         stmt_staff = select(Staff).where(Staff.id == email_request.staff_id)
         result_staff = await db.execute(stmt_staff)
         staff = result_staff.scalar_one_or_none()
@@ -575,11 +581,13 @@ class StaffProfileService:
                 detail=ja.STAFF_NOT_FOUND
             )
 
+        logger.debug("Staff found for email change")
 
         # 旧メールアドレスと新メールアドレスを保存（コミット後のアクセス用）
         old_email = staff.email
         new_email = email_request.new_email
         staff_name = staff.full_name
+        logger.debug("Updating staff email")
 
         # スタッフ情報更新
         updated_at = datetime.now(timezone.utc)
@@ -590,9 +598,11 @@ class StaffProfileService:
         email_request.status = "completed"
         # verified_atは不要（updated_atで確認日時を判定）
 
+        logger.debug("Flushing email change database changes")
         await db.flush()
 
         # 監査ログ記録
+        logger.debug("Creating email change audit log")
         audit_log = AuditLog(
             staff_id=staff.id,
             action="UPDATE_EMAIL",
@@ -604,6 +614,7 @@ class StaffProfileService:
         await db.flush()
 
         # 旧メールアドレスに完了通知送信
+        logger.debug("Sending email change completion email")
         try:
             await mail.send_email_change_completed(
                 old_email=old_email,
@@ -613,6 +624,7 @@ class StaffProfileService:
         except Exception as e:
             logger.warning("Email change completion email failed: %s", type(e).__name__)
 
+        logger.debug("Committing email change transaction")
         await db.commit()
 
         # コミット後はモデル属性にアクセスできないため、保存した変数を使用
@@ -621,6 +633,7 @@ class StaffProfileService:
             "new_email": new_email,
             "updated_at": updated_at
         }
+        logger.debug("verify_email_change completed successfully")
         return result
 
 
