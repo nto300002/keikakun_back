@@ -1,7 +1,7 @@
 """add_cycle_number
 
 Revision ID: byddyrpnnpk5
-Revises: su6cug3oavuk
+Revises: 001_create_mfa
 Create Date: 2025-10-21 00:00:02
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'byddyrpnnpk5'
-down_revision: Union[str, None] = 'su6cug3oavuk'
+down_revision: Union[str, None] = '001_create_mfa'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

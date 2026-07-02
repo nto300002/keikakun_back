@@ -78,6 +78,7 @@ async def update_next_plan_start_date(
     employee_request = await deps.check_employee_restriction(
         db=db,
         current_staff=current_user,
+        office_id=recipient_office_assoc.office_id,
         resource_type=ResourceType.support_plan_status,
         action_type=ActionType.update,
         resource_id=None,  # status_id は int なので None

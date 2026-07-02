@@ -228,6 +228,20 @@ async def require_owner(
     return current_staff
 
 
+async def require_owner_with_office(
+    current_staff: Staff = Depends(get_current_user_with_office)
+) -> Staff:
+    """
+    Owner のみアクセス可能で、office_associations も必要なendpoint向け。
+    """
+    if current_staff.role != StaffRole.owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.PERM_OWNER_REQUIRED
+        )
+    return current_staff
+
+
 async def require_app_admin(
     current_staff: Staff = Depends(get_current_user_minimal)
 ) -> Staff:
@@ -246,6 +260,7 @@ async def require_app_admin(
 async def check_employee_restriction(
     db: AsyncSession,
     current_staff: Staff,
+    office_id: Optional[uuid.UUID],
     resource_type: "ResourceType",
     action_type: "ActionType",
     resource_id: Optional[uuid.UUID] = None,
@@ -259,6 +274,7 @@ async def check_employee_restriction(
     Args:
         db: データベースセッション
         current_staff: 現在のスタッフ
+        office_id: 操作対象の事業所ID
         resource_type: リソースタイプ（welfare_recipient, support_plan_cycle, etc.）
         action_type: アクションタイプ（create, update, delete）
         resource_id: リソースID（updateまたはdeleteの場合）
@@ -274,23 +290,6 @@ async def check_employee_restriction(
     # Manager/Ownerは制限なし
     if current_staff.role in [StaffRole.manager, StaffRole.owner]:
         return None
-
-    # Employeeの場合、リクエストを作成
-    # office_idを取得（office_associations経由）
-    office_id = None
-    if current_staff.office:
-        office_id = current_staff.office.id
-    elif current_staff.office_associations:
-        # プライマリ事業所を優先
-        primary_office = next(
-            (assoc.office for assoc in current_staff.office_associations if assoc.is_primary),
-            None
-        )
-        if primary_office:
-            office_id = primary_office.id
-        elif current_staff.office_associations:
-            # プライマリがなければ最初の事業所
-            office_id = current_staff.office_associations[0].office_id
 
     if not office_id:
         raise HTTPException(

@@ -63,6 +63,7 @@ async def create_welfare_recipient(
         employee_request = await deps.check_employee_restriction(
             db=db,
             current_staff=current_staff,
+            office_id=office_id,
             resource_type=ResourceType.welfare_recipient,
             action_type=ActionType.create,
             request_data=registration_data.model_dump(mode='json')
@@ -282,6 +283,7 @@ async def update_welfare_recipient(
     employee_request = await deps.check_employee_restriction(
         db=db,
         current_staff=current_staff,
+        office_id=office_id,
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.update,
         resource_id=recipient_id,
@@ -355,6 +357,7 @@ async def delete_welfare_recipient(
     employee_request = await deps.check_employee_restriction(
         db=db,
         current_staff=current_staff,
+        office_id=office_id,
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.delete,
         resource_id=recipient_id
