@@ -22,6 +22,7 @@ from fastapi import HTTPException, status
 from app import crud
 from app.models.enums import BillingStatus
 from app.messages import ja
+from app.services.billing.status_transition import BillingStatusTransitionService
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +35,16 @@ class BillingService:
     データ整合性を保証します。
     """
 
+    def __init__(
+        self,
+        status_transition_service: Optional[BillingStatusTransitionService] = None,
+    ):
+        self.status_transition_service = (
+            status_transition_service or BillingStatusTransitionService()
+        )
+
     def _normalize_trial_end_date(self, trial_end_date: Optional[datetime]) -> Optional[datetime]:
-        if not trial_end_date:
-            return None
-
-        if trial_end_date.tzinfo is not None:
-            return trial_end_date
-
-        return trial_end_date.replace(tzinfo=timezone.utc)
+        return self.status_transition_service.normalize_trial_end_date(trial_end_date)
 
     async def correct_expired_free_billing_before_checkout(
         self,
@@ -62,16 +65,23 @@ class BillingService:
         normalized_trial_end_date = self._normalize_trial_end_date(trial_end_date)
 
         billing = await crud.billing.get(db=db, id=billing_id)
+        expired_status = (
+            self.status_transition_service.determine_trial_expiration_status(
+                current_status=billing.billing_status,
+            )
+            if billing
+            else None
+        )
         if (
             billing
-            and billing.billing_status == BillingStatus.free
+            and expired_status == BillingStatus.trial_expired
             and normalized_trial_end_date
             and normalized_trial_end_date < now
         ):
             await crud.billing.update_status(
                 db=db,
                 billing_id=billing_id,
-                status=BillingStatus.trial_expired,
+                status=expired_status,
                 auto_commit=auto_commit
             )
             logger.info(
@@ -499,13 +509,16 @@ class BillingService:
             # 1. ステータス更新（auto_commit=False）
             now = datetime.now(timezone.utc)
             trial_end_date = self._normalize_trial_end_date(billing.trial_end_date)
-            is_trial_active = bool(trial_end_date and trial_end_date > now)
+            failed_status = self.status_transition_service.determine_payment_failed_status(
+                trial_end_date=trial_end_date,
+                now=now,
+            )
 
-            if not is_trial_active:
+            if failed_status:
                 await crud.billing.update_status(
                     db=db,
                     billing_id=billing.id,
-                    status=BillingStatus.payment_failed,
+                    status=failed_status,
                     auto_commit=False
                 )
 
@@ -617,13 +630,15 @@ class BillingService:
             # 3. ステータス判定: 無料期間中 → early_payment、期限切れ → active
             now = datetime.now(timezone.utc)
             trial_end_date = self._normalize_trial_end_date(billing.trial_end_date)
-
-            is_trial_active = (
-                trial_end_date and
-                trial_end_date > now
+            status_decision = (
+                self.status_transition_service.determine_subscription_created_status(
+                    trial_end_date=trial_end_date,
+                    now=now,
+                )
             )
 
-            new_status = BillingStatus.early_payment if is_trial_active else BillingStatus.active
+            new_status = status_decision.status
+            is_trial_active = status_decision.is_trial_active
             logger.info(
                 "[Webhook:%s] Subscription created status decision: billing_id=%s, "
                 "previous_status=%s, new_status=%s, db_trial_end_date=%s, "
@@ -796,15 +811,24 @@ class BillingService:
             now = datetime.now(timezone.utc)
             trial_end_date = self._normalize_trial_end_date(billing.trial_end_date)
             is_stale_unpaid_expired_trial = (
-                billing.billing_status in [BillingStatus.free, BillingStatus.canceling]
-                and trial_end_date is not None
-                and trial_end_date < now
-                and billing.last_payment_date is None
-                and billing.subscription_start_date is None
+                self.status_transition_service.is_stale_unpaid_expired_trial(
+                    billing_status=billing.billing_status,
+                    trial_end_date=trial_end_date,
+                    last_payment_date=billing.last_payment_date,
+                    subscription_start_date=billing.subscription_start_date,
+                    now=now,
+                )
             )
             should_cancel_trial_expired_immediately = (
-                (billing.billing_status == BillingStatus.trial_expired or is_stale_unpaid_expired_trial)
-                and (cancel_at_period_end or cancel_at)
+                self.status_transition_service.should_cancel_trial_expired_immediately(
+                    billing_status=billing.billing_status,
+                    trial_end_date=trial_end_date,
+                    last_payment_date=billing.last_payment_date,
+                    subscription_start_date=billing.subscription_start_date,
+                    cancel_at_period_end=cancel_at_period_end,
+                    cancel_at=cancel_at,
+                    now=now,
+                )
             )
             logger.info(
                 "[Webhook:%s] Subscription update status decision flags: billing_id=%s, "
@@ -877,19 +901,16 @@ class BillingService:
             ):
                 # 元のステータスを判定: trial期間内 or 課金期間中
                 now = datetime.now(timezone.utc)
-                is_in_trial = now < billing.trial_end_date
                 has_subscription = billing.stripe_subscription_id is not None
 
                 # 復元先のステータスを決定
-                if is_in_trial and has_subscription:
-                    # 無料期間中かつ課金設定済み → early_payment
-                    restored_status = BillingStatus.early_payment
-                elif is_in_trial and not has_subscription:
-                    # 無料期間中かつ課金未設定 → free
-                    restored_status = BillingStatus.free
-                else:
-                    # 課金期間中 → active
-                    restored_status = BillingStatus.active
+                restored_status = (
+                    self.status_transition_service.determine_canceling_restore_status(
+                        trial_end_date=billing.trial_end_date,
+                        has_subscription=has_subscription,
+                        now=now,
+                    )
+                )
 
                 await crud.billing.update_status(
                     db=db,
@@ -1016,9 +1037,9 @@ class BillingService:
                 since=recent_payment_failed_cutoff
             )
             new_status = (
-                BillingStatus.payment_failed
-                if has_recent_payment_failed
-                else BillingStatus.canceled
+                self.status_transition_service.determine_subscription_deleted_status(
+                    has_recent_payment_failed=has_recent_payment_failed,
+                )
             )
             logger.info(
                 "[Webhook:%s] Subscription deleted payload: customer_id=%s, "
