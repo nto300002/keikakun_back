@@ -97,9 +97,7 @@ def generate_vapid_env_variables():
         sys.exit(1)
 
     except Exception as e:
-        print(f"❌ エラーが発生しました: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ エラーが発生しました: {type(e).__name__}")
         sys.exit(1)
 
 

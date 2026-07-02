@@ -24,7 +24,7 @@ from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM,
     create_email_verification_token, verify_email_verification_token,
     create_temporary_token, verify_temporary_token, verify_temporary_token_with_session, verify_totp,
-    generate_totp_uri, get_password_hash
+    generate_totp_uri, get_password_hash, get_jwt_secret
 )
 from app.core.auth_cookie import (
     build_access_cookie_options,
@@ -249,7 +249,7 @@ async def login_for_access_token(
             )
         # 合言葉を検証
         if not verify_password(passphrase, user.hashed_passphrase):
-            logger.warning(f"[LOGIN] Invalid passphrase attempt for app_admin: {username}")
+            logger.warning("[LOGIN] Invalid passphrase attempt for app_admin")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ja.AUTH_INVALID_PASSPHRASE,
@@ -339,9 +339,8 @@ async def refresh_access_token(
     Option 2: リフレッシュトークンのブラックリストチェックを実施
     """
     try:
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = jwt.decode(
-            refresh_token_data.refresh_token, secret_key, algorithms=[ALGORITHM]
+            refresh_token_data.refresh_token, get_jwt_secret(), algorithms=[ALGORITHM]
         )
 
         # セッション情報を取得
@@ -785,6 +784,38 @@ async def verify_reset_token(
 
 
 @router.post(
+    "/verify-reset-token",
+    response_model=schemas.token.TokenValidityResponse,
+    status_code=status.HTTP_200_OK,
+)
+@limiter.limit("30/minute")
+async def verify_reset_token_post(
+    data: schemas.token.VerifyResetTokenRequest,
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """
+    パスワードリセットトークンの有効性を確認します。
+
+    POST bodyで受け取り、URL query stringにトークンを残さないためのエンドポイントです。
+    """
+    from app.crud import password_reset as crud_password_reset
+
+    db_token = await crud_password_reset.get_valid_token(db, token=data.token)
+
+    if db_token:
+        return schemas.token.TokenValidityResponse(
+            valid=True,
+            message=ja.AUTH_RESET_TOKEN_VALID
+        )
+
+    return schemas.token.TokenValidityResponse(
+        valid=False,
+        message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
+    )
+
+
+@router.post(
     "/reset-password",
     response_model=schemas.token.PasswordResetResponse,
     status_code=status.HTTP_200_OK,
@@ -875,7 +906,7 @@ async def reset_password(
             )
         except Exception as e:
             # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
-            logger.error("Failed to send password changed notification for staff_id=%s", staff_id)
+            logger.error("Failed to send password changed notification")
 
         return schemas.token.PasswordResetResponse(
             message=ja.AUTH_PASSWORD_RESET_SUCCESS

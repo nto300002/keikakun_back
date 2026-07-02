@@ -60,8 +60,6 @@ async def verify_recipient_access(
     """
     import logging
     logger = logging.getLogger(__name__)
-    logger.info("verify_recipient_access: recipient_id=%s user_id=%s", recipient_id, current_user.id)
-
     # 利用者の取得
     stmt = select(WelfareRecipient).where(WelfareRecipient.id == recipient_id)
     result = await db.execute(stmt)
@@ -93,23 +91,20 @@ async def verify_recipient_access(
     user_office = current_user.office
 
     if not user_office:
-        logger.error("User has no office: user_id=%s", current_user.id)
+        logger.error("User has no office")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="事業所に所属していません"
         )
 
-    logger.info(f"Checking access: user_office={user_office.id}, recipient_office={recipient_office_id}")
-
     # 事業所が一致するかチェック
     if user_office.id != recipient_office_id:
-        logger.error(f"Office mismatch: user={user_office.id}, recipient={recipient_office_id}")
+        logger.error("Office mismatch during recipient access check")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="この利用者にアクセスする権限がありません"
         )
 
-    logger.info("Access verification passed")
     return recipient
 
 

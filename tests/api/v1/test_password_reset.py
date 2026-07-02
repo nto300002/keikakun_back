@@ -126,6 +126,27 @@ class TestVerifyResetTokenEndpoint:
         assert isinstance(data["valid"], bool), "'valid'はbool型であること"
         assert isinstance(data["message"], str), "'message'は文字列であること"
 
+    async def test_verify_reset_token_post_returns_expected_structure(self, async_client: AsyncClient):
+        """
+        正常系: reset tokenをURL query stringではなくPOST bodyで検証できることを確認
+        """
+        # Arrange
+        token = "dummy-token-12345"
+
+        # Act
+        response = await async_client.post(
+            "/api/v1/auth/verify-reset-token",
+            json={"token": token},
+        )
+
+        # Assert
+        assert response.status_code != status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert "valid" in data, "レスポンスに'valid'フィールドが含まれていること"
+        assert "message" in data, "レスポンスに'message'フィールドが含まれていること"
+        assert isinstance(data["valid"], bool), "'valid'はbool型であること"
+        assert isinstance(data["message"], str), "'message'は文字列であること"
+
 
 class TestResetPasswordEndpoint:
     """パスワードリセット実行エンドポイントのテスト"""

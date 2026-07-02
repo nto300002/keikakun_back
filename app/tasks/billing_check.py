@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud
 from app.models.billing import Billing
 from app.models.enums import BillingStatus
+from app.services.billing.status_transition import BillingStatusTransitionService
 
 logger = logging.getLogger(__name__)
+status_transition_service = BillingStatusTransitionService()
 
 
 async def check_trial_expiration(
@@ -45,7 +47,7 @@ async def check_trial_expiration(
 
         >>> # ドライラン（テスト実行）
         >>> expired_count = await check_trial_expiration(db=db, dry_run=True)
-        >>> print(f"Would update {expired_count} expired trials")
+        >>> logger.info(f"Would update {expired_count} expired trials")
     """
     now = datetime.now(timezone.utc)
 
@@ -72,12 +74,10 @@ async def check_trial_expiration(
     for billing in expired_billings:
         old_status = billing.billing_status
 
-        # 遷移先を判定
-        if old_status == BillingStatus.free:
-            new_status = BillingStatus.trial_expired
-        elif old_status == BillingStatus.early_payment:
-            new_status = BillingStatus.active
-        else:
+        new_status = status_transition_service.determine_trial_expiration_status(
+            current_status=old_status,
+        )
+        if new_status is None:
             continue
 
         await crud.billing.update_status(
@@ -132,7 +132,7 @@ async def check_scheduled_cancellation(
 
         >>> # ドライラン（テスト実行）
         >>> canceled_count = await check_scheduled_cancellation(db=db, dry_run=True)
-        >>> print(f"Would update {canceled_count} scheduled cancellations")
+        >>> logger.info(f"Would update {canceled_count} scheduled cancellations")
     """
     now = datetime.now(timezone.utc)
 
@@ -155,10 +155,17 @@ async def check_scheduled_cancellation(
     # ステータス更新
     updated_count = 0
     for billing in expired_cancellations:
+        old_status = billing.billing_status
+        new_status = status_transition_service.determine_scheduled_cancellation_status(
+            current_status=old_status,
+        )
+        if new_status is None:
+            continue
+
         await crud.billing.update_status(
             db=db,
             billing_id=billing.id,
-            status=BillingStatus.canceled,
+            status=new_status,
             auto_commit=False
         )
 
@@ -166,7 +173,8 @@ async def check_scheduled_cancellation(
             f"Scheduled cancellation expired (Webhook may have been missed): "
             f"office_id={billing.office_id}, "
             f"billing_id={billing.id}, "
-            f"scheduled_cancel_at={billing.scheduled_cancel_at}"
+            f"scheduled_cancel_at={billing.scheduled_cancel_at}, "
+            f"{old_status.value} → {new_status.value}"
         )
 
         updated_count += 1

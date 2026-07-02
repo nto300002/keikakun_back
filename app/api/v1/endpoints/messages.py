@@ -276,10 +276,10 @@ async def mark_message_as_read(
 
         return MessageRecipientResponse.model_validate(recipient)
 
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="メッセージが見つかりません"
         )
 
 
@@ -385,8 +385,8 @@ async def archive_message(
 
         return MessageRecipientResponse.model_validate(recipient)
 
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="メッセージが見つかりません"
         )

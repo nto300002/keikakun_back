@@ -91,13 +91,9 @@ async def send_push_notification(
             )
             return (False, True)
         else:
-            logger.error(
-                "[PUSH] Failed to send notification: %s",
-                type(e).__name__,
-                exc_info=True
-            )
+            logger.error("[PUSH] Failed to send notification: %s", type(e).__name__)
             return (False, False)
 
     except Exception as e:
-        logger.error("[PUSH] Unexpected error during push notification: %s", type(e).__name__, exc_info=True)
+        logger.error("[PUSH] Unexpected error during push notification: %s", type(e).__name__)
         return (False, False)

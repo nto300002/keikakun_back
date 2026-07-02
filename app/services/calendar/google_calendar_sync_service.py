@@ -83,14 +83,14 @@ class GoogleCalendarSyncService:
             failed_count += await self.sync_result_service.mark_many_failed(
                 db=db,
                 events=events,
-                message=str(exc),
+                message=type(exc).__name__,
             )
             return {"synced": synced_count, "failed": failed_count}
         except Exception as exc:
             failed_count += await self.sync_result_service.mark_many_failed(
                 db=db,
                 events=events,
-                message=f"Authentication failed: {str(exc)}",
+                message=f"Authentication failed: {type(exc).__name__}",
             )
             return {"synced": synced_count, "failed": failed_count}
 
@@ -114,7 +114,7 @@ class GoogleCalendarSyncService:
                 await self.sync_result_service.mark_failed(
                     db=db,
                     event=event,
-                    message=str(exc),
+                    message=type(exc).__name__,
                 )
                 failed_count += 1
 

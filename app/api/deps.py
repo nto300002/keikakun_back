@@ -368,7 +368,7 @@ async def require_active_billing(
 
     if not billing:
         # Billing情報がない場合は自動作成（マイグレーション後の過渡期対応）
-        logger.warning(f"Billing not found for office_id={office_id}, creating new billing")
+        logger.warning("Billing not found, creating new billing")
         billing = await crud.billing.create_for_office(db=db, office_id=office_id)
         await db.commit()
 
@@ -423,7 +423,7 @@ async def validate_csrf(
         try:
             await csrf_protect.validate_csrf(request)
         except CsrfProtectError as e:
-            logger.warning(f"CSRF validation failed: {str(e)}")
+            logger.warning("CSRF validation failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"CSRF token validation failed"

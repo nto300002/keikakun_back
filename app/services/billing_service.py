@@ -295,7 +295,7 @@ class BillingService:
             )
             customer_id = customer.id
 
-            logger.info(f"Stripe Customer created: {customer_id}")
+            logger.info("Stripe Customer created")
 
             # 2. DB更新（auto_commit=Falseで遅延commit）
             await crud.billing.update_stripe_customer(
@@ -328,7 +328,7 @@ class BillingService:
                 cancel_url=f"{frontend_url}/admin?tab=plan&canceled=true",
             )
 
-            logger.info(f"Stripe Checkout Session created: {checkout_session.id}")
+            logger.info("Stripe Checkout Session created")
 
             # 4. 全ての操作が成功した後、1回だけcommit
             await db.commit()
@@ -403,7 +403,7 @@ class BillingService:
             )
 
             if not billing:
-                logger.info(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
 
                 await crud.webhook_event.create_event_record(
                     db=db,
@@ -458,12 +458,12 @@ class BillingService:
             # 4. 全ての操作が成功した後、1回だけcommit
             await db.commit()
 
-            logger.info(f"[Webhook:{event_id}] Payment succeeded for billing_id={billing.id}")
+            logger.info("[Webhook] Payment succeeded")
 
         except Exception as e:
             # エラー時は全てロールバック
             await db.rollback()
-            logger.error(f"[Webhook:{event_id}] Payment processing error: {e}")
+            logger.error("[Webhook] Payment processing error: %s", type(e).__name__)
             raise
 
     async def process_payment_failed(
@@ -491,7 +491,7 @@ class BillingService:
             )
 
             if not billing:
-                logger.info(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
 
                 await crud.webhook_event.create_event_record(
                     db=db,
@@ -555,11 +555,11 @@ class BillingService:
             # 4. commit
             await db.commit()
 
-            logger.warning(f"[Webhook:{event_id}] Payment failed for billing_id={billing.id}")
+            logger.warning("[Webhook] Payment failed")
 
         except Exception as e:
             await db.rollback()
-            logger.error(f"[Webhook:{event_id}] Payment failed processing error: {e}")
+            logger.error("[Webhook] Payment failed processing error: %s", type(e).__name__)
             raise
 
     async def process_subscription_created(
@@ -581,7 +581,7 @@ class BillingService:
             # customer_idを取得（必須）
             customer_id = subscription_data.get('customer')
             if not customer_id:
-                logger.error(f"[Webhook:{event_id}] No customer_id in subscription data")
+                logger.error("[Webhook] No customer_id in subscription data")
                 return
 
             # 1. 最新のBilling情報を取得
@@ -593,18 +593,18 @@ class BillingService:
             )
 
             if not billing:
-                raise ValueError(f"Billing not found for customer {customer_id}")
+                raise ValueError("Billing not found for Stripe customer")
 
             previous_status = billing.billing_status
             logger.info(
-                "[Webhook:%s] Subscription created payload: customer_id=%s, "
-                "subscription_id=%s, stripe_status=%s, cancel_at_period_end=%s, "
+                "[Webhook:%s] Subscription created payload: customer_present=%s, "
+                "subscription_present=%s, stripe_status=%s, cancel_at_period_end=%s, "
                 "cancel_at=%s, trial_start=%s, trial_end=%s, latest_invoice=%s, "
                 "billing_id=%s, office_id=%s, previous_billing_status=%s, "
                 "db_trial_end_date=%s, db_stripe_subscription_id=%s",
                 event_id,
-                customer_id,
-                subscription_data.get('id'),
+                bool(customer_id),
+                bool(subscription_data.get('id')),
                 subscription_data.get('status'),
                 subscription_data.get('cancel_at_period_end'),
                 subscription_data.get('cancel_at'),
@@ -615,7 +615,7 @@ class BillingService:
                 billing.office_id,
                 previous_status.value if previous_status else None,
                 billing.trial_end_date.isoformat() if billing.trial_end_date else None,
-                billing.stripe_subscription_id,
+                bool(billing.stripe_subscription_id),
             )
 
             # 2. Subscription情報を更新（auto_commit=False）
@@ -693,19 +693,23 @@ class BillingService:
             await db.commit()
 
             logger.info(
-                f"[Webhook:{event_id}] Subscription created for customer {customer_id}, "
-                f"office_id={billing.office_id}, status={new_status.value}, trial_active={is_trial_active}"
+                "[Webhook:%s] Subscription created office_id=%s status=%s trial_active=%s",
+                event_id,
+                billing.office_id,
+                new_status.value,
+                is_trial_active,
             )
 
         except Exception as e:
             await db.rollback()
-            logger.exception(
+            logger.error(
                 "[Webhook:%s] Subscription creation processing error: "
-                "customer_id=%s, subscription_id=%s, stripe_status=%s, "
+                "error=%s customer_present=%s, subscription_present=%s, stripe_status=%s, "
                 "cancel_at_period_end=%s, cancel_at=%s, latest_invoice=%s",
                 event_id,
-                subscription_data.get('customer'),
-                subscription_data.get('id'),
+                type(e).__name__,
+                bool(subscription_data.get('customer')),
+                bool(subscription_data.get('id')),
                 subscription_data.get('status'),
                 subscription_data.get('cancel_at_period_end'),
                 subscription_data.get('cancel_at'),
@@ -742,15 +746,14 @@ class BillingService:
             subscription_status = subscription_data.get('status')
             subscription_id = subscription_data.get('id')
 
-            # デバッグログ: イベントの詳細を記録
             logger.info(
-                "[Webhook:%s] Subscription updated payload: customer_id=%s, "
-                "subscription_id=%s, stripe_status=%s, cancel_at_period_end=%s, "
+                "[Webhook:%s] Subscription updated payload: customer_present=%s, "
+                "subscription_present=%s, stripe_status=%s, cancel_at_period_end=%s, "
                 "cancel_at=%s, canceled_at=%s, cancellation_reason=%s, "
                 "trial_start=%s, trial_end=%s, current_period_end=%s, latest_invoice=%s",
                 event_id,
-                customer_id,
-                subscription_id,
+                bool(customer_id),
+                bool(subscription_id),
                 subscription_status,
                 cancel_at_period_end,
                 cancel_at,
@@ -770,7 +773,7 @@ class BillingService:
             )
 
             if not billing:
-                logger.info(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
 
                 await crud.webhook_event.create_event_record(
                     db=db,
@@ -805,7 +808,7 @@ class BillingService:
                 billing.subscription_start_date.isoformat() if billing.subscription_start_date else None,
                 billing.last_payment_date.isoformat() if billing.last_payment_date else None,
                 billing.scheduled_cancel_at.isoformat() if billing.scheduled_cancel_at else None,
-                billing.stripe_subscription_id,
+                bool(billing.stripe_subscription_id),
             )
 
             now = datetime.now(timezone.utc)
@@ -871,7 +874,7 @@ class BillingService:
                     obj_in={"scheduled_cancel_at": cancel_at_datetime},
                     auto_commit=False
                 )
-                logger.info(f"[Webhook:{event_id}] Scheduled cancellation set for {cancel_at_datetime}")
+                logger.info("[Webhook] Scheduled cancellation set")
             elif billing.scheduled_cancel_at is not None:
                 await crud.billing.update(
                     db=db,
@@ -879,7 +882,7 @@ class BillingService:
                     obj_in={"scheduled_cancel_at": None},
                     auto_commit=False
                 )
-                logger.info(f"[Webhook:{event_id}] Scheduled cancellation cleared")
+                logger.info("[Webhook] Scheduled cancellation cleared")
 
             # cancel_at_period_end=true または cancel_at が設定されている場合、キャンセル予定状態に
             if not should_cancel_trial_expired_immediately and (cancel_at_period_end or cancel_at):
@@ -890,7 +893,7 @@ class BillingService:
                     auto_commit=False
                 )
 
-                logger.info(f"[Webhook:{event_id}] Subscription set to canceling - cancel_at_period_end={cancel_at_period_end}, cancel_at={cancel_at}")
+                logger.info("[Webhook] Subscription set to canceling")
 
             # キャンセルが完全にクリアされた場合（cancel_at_period_end=false かつ cancel_at=null）、元のステータスに復元
             elif (
@@ -919,10 +922,10 @@ class BillingService:
                     auto_commit=False
                 )
 
-                logger.info(f"[Webhook:{event_id}] Subscription cancellation reverted for billing_id={billing.id}, restored to {restored_status}")
+                logger.info("[Webhook] Subscription cancellation reverted")
             else:
                 # どの条件にも当てはまらない場合（通常の更新）
-                logger.info(f"[Webhook:{event_id}] Subscription updated but no status change needed - cancel_at_period_end={cancel_at_period_end}, current_status={billing.billing_status}")
+                logger.info("[Webhook] Subscription updated but no status change needed")
 
             # Webhookイベント記録
             await crud.webhook_event.create_event_record(
@@ -975,13 +978,14 @@ class BillingService:
 
         except Exception as e:
             await db.rollback()
-            logger.exception(
+            logger.error(
                 "[Webhook:%s] Subscription update processing error: "
-                "customer_id=%s, subscription_id=%s, stripe_status=%s, "
+                "error=%s customer_present=%s, subscription_present=%s, stripe_status=%s, "
                 "cancel_at_period_end=%s, cancel_at=%s",
                 event_id,
-                subscription_data.get('customer'),
-                subscription_data.get('id'),
+                type(e).__name__,
+                bool(subscription_data.get('customer')),
+                bool(subscription_data.get('id')),
                 subscription_data.get('status'),
                 subscription_data.get('cancel_at_period_end'),
                 subscription_data.get('cancel_at'),
@@ -1013,7 +1017,7 @@ class BillingService:
             )
 
             if not billing:
-                logger.info(f"[Webhook:{event_id}] Billing not found for customer {customer_id} - skipping (possibly test data)")
+                logger.info("[Webhook] Billing not found for Stripe customer - skipping")
 
                 await crud.webhook_event.create_event_record(
                     db=db,
@@ -1042,16 +1046,16 @@ class BillingService:
                 )
             )
             logger.info(
-                "[Webhook:%s] Subscription deleted payload: customer_id=%s, "
+                "[Webhook:%s] Subscription deleted payload: customer_present=%s, "
                 "billing_id=%s, office_id=%s, previous_status=%s, "
                 "db_stripe_subscription_id=%s, has_recent_payment_failed=%s, "
                 "recent_payment_failed_cutoff=%s, new_status=%s",
                 event_id,
-                customer_id,
+                bool(customer_id),
                 billing.id,
                 billing.office_id,
                 previous_status.value if previous_status else None,
-                billing.stripe_subscription_id,
+                bool(billing.stripe_subscription_id),
                 has_recent_payment_failed,
                 recent_payment_failed_cutoff.isoformat(),
                 new_status.value,
@@ -1117,9 +1121,10 @@ class BillingService:
 
         except Exception as e:
             await db.rollback()
-            logger.exception(
-                "[Webhook:%s] Subscription deletion processing error: customer_id=%s",
+            logger.error(
+                "[Webhook:%s] Subscription deletion processing error: %s customer_present=%s",
                 event_id,
-                customer_id,
+                type(e).__name__,
+                bool(customer_id),
             )
             raise

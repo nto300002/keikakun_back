@@ -36,8 +36,8 @@ async def scheduled_trial_check():
             )
         except Exception as e:
             logger.error(
-                f"[BILLING_SCHEDULER] Trial expiration check failed: {e}",
-                exc_info=True
+                "[BILLING_SCHEDULER] Trial expiration check failed: %s",
+                type(e).__name__,
             )
 
 
@@ -57,8 +57,8 @@ async def scheduled_cancellation_check():
             )
         except Exception as e:
             logger.error(
-                f"[BILLING_SCHEDULER] Scheduled cancellation check failed: {e}",
-                exc_info=True
+                "[BILLING_SCHEDULER] Scheduled cancellation check failed: %s",
+                type(e).__name__,
             )
 
 

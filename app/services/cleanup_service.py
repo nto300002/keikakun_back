@@ -70,7 +70,7 @@ class CleanupService:
 
         except Exception as e:
             await db.rollback()
-            error_msg = f"Cleanup failed: {str(e)}"
+            error_msg = f"Cleanup failed: {type(e).__name__}"
             logger.error(error_msg)
             result["errors"].append(error_msg)
             raise
@@ -111,8 +111,9 @@ class CleanupService:
         for staff in staff_to_delete:
             staff_ids_to_delete.append(staff.id)
             logger.info(
-                f"Physically deleting staff: id={staff.id}, "
-                f"email={staff.email}, deleted_at={staff.deleted_at}"
+                "Physically deleting staff: id=%s, deleted_at=%s",
+                staff.id,
+                staff.deleted_at,
             )
 
         # 関連するOfficeStaffレコードを先に削除

@@ -1,10 +1,21 @@
 from datetime import datetime, date
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, Field
+import json
+import re
 import uuid
 
 from app.models.enums import CalendarConnectionStatus, NotificationTiming
 from app.messages import ja
+
+MAX_SERVICE_ACCOUNT_JSON_BYTES = 32 * 1024
+SERVICE_ACCOUNT_PRIVATE_KEY_PATTERN = re.compile(
+    r"^-----BEGIN PRIVATE KEY-----\n.+\n-----END PRIVATE KEY-----\n?$",
+    re.DOTALL,
+)
+SERVICE_ACCOUNT_EMAIL_PATTERN = re.compile(
+    r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$"
+)
 
 
 # ==================== OfficeCalendarAccount Schemas ====================
@@ -174,9 +185,14 @@ class CalendarSetupRequest(BaseModel):
     @classmethod
     def validate_service_account_json(cls, v: str) -> str:
         """サービスアカウントJSONのバリデーション"""
-        import json
+        if len(v.encode("utf-8")) > MAX_SERVICE_ACCOUNT_JSON_BYTES:
+            raise ValueError("サービスアカウントJSONのサイズが大きすぎます")
+
         try:
             parsed = json.loads(v)
+            if not isinstance(parsed, dict):
+                raise ValueError("無効なサービスアカウントJSONです")
+
             # 必須フィールドの確認
             required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
             for field in required_fields:
@@ -187,9 +203,17 @@ class CalendarSetupRequest(BaseModel):
             if parsed.get('type') != 'service_account':
                 raise ValueError(ja.VALIDATION_INVALID_SERVICE_ACCOUNT_TYPE)
 
+            private_key = parsed.get('private_key')
+            if not isinstance(private_key, str) or not SERVICE_ACCOUNT_PRIVATE_KEY_PATTERN.match(private_key):
+                raise ValueError("無効なサービスアカウントJSONです: private_key形式が不正です")
+
+            client_email = parsed.get('client_email')
+            if not isinstance(client_email, str) or not SERVICE_ACCOUNT_EMAIL_PATTERN.match(client_email):
+                raise ValueError("無効なサービスアカウントJSONです: client_email形式が不正です")
+
             return v
-        except json.JSONDecodeError as e:
-            raise ValueError(ja.VALIDATION_INVALID_JSON_FORMAT.format(error=str(e)))
+        except json.JSONDecodeError:
+            raise ValueError("無効なJSON形式です")
 
 
 class CalendarSetupResponse(BaseModel):

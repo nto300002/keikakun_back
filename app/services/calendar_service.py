@@ -303,11 +303,7 @@ class CalendarService:
                     detail=ja.SERVICE_ACCOUNT_KEY_NOT_FOUND
                 )
 
-            logger.info("=" * 80)
             logger.info("カレンダー接続テスト開始")
-            logger.info(f"  カレンダーID: {account.google_calendar_id}")
-            logger.info(f"  カレンダー名: {account.calendar_name}")
-            logger.info("=" * 80)
 
             # テストイベントを作成して接続を確認（すぐに削除）
             test_title = "Connection Test"
@@ -315,7 +311,6 @@ class CalendarService:
             test_start = datetime.now()
             test_end = test_start + timedelta(hours=1)  # 23時台でもエラーが発生しないようにtimedeltaを使用
 
-            logger.info("テストイベント作成開始...")
             google_gateway = self._google_gateway()
             event_id = google_gateway.create_event(
                 service_account_json=service_account_json,
@@ -325,16 +320,13 @@ class CalendarService:
                 start_datetime=test_start,
                 end_datetime=test_end
             )
-            logger.info(f"テストイベント作成成功: {event_id}")
 
             # テストイベントを削除
-            logger.info("テストイベント削除開始...")
             google_gateway.delete_event(
                 service_account_json=service_account_json,
                 calendar_id=account.google_calendar_id,
                 event_id=event_id
             )
-            logger.info("テストイベント削除成功")
 
             # 接続ステータスを更新
             await crud_office_calendar_account.update_connection_status(
@@ -345,17 +337,13 @@ class CalendarService:
             )
 
             logger.info("カレンダー接続テスト成功")
-            logger.info("=" * 80)
 
             return True
 
         except (GoogleCalendarAuthenticationError, GoogleCalendarAPIError, Exception) as e:
             # 接続エラー
             error_message = str(e)
-            logger.error("=" * 80)
-            logger.error("カレンダー接続テスト失敗")
-            logger.error(f"  エラー: {error_message}")
-            logger.error("=" * 80)
+            logger.error("カレンダー接続テスト失敗: %s", type(e).__name__)
 
             await crud_office_calendar_account.update_connection_status(
                 db=db,
@@ -497,7 +485,7 @@ class CalendarService:
         recipient = result.scalar_one_or_none()
 
         if not recipient:
-            logger.error(f"Welfare recipient {welfare_recipient_id} not found")
+            logger.error("Welfare recipient not found")
             return None
 
         # ステータス情報からサイクル情報を取得（cycle_numberを取得するため）
@@ -508,7 +496,7 @@ class CalendarService:
         status = status_result.scalar_one_or_none()
 
         if not status:
-            logger.error(f"Support plan status {status_id} not found")
+            logger.error("Support plan status not found")
             return None
 
         # サイクル情報を取得
@@ -518,7 +506,7 @@ class CalendarService:
         cycle = cycle_result.scalar_one_or_none()
 
         if not cycle:
-            logger.error(f"Support plan cycle {status.plan_cycle_id} not found")
+            logger.error("Support plan cycle not found")
             return None
 
         cycle_number = cycle.cycle_number

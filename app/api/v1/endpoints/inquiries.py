@@ -116,10 +116,10 @@ async def create_inquiry(
             sender_email=inquiry_in.sender_email,
             honeypot=None  # フロントエンドから送信される場合は honeypot フィールドを追加
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="問い合わせ内容が不正です"
         )
 
     # IPアドレス取得
@@ -226,9 +226,9 @@ async def create_inquiry(
             id=inquiry_id,
             message="問い合わせを受け付けました"
         )
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"問い合わせの送信に失敗しました: {str(e)}"
+            detail="問い合わせの送信に失敗しました"
         )

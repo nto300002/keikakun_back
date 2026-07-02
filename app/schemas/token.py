@@ -86,6 +86,11 @@ class ResetPasswordRequest(BaseModel):
         return v
 
 
+class VerifyResetTokenRequest(BaseModel):
+    """パスワードリセットトークン検証"""
+    token: str
+
+
 class PasswordResetResponse(BaseModel):
     """パスワードリセットレスポンス"""
     message: str

@@ -42,10 +42,7 @@ class CalendarEventLedgerService:
         )
         if existing_event:
             logger.info(
-                "Renewal deadline event already exists for cycle_id=%s (event_id=%s). "
-                "Skipping creation.",
-                cycle_id,
-                existing_event.id,
+                "Renewal deadline event already exists. Skipping creation."
             )
             return []
 
@@ -54,12 +51,12 @@ class CalendarEventLedgerService:
             office_id=office_id,
         )
         if not account:
-            logger.warning("Calendar account not found for office %s. Skipping event creation.", office_id)
+            logger.warning("Calendar account not found. Skipping event creation.")
             return []
 
         account_calendar_id = account.google_calendar_id
         if account.connection_status != CalendarConnectionStatus.connected:
-            logger.warning("Calendar account not connected for office %s. Skipping event creation.", office_id)
+            logger.warning("Calendar account not connected. Skipping event creation.")
             return []
 
         result = await db.execute(
@@ -67,7 +64,7 @@ class CalendarEventLedgerService:
         )
         recipient = result.scalar_one_or_none()
         if not recipient:
-            logger.error("Welfare recipient %s not found", welfare_recipient_id)
+            logger.error("Welfare recipient not found")
             return []
 
         from app.models.support_plan_cycle import SupportPlanCycle
@@ -77,7 +74,7 @@ class CalendarEventLedgerService:
         )
         cycle = cycle_result.scalar_one_or_none()
         if not cycle:
-            logger.error("Support plan cycle %s not found", cycle_id)
+            logger.error("Support plan cycle not found")
             return []
 
         jst = ZoneInfo("Asia/Tokyo")
@@ -121,10 +118,7 @@ class CalendarEventLedgerService:
         )
         if existing_event:
             logger.info(
-                "Monitoring deadline event already exists for status_id=%s (event_id=%s). "
-                "Skipping creation.",
-                status_id,
-                existing_event.id,
+                "Monitoring deadline event already exists. Skipping creation."
             )
             return []
 
@@ -133,12 +127,12 @@ class CalendarEventLedgerService:
             office_id=office_id,
         )
         if not account:
-            logger.warning("Calendar account not found for office %s. Skipping event creation.", office_id)
+            logger.warning("Calendar account not found. Skipping event creation.")
             return []
 
         account_calendar_id = account.google_calendar_id
         if account.connection_status != CalendarConnectionStatus.connected:
-            logger.warning("Calendar account not connected for office %s. Skipping event creation.", office_id)
+            logger.warning("Calendar account not connected. Skipping event creation.")
             return []
 
         result = await db.execute(
@@ -146,7 +140,7 @@ class CalendarEventLedgerService:
         )
         recipient = result.scalar_one_or_none()
         if not recipient:
-            logger.error("Welfare recipient %s not found", welfare_recipient_id)
+            logger.error("Welfare recipient not found")
             return []
 
         jst = ZoneInfo("Asia/Tokyo")
