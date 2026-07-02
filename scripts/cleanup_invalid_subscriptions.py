@@ -41,7 +41,7 @@ async def cleanup_invalid_subscriptions():
             error_count = 0
 
             for i, sub in enumerate(all_subscriptions, 1):
-                print(f"{i}. エンドポイント: {sub.endpoint[:50]}...")
+                print(f"{i}. エンドポイント: <hidden>")
                 print(f"   スタッフID: {sub.staff_id}")
 
                 try:
@@ -94,9 +94,7 @@ async def cleanup_invalid_subscriptions():
             print("")
 
         except Exception as e:
-            print(f"❌ エラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ エラーが発生しました: {type(e).__name__}")
             raise
 
 

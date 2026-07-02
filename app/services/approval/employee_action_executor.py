@@ -69,13 +69,10 @@ class EmployeeActionExecutor:
     ) -> Dict[str, Any]:
         resource_type = _get_resource_type(request)
         action_type = _get_action_type(request)
-        resource_id = _get_resource_id(request)
-
         logger.info(
-            "Executing action: resource_type=%s, action_type=%s, resource_id=%s",
+            "Executing action: resource_type=%s action_type=%s",
             resource_type,
             action_type,
-            resource_id,
         )
 
         if resource_type == ResourceType.welfare_recipient:
@@ -163,7 +160,7 @@ class EmployeeActionExecutor:
         db.add(association)
         await db.flush()
 
-        logger.info("Creating initial support plan for recipient %s", recipient_id)
+        logger.info("Creating initial support plan for recipient")
         from app.services.welfare_recipient_service import WelfareRecipientService
 
         await WelfareRecipientService._create_initial_support_plan(
@@ -418,8 +415,11 @@ class EmployeeActionExecutor:
         action_type = _get_action_type(request)
         request_data = request.request_data or {}
 
-        logger.info("Executing support_plan_status action: %s", action_type)
-        logger.info("Request data: %s", request_data)
+        logger.info(
+            "Executing support_plan_status action: %s request_keys=%s",
+            action_type,
+            sorted(request_data.keys()),
+        )
 
         deliverable_id = request_data.get("deliverable_id")
 
@@ -438,14 +438,14 @@ class EmployeeActionExecutor:
         deliverable = deliverable_result.scalar_one_or_none()
 
         if not deliverable:
-            logger.error("Deliverable %s not found", deliverable_id)
+            logger.error("Deliverable not found")
             return {
                 "success": False,
                 "action": str(action_type),
                 "error": f"Deliverable {deliverable_id} not found",
             }
 
-        logger.info("Deliverable %s found. No further action needed (already uploaded).", deliverable_id)
+        logger.info("Deliverable found. No further action needed")
 
         return {
             "success": True,

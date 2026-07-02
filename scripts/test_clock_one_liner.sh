@@ -33,7 +33,7 @@ sub = stripe.Subscription.create(
     items=[{'price': '$STRIPE_PRICE_ID'}],
     trial_end=int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())
 )
-print(f"✅ Subscription: {sub.id}")
+print("✅ Subscription: <hidden>")
 
 print(f"\n{'='*80}")
 print("次のコマンド:")

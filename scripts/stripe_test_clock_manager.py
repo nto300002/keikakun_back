@@ -250,9 +250,9 @@ def list_customers_by_test_clock(clock_id: str):
         print(f"👥 顧客一覧 ({len(customers.data)}件):\n")
 
         for i, customer in enumerate(customers.data, 1):
-            print(f"{i}. Customer ID: {customer.id}")
-            print(f"   Email: {customer.email}")
-            print(f"   Name: {customer.name or 'N/A'}")
+            print(f"{i}. Customer ID: <hidden>")
+            print("   Email: <hidden>")
+            print("   Name: <hidden>")
 
             subscriptions = stripe.Subscription.list(customer=customer.id, limit=5)
             if subscriptions.data:

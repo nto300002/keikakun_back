@@ -24,7 +24,7 @@ from app.core.security import (
     verify_password, create_access_token, create_refresh_token, ALGORITHM,
     create_email_verification_token, verify_email_verification_token,
     create_temporary_token, verify_temporary_token, verify_temporary_token_with_session, verify_totp,
-    generate_totp_uri, get_password_hash
+    generate_totp_uri, get_password_hash, get_jwt_secret
 )
 from app.core.auth_cookie import (
     build_access_cookie_options,
@@ -249,7 +249,7 @@ async def login_for_access_token(
             )
         # 合言葉を検証
         if not verify_password(passphrase, user.hashed_passphrase):
-            logger.warning(f"[LOGIN] Invalid passphrase attempt for app_admin: {username}")
+            logger.warning("[LOGIN] Invalid passphrase attempt for app_admin")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ja.AUTH_INVALID_PASSPHRASE,
@@ -284,9 +284,9 @@ async def login_for_access_token(
                     "session_duration": session_duration,
                     "session_type": session_type,
                 }
-            except ValueError as e:
+            except ValueError:
                 # シークレット復号化失敗 → MFAをリセット
-                logger.error(f"[LOGIN MFA] Secret decryption failed for {user.email}: {str(e)}")
+                logger.error("[LOGIN MFA] Secret decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -339,9 +339,8 @@ async def refresh_access_token(
     Option 2: リフレッシュトークンのブラックリストチェックを実施
     """
     try:
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
         payload = jwt.decode(
-            refresh_token_data.refresh_token, secret_key, algorithms=[ALGORITHM]
+            refresh_token_data.refresh_token, get_jwt_secret(), algorithms=[ALGORITHM]
         )
 
         # セッション情報を取得
@@ -405,13 +404,11 @@ async def verify_mfa_for_login(
     mfa_data: MFAVerifyRequest,
     staff_crud=Depends(get_staff_crud),
 ):
-    logger.info(f"[MFA VERIFY] Starting MFA verification")
-    logger.info(f"[MFA VERIFY] temporary_token length: {len(mfa_data.temporary_token) if mfa_data.temporary_token else 0}")
-    logger.info(f"[MFA VERIFY] totp_code: {mfa_data.totp_code}")
+    logger.info("[MFA VERIFY] Starting MFA verification")
 
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
-        logger.error(f"[MFA VERIFY] Invalid temporary token")
+        logger.error("[MFA VERIFY] Invalid temporary token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
@@ -420,46 +417,42 @@ async def verify_mfa_for_login(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
-    logger.info(f"[MFA VERIFY] Token validated, user_id: {user_id}")
+    logger.info("[MFA VERIFY] Temporary token validated")
 
     user = await staff_crud.get(db, id=user_id)
     if not user:
-        logger.error(f"[MFA VERIFY] User not found: {user_id}")
+        logger.error("[MFA VERIFY] User not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
     if not user.is_mfa_enabled:
-        logger.error(f"[MFA VERIFY] MFA not enabled for user: {user_id}")
+        logger.error("[MFA VERIFY] MFA not enabled for user")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ja.AUTH_MFA_NOT_CONFIGURED
         )
-
-    logger.info(f"[MFA VERIFY] User found, MFA enabled: {user.is_mfa_enabled}")
-    logger.info(f"[MFA VERIFY] MFA secret exists: {bool(user.mfa_secret)}")
 
     # Verify either TOTP code or recovery code
     verification_successful = False
 
     if mfa_data.totp_code:
-        logger.info(f"[MFA VERIFY] Attempting TOTP verification")
+        logger.info("[MFA VERIFY] Attempting TOTP verification")
         if user.mfa_secret:
             try:
                 # MFA secretは暗号化されているため、復号化が必要
                 decrypted_secret = user.get_mfa_secret()
-                logger.info(f"[MFA VERIFY] Secret decrypted successfully: {bool(decrypted_secret)}")
                 totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
-                logger.info(f"[MFA VERIFY] TOTP verification result: {totp_result}")
                 if totp_result:
+                    logger.info("[MFA VERIFY] TOTP verification succeeded")
                     verification_successful = True
             except ValueError as e:
                 # シークレット復号化失敗 → MFAに問題がある
-                logger.error(f"[MFA VERIFY] Secret decryption failed for user {user.email}: {str(e)}")
+                logger.error("[MFA VERIFY] Secret decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
                 )
         else:
-            logger.error(f"[MFA VERIFY] MFA secret is missing")
+            logger.error("[MFA VERIFY] MFA secret is missing")
 
     if mfa_data.recovery_code and not verification_successful:
         logger.info(f"[MFA VERIFY] Attempting recovery code verification")
@@ -600,10 +593,8 @@ async def verify_mfa_first_time(
     # シークレットを復号化してTOTPコードを検証
     try:
         decrypted_secret = user.get_mfa_secret()
-        logger.info(f"[MFA FIRST TIME VERIFY] Secret decrypted successfully")
 
         totp_result = verify_totp(secret=decrypted_secret, token=mfa_data.totp_code)
-        logger.info(f"[MFA FIRST TIME VERIFY] TOTP verification result: {totp_result}")
 
         if not totp_result:
             logger.error(f"[MFA FIRST TIME VERIFY] Invalid TOTP code")
@@ -611,8 +602,8 @@ async def verify_mfa_first_time(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=ja.AUTH_INVALID_MFA_CODE,
             )
-    except ValueError as e:
-        logger.error(f"[MFA FIRST TIME VERIFY] Secret decryption failed: {str(e)}")
+    except ValueError:
+        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -742,14 +733,14 @@ async def forgot_password(
                 # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f"Failed to send password reset email to {staff_email}: {str(e)}")
+                logger.error("Failed to send password reset email")
 
         except Exception as e:
             # DB処理失敗時はロールバック
             await db.rollback()
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create password reset token for {staff_email}: {str(e)}")
+            logger.error("Failed to create password reset token")
             # エラーは飲み込んで、セキュリティのため成功メッセージを返す
             # （メールアドレスの存在を漏らさない）
 
@@ -790,6 +781,38 @@ async def verify_reset_token(
             valid=False,
             message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
         )
+
+
+@router.post(
+    "/verify-reset-token",
+    response_model=schemas.token.TokenValidityResponse,
+    status_code=status.HTTP_200_OK,
+)
+@limiter.limit("30/minute")
+async def verify_reset_token_post(
+    data: schemas.token.VerifyResetTokenRequest,
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """
+    パスワードリセットトークンの有効性を確認します。
+
+    POST bodyで受け取り、URL query stringにトークンを残さないためのエンドポイントです。
+    """
+    from app.crud import password_reset as crud_password_reset
+
+    db_token = await crud_password_reset.get_valid_token(db, token=data.token)
+
+    if db_token:
+        return schemas.token.TokenValidityResponse(
+            valid=True,
+            message=ja.AUTH_RESET_TOKEN_VALID
+        )
+
+    return schemas.token.TokenValidityResponse(
+        valid=False,
+        message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
+    )
 
 
 @router.post(
@@ -839,7 +862,7 @@ async def reset_password(
     is_breached, breach_count = await check_password_breach(data.new_password)
     if is_breached:
         logger.warning(
-            f"Attempted password reset with breached password for {staff_email}. "
+            f"Attempted password reset with breached password for staff_id={staff_id}. "
             f"Password found {breach_count} times in breach database."
         )
         raise HTTPException(
@@ -883,7 +906,7 @@ async def reset_password(
             )
         except Exception as e:
             # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
-            logger.error(f"Failed to send password changed notification to {staff_email}: {str(e)}")
+            logger.error("Failed to send password changed notification")
 
         return schemas.token.PasswordResetResponse(
             message=ja.AUTH_PASSWORD_RESET_SUCCESS
@@ -894,7 +917,7 @@ async def reset_password(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Password reset failed: {e}")
+        logger.error("Password reset failed: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.AUTH_PASSWORD_RESET_FAILED

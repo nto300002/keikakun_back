@@ -59,16 +59,16 @@ if __name__ == "__main__":
 
     private_key_pem, private_key_der_base64, public_key_base64url = generate_vapid_keys()
 
-    print("【.envファイル用 - コピー&ペーストしてください】")
+    print("【.envファイル用】")
     print()
-    print(f'VAPID_PRIVATE_KEY_DER={private_key_der_base64}')
+    print("VAPID_PRIVATE_KEY_DER=<generated; hidden>")
     print(f'VAPID_PUBLIC_KEY={public_key_base64url}')
     print()
 
     print("=" * 80)
     print()
-    print("【確認用: PEM形式（参考のみ）】")
-    print(private_key_pem)
+    print("【確認用: PEM形式】")
+    print("<private key hidden>")
     print()
 
     print("=" * 80)

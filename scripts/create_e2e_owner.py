@@ -113,14 +113,14 @@ async def create_e2e_owner(email: str, password: str) -> bool:
         print("✅ E2Eテスト用 owner アカウントを作成しました")
         print("=" * 50)
         print(f"  Email   : {email}")
-        print(f"  Password: {password}")
+        print("  Password: <hidden>")
         print(f"  Staff ID: {staff.id}")
         print(f"  Office  : E2Eテスト事業所 (id={office.id})")
         print(f"  Billing : {BillingStatus.active.value}")
         print()
         print("GitHub Actions Secrets に以下を登録してください:")
-        print(f"  E2E_OWNER_EMAIL    = {email}")
-        print(f"  E2E_OWNER_PASSWORD = {password}")
+        print("  E2E_OWNER_EMAIL    = <created email>")
+        print("  E2E_OWNER_PASSWORD = <hidden>")
         return True
 
 

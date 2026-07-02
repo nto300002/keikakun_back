@@ -67,7 +67,7 @@ def generate_vapid_env_variables():
         print("📋 .envファイルに以下の環境変数を追加してください:")
         print("=" * 70 + "\n")
 
-        print(f"VAPID_PRIVATE_KEY={private_key_b64}")
+        print("VAPID_PRIVATE_KEY=<generated; hidden>")
         print(f"VAPID_PUBLIC_KEY={public_key_b64}")
         print(f"VAPID_SUBJECT=mailto:support@keikakun.com")
 
@@ -97,9 +97,7 @@ def generate_vapid_env_variables():
         sys.exit(1)
 
     except Exception as e:
-        print(f"❌ エラーが発生しました: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ エラーが発生しました: {type(e).__name__}")
         sys.exit(1)
 
 

@@ -195,24 +195,19 @@ async def verify_email_change(
     - トークンの有効期限は30分
     - 変更完了後、旧メールアドレスに通知を送信
     """
-    print(f"[DEBUG] verify_email_change called with token: {email_confirm.verification_token[:10]}...")
     try:
         result = await staff_profile_service.verify_email_change(
             db=db,
             verification_token=email_confirm.verification_token
         )
-        print(f"[DEBUG] verify_email_change succeeded: {result}")
         return result
     except HTTPException:
         # HTTPException はそのまま再raise
         raise
-    except Exception as e:
-        print(f"[DEBUG] Exception in verify_email_change: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.STAFF_EMAIL_CHANGE_VERIFY_FAILED.format(error=str(e))
+            detail="メールアドレス変更の確認に失敗しました"
         )
 
 
@@ -346,8 +341,7 @@ async def delete_staff(
             ip_address=ip_address,
             user_agent=user_agent,
             details={
-                "deleted_staff_email": target_staff.email,
-                "deleted_staff_name": f"{target_staff.last_name} {target_staff.first_name}",
+                "deleted_staff_id": str(target_staff.id),
                 "deleted_staff_role": target_staff.role.value
             }
         )
@@ -395,11 +389,11 @@ async def delete_staff(
     except HTTPException:
         # HTTPExceptionはそのまま再raise
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.STAFF_DELETE_FAILED.format(error=str(e))
+            detail="スタッフの削除に失敗しました"
         )
 
 

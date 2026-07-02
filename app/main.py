@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from fastapi_csrf_protect.exceptions import CsrfProtectError
+from fastapi_csrf_protect import CsrfProtect
 import uvicorn
 import logging
 import sys
@@ -44,12 +45,75 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+CSRF_EXEMPT_PATHS = {
+    "/api/v1/csrf-token",
+    "/api/v1/csrf-token/",
+    "/api/v1/auth/refresh-token",
+    "/api/v1/auth/refresh-token/",
+    "/api/v1/billing/webhook",
+    "/api/v1/billing/webhook/",
+}
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "form-action 'self'; "
+        "img-src 'self' data: blob: https:; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https://api.keikakun.com https://www.keikakun.com "
+        "https://keikakun-front.vercel.app https://api.stripe.com https://*.googleapis.com;"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "X-Frame-Options": "DENY",
+}
+
+if is_production := os.getenv("ENVIRONMENT") == "production":
+    SECURITY_HEADERS["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Add baseline security headers to API responses."""
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
+
+
+@app.middleware("http")
+async def csrf_cookie_auth_middleware(request: Request, call_next):
+    """Apply CSRF validation consistently for cookie-authenticated state changes."""
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and request.url.path not in CSRF_EXEMPT_PATHS
+        and request.cookies.get("access_token")
+    ):
+        auth_header = request.headers.get("Authorization")
+        if not (auth_header and auth_header.startswith("Bearer ")):
+            try:
+                await CsrfProtect().validate_csrf(request)
+            except CsrfProtectError:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF token validation failed"},
+                )
+
+    return await call_next(request)
+
+
 @app.exception_handler(CsrfProtectError)
 async def csrf_protect_exception_handler(request: Request, exc: CsrfProtectError):
     """CSRF保護のエラーハンドラー"""
     return JSONResponse(
         status_code=403,
-        content={"detail": f"CSRF token validation failed: {exc.message}"}
+        content={"detail": "CSRF token validation failed"}
     )
 
 
@@ -141,24 +205,18 @@ async def shutdown_event():
     deadline_notification_scheduler.shutdown()
     logger.info("Deadline notification scheduler stopped successfully")
 
-# 環境に応じてCORS設定を変更
-is_production = os.getenv("ENVIRONMENT") == "production"
-
 if is_production:
     # 本番環境: 必要最小限のオリジン・メソッド・ヘッダーのみ許可
     allowed_origins = [
         "https://keikakun-front.vercel.app",
         "https://www.keikakun.com",
-        "https://api.keikakun.com",  # サブドメイン構成のため追加
     ]
     allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     allowed_headers = [
         "Content-Type",
         "Authorization",
-        "X-Requested-With",
         "Accept",
         "X-CSRF-Token",  # CSRF保護用ヘッダー
-        "x-vercel-protection-bypass",  # Vercel Preview E2E テスト用バイパスヘッダー
     ]
 else:
     # 開発環境: localhost + 本番確認用
@@ -177,12 +235,11 @@ else:
     ]
 
 # CORSミドルウェアの設定
-# allow_origin_regex: Vercel Preview デプロイの動的 URL（keikakun-front-*.vercel.app）を許可する。
-# allow_credentials=True 時は allow_origins=["*"] が使えないため正規表現で対応する。
+allow_origin_regex = None if is_production else r"https://keikakun-front[^.]*\.vercel\.app"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://keikakun-front[^.]*\.vercel\.app",
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,  # Cookie送信のために必要
     allow_methods=allowed_methods,
     allow_headers=allowed_headers,

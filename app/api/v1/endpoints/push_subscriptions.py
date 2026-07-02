@@ -68,14 +68,15 @@ async def subscribe_push(
         )
 
         logger.info(
-            f"[PUSH_SUBSCRIPTION] Staff {current_user.email} subscribed "
-            f"(subscription_id: {new_subscription.id})"
+            "[PUSH_SUBSCRIPTION] Staff subscribed staff_id=%s subscription_id=%s",
+            current_user.id,
+            new_subscription.id,
         )
 
         return new_subscription
 
     except Exception as e:
-        logger.error(f"[PUSH_SUBSCRIPTION] Failed to subscribe: {e}", exc_info=True)
+        logger.error("[PUSH_SUBSCRIPTION] Failed to subscribe: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to subscribe push notifications")
 
 
@@ -118,17 +119,14 @@ async def unsubscribe_push(
         if not deleted:
             raise HTTPException(status_code=404, detail="Subscription not found")
 
-        logger.info(
-            f"[PUSH_SUBSCRIPTION] Staff {current_user.email} unsubscribed "
-            f"(endpoint: {endpoint[:50]}...)"
-        )
+        logger.info("[PUSH_SUBSCRIPTION] Staff unsubscribed")
 
         return {"message": "Unsubscribed successfully"}
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[PUSH_SUBSCRIPTION] Failed to unsubscribe: {e}", exc_info=True)
+        logger.error("[PUSH_SUBSCRIPTION] Failed to unsubscribe: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to unsubscribe push notifications")
 
 
@@ -161,7 +159,5 @@ async def get_my_subscriptions(
         return subscriptions
 
     except Exception as e:
-        logger.error(f"[PUSH_SUBSCRIPTION] Failed to get subscriptions: {e}", exc_info=True)
+        logger.error("[PUSH_SUBSCRIPTION] Failed to get subscriptions: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to retrieve subscriptions")
-
-

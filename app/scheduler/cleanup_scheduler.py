@@ -72,12 +72,7 @@ class CleanupScheduler:
                     logger.info("物理削除対象のレコードはありませんでした")
 
         except Exception as e:
-            logger.error(
-                f"物理削除クリーンアップジョブでエラーが発生しました: "
-                f"{type(e).__name__}: {e}"
-            )
-            import traceback
-            logger.error(f"トレースバック:\n{traceback.format_exc()}")
+            logger.error("物理削除クリーンアップジョブでエラーが発生しました: %s", type(e).__name__)
 
         logger.info("=" * 80)
         logger.info("物理削除クリーンアップジョブ終了")

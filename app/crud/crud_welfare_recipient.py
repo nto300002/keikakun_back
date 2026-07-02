@@ -76,10 +76,8 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
         office_id: UUID
     ) -> None:
         """Create related data for a welfare recipient."""
-        logger.info(f"[CRUD DEBUG] create_related_data START: welfare_recipient_id={welfare_recipient.id}, office_id={office_id}")
 
         contact_address = registration_data.contact_address
-        logger.info("[CRUD DEBUG] Creating ServiceRecipientDetail...")
         detail = ServiceRecipientDetail(
             welfare_recipient_id=welfare_recipient.id,
             address=contact_address.address,
@@ -90,11 +88,8 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
             tel=contact_address.tel
         )
         db.add(detail)
-        logger.info("[CRUD DEBUG] Flushing ServiceRecipientDetail...")
         await db.flush()
-        logger.info(f"[CRUD DEBUG] ServiceRecipientDetail created with id={detail.id}")
 
-        logger.info(f"[CRUD DEBUG] Creating {len(registration_data.emergency_contacts)} emergency contacts...")
         for contact_data in registration_data.emergency_contacts:
             emergency_contact = EmergencyContact(
                 service_recipient_detail_id=detail.id,
@@ -109,10 +104,8 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
                 priority=contact_data.priority
             )
             db.add(emergency_contact)
-        logger.info("[CRUD DEBUG] Emergency contacts added")
 
         disability_info = registration_data.disability_info
-        logger.info("[CRUD DEBUG] Creating DisabilityStatus...")
         disability_status = DisabilityStatus(
             welfare_recipient_id=welfare_recipient.id,
             disability_or_disease_name=disability_info.disabilityOrDiseaseName,
@@ -120,11 +113,8 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
             special_remarks=disability_info.specialRemarks
         )
         db.add(disability_status)
-        logger.info("[CRUD DEBUG] Flushing DisabilityStatus...")
         await db.flush()
-        logger.info(f"[CRUD DEBUG] DisabilityStatus created with id={disability_status.id}")
 
-        logger.info(f"[CRUD DEBUG] Creating {len(registration_data.disability_details)} disability details...")
         for detail_data in registration_data.disability_details:
             disability_detail = DisabilityDetail(
                 disability_status_id=disability_status.id,
@@ -135,15 +125,12 @@ class CRUDWelfareRecipient(CRUDBase[WelfareRecipient, WelfareRecipientCreate, We
                 application_status=detail_data.application_status
             )
             db.add(disability_detail)
-        logger.info("[CRUD DEBUG] Disability details added")
 
-        logger.info("[CRUD DEBUG] Creating OfficeWelfareRecipient association...")
         office_association = OfficeWelfareRecipient(
             welfare_recipient_id=welfare_recipient.id,
             office_id=office_id
         )
         db.add(office_association)
-        logger.info("[CRUD DEBUG] create_related_data END")
 
     async def search_by_name(self, db: AsyncSession, office_id: UUID, search_term: str, skip: int = 0, limit: int = 100) -> List[WelfareRecipient]:
         """Search welfare recipients by name (supports both kanji and furigana)"""

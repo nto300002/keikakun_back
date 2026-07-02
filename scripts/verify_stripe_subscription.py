@@ -113,22 +113,28 @@ if __name__ == "__main__":
         print("Subscription Info:")
         print("="*60)
         for key, value in result.items():
-            print(f"  {key}: {value}")
+            if key in {"id", "customer_id", "subscription_id"} or "customer" in key or "subscription" in key:
+                print(f"  {key}: <hidden>")
+            else:
+                print(f"  {key}: {value}")
         print("="*60 + "\n")
 
     elif command == "customer":
         result = verify_customer_subscriptions(id_value)
         if isinstance(result, dict) and "error" in result:
             print(f"\nError: {result['error']}")
-            print(f"Customer ID: {result['customer_id']}\n")
+            print("Customer ID: <hidden>\n")
         else:
             print("\n" + "="*60)
             print(f"Customer Subscriptions ({len(result)} found):")
             print("="*60)
             for i, sub in enumerate(result, 1):
-                print(f"\n{i}. Subscription {sub['id']}:")
+                print(f"\n{i}. Subscription <hidden>:")
                 for key, value in sub.items():
                     if key != 'id':
+                        if key in {"customer", "customer_id", "subscription", "subscription_id"}:
+                            print(f"     {key}: <hidden>")
+                            continue
                         print(f"     {key}: {value}")
             print("="*60 + "\n")
 

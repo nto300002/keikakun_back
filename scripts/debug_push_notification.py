@@ -46,9 +46,9 @@ async def debug_push_notification():
 
                 print(f"\n   📋 購読詳細:")
                 for i, (sub, staff) in enumerate(subscriptions, 1):
-                    print(f"   {i}. スタッフ: {staff.last_name} {staff.first_name} ({mask_email(staff.email)})")
+                    print(f"   {i}. スタッフID: {staff.id}")
                     print(f"      購読ID: {sub.id}")
-                    print(f"      エンドポイント: {sub.endpoint[:50]}...")
+                    print(f"      エンドポイント: <hidden>")
                     print(f"      作成日時: {sub.created_at}")
             else:
                 print(f"\n   ⚠️  購読データが登録されていません")
@@ -95,7 +95,7 @@ async def debug_push_notification():
                 system_icon = "✅" if system_enabled else "❌"
                 email_icon = "✅" if email_enabled else "❌"
 
-                print(f"   {i}. {staff.last_name} {staff.first_name} ({mask_email(staff.email)})")
+                print(f"   {i}. staff_id={staff.id}")
                 print(f"      メール通知: {email_icon} (閾値: {email_threshold}日前)")
                 print(f"      システム通知: {system_icon} (閾値: {push_threshold}日前)")
 
@@ -213,9 +213,7 @@ async def debug_push_notification():
             print(f"\n{'='*70}\n")
 
         except Exception as e:
-            print(f"\n❌ エラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"\n❌ エラーが発生しました: {type(e).__name__}")
             raise
 
 

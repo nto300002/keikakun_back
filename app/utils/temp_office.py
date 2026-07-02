@@ -72,13 +72,13 @@ async def delete_temporary_system_office(
         if office:
             await db.delete(office)
             await db.flush()
-            logger.info(f"一時的なシステム事務所を削除: {office_id}")
+            logger.info("一時的なシステム事務所を削除")
             return True
         else:
-            logger.warning(f"一時的なシステム事務所が見つかりません: {office_id}")
+            logger.warning("一時的なシステム事務所が見つかりません")
             return False
     except Exception as e:
-        logger.error(f"一時的なシステム事務所の削除に失敗: {office_id} - {str(e)}")
+        logger.error("一時的なシステム事務所の削除に失敗: %s", type(e).__name__)
         return False
 
 
@@ -143,7 +143,7 @@ async def get_or_create_system_office(
     existing_office_id = result.scalar_one_or_none()
 
     if existing_office_id:
-        logger.info(f"既存のシステム事務所を再利用: {existing_office_id}")
+        logger.info("既存のシステム事務所を再利用")
         return existing_office_id
 
     # なければ新規作成
