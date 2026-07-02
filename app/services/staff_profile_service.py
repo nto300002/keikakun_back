@@ -194,7 +194,7 @@ class StaffProfileService:
                 )
             except Exception as e:
                 # メール送信失敗はログに記録するが、処理は続行
-                logger.warning("Password change notification email failed: %s", e)
+                logger.warning("Password change notification email failed: %s", type(e).__name__)
 
             # commit前にupdated_atを取得（MissingGreenletエラー対策）
             updated_at = staff.updated_at
@@ -493,7 +493,7 @@ class StaffProfileService:
             )
         except Exception as e:
             # メール送信失敗はログに記録するが、リクエストは成功とする
-            logger.warning("Email change verification email failed: %s", e)
+            logger.warning("Email change verification email failed: %s", type(e).__name__)
 
         # 通知メール送信（旧メールアドレス）
         try:
@@ -503,7 +503,7 @@ class StaffProfileService:
                 new_email=email_request.new_email
             )
         except Exception as e:
-            logger.warning("Email change notification email failed: %s", e)
+            logger.warning("Email change notification email failed: %s", type(e).__name__)
 
         await db.commit()
 
@@ -548,10 +548,10 @@ class StaffProfileService:
                 detail="無効な確認トークンです"
             )
 
-        logger.debug("Found email change request: id=%s status=%s", email_request.id, email_request.status)
+        logger.debug("Found email change request")
 
         # 有効期限チェック
-        logger.debug("Checking email change request expiration: expires_at=%s", email_request.expires_at)
+        logger.debug("Checking email change request expiration")
         if datetime.now(timezone.utc) > email_request.expires_at:
             logger.warning("Email change token expired")
             raise HTTPException(
@@ -560,34 +560,34 @@ class StaffProfileService:
             )
 
         # ステータスチェック
-        logger.debug("Checking email change request status: %s", email_request.status)
+        logger.debug("Checking email change request status")
         if email_request.status != "pending":
-            logger.warning("Email change request status is not pending: %s", email_request.status)
+            logger.warning("Email change request status is not pending")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="この変更リクエストは既に処理されています"
             )
 
         # スタッフ情報取得
-        logger.debug("Fetching staff for email change: staff_id=%s", email_request.staff_id)
+        logger.debug("Fetching staff for email change")
         stmt_staff = select(Staff).where(Staff.id == email_request.staff_id)
         result_staff = await db.execute(stmt_staff)
         staff = result_staff.scalar_one_or_none()
 
         if not staff:
-            logger.warning("Staff not found for email change: staff_id=%s", email_request.staff_id)
+            logger.warning("Staff not found for email change")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=ja.STAFF_NOT_FOUND
             )
 
-        logger.debug("Staff found for email change: id=%s", staff.id)
+        logger.debug("Staff found for email change")
 
         # 旧メールアドレスと新メールアドレスを保存（コミット後のアクセス用）
         old_email = staff.email
         new_email = email_request.new_email
         staff_name = staff.full_name
-        logger.debug("Updating staff email: staff_id=%s", staff.id)
+        logger.debug("Updating staff email")
 
         # スタッフ情報更新
         updated_at = datetime.now(timezone.utc)
@@ -622,7 +622,7 @@ class StaffProfileService:
                 new_email=new_email
             )
         except Exception as e:
-            logger.warning("Email change completion email failed: %s", e)
+            logger.warning("Email change completion email failed: %s", type(e).__name__)
 
         logger.debug("Committing email change transaction")
         await db.commit()

@@ -23,7 +23,7 @@ class MfaService:
 
         # is_mfa_enabled は verify で有効にするのでここでは True にしない
         # NOTE: トランザクション管理はエンドポイント層で行う
-        logger.info("[MFA ENROLL] Enroll completed")
+        logger.info("[MFA ENROLL] Enrollment data generated")
 
         # QRコードURIは平文のシークレットを使用
         qr_code_uri = generate_totp_uri(user.email, mfa_secret)
@@ -36,7 +36,7 @@ class MfaService:
         logger = logging.getLogger(__name__)
 
         if not user.mfa_secret:
-            logger.warning("[MFA VERIFY] No mfa_secret")
+            logger.warning("[MFA VERIFY] No MFA secret")
             return False
 
         logger.info("[MFA VERIFY] Starting verification")
@@ -50,7 +50,7 @@ class MfaService:
             return False
 
         if not secret:
-            logger.warning("[MFA VERIFY] Decryption returned None")
+            logger.warning("[MFA VERIFY] Decryption returned no secret")
             return False
 
         if verify_totp(secret=secret, token=totp_code):
@@ -80,7 +80,7 @@ class MfaService:
         logger = logging.getLogger(__name__)
 
         if not user.mfa_secret:
-            logger.warning("[MFA VERIFY] No mfa_secret")
+            logger.warning("[MFA VERIFY] No MFA secret")
             return False
 
         logger.info("[MFA VERIFY TOTP] Starting verification")
@@ -94,7 +94,7 @@ class MfaService:
             return False
 
         if not secret:
-            logger.warning("[MFA VERIFY TOTP] Decryption returned None")
+            logger.warning("[MFA VERIFY TOTP] Decryption returned no secret")
             return False
 
         # TOTP検証のみ実行（コミットしない）

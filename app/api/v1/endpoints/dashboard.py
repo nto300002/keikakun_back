@@ -131,7 +131,7 @@ async def get_dashboard(
             office_id=office.id,
             trial_days=180
         )
-        logger.info(f"Auto-created billing record: id={billing.id}, office_id={office.id}")
+        logger.info("Auto-created billing record")
 
     # 8. 最終的なDashboardDataを構築
     max_user_count = service._get_max_user_count(billing.billing_status)

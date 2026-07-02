@@ -116,10 +116,10 @@ async def create_inquiry(
             sender_email=inquiry_in.sender_email,
             honeypot=None  # フロントエンドから送信される場合は honeypot フィールドを追加
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="問い合わせ内容が不正です"
         )
 
     # IPアドレス取得
@@ -220,15 +220,15 @@ async def create_inquiry(
             # メール送信失敗はログに記録するが、問い合わせ作成自体は成功とする
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"管理者への通知メール送信に失敗: {str(email_error)}")
+            logger.error("管理者への通知メール送信に失敗: %s", type(email_error).__name__)
 
         return InquiryCreateResponse(
             id=inquiry_id,
             message="問い合わせを受け付けました"
         )
-    except Exception as e:
+    except Exception:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"問い合わせの送信に失敗しました: {str(e)}"
+            detail="問い合わせの送信に失敗しました"
         )

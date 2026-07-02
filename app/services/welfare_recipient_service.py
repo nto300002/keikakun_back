@@ -64,12 +64,10 @@ class WelfareRecipientService:
         利用者情報と初期支援計画の一括作成 (非同期)
         """
         try:
-            logger.debug("[SERVICE DEBUG] create_recipient_with_initial_plan START")
             # Pydanticによる型変換とバリデーションが完了しているため、手動バリデーションは不要
 
             # 2. 利用者基本情報の作成
             basic_info = registration_data.basic_info
-            logger.debug(f"[SERVICE DEBUG] Creating WelfareRecipient: {basic_info.lastName} {basic_info.firstName}")
             welfare_recipient = WelfareRecipient(
                 first_name=basic_info.firstName,
                 last_name=basic_info.lastName,
@@ -79,53 +77,39 @@ class WelfareRecipientService:
                 gender=basic_info.gender
             )
             db.add(welfare_recipient)
-            logger.debug("[SERVICE DEBUG] Flushing WelfareRecipient...")
             await db.flush()  # IDを取得するためにflush
 
             # IMPORTANT: flush()直後にIDを変数に保存する
             # その後の処理（flush等）でオブジェクトがexpired状態になり、
             # 再度welfare_recipient.idにアクセスするとgreenletエラーが発生するため
             recipient_id = welfare_recipient.id
-            logger.debug(f"[SERVICE DEBUG] WelfareRecipient created with id={recipient_id}")
-
             # 3. 関連データの作成
-            logger.debug("[SERVICE DEBUG] Calling crud_welfare_recipient.create_related_data...")
             await crud_welfare_recipient.create_related_data(
                 db=db,
                 welfare_recipient=welfare_recipient,
                 registration_data=registration_data,
                 office_id=office_id
             )
-            logger.debug("[SERVICE DEBUG] create_related_data completed")
 
             # 4. 初期支援計画の作成（mini.mdの要件）
             # 既に保存したrecipient_idを使用（welfare_recipient.idに再アクセスしない）
-            logger.debug("[SERVICE DEBUG] Calling _create_initial_support_plan...")
             await WelfareRecipientService._create_initial_support_plan(db, recipient_id, office_id)
-            logger.debug("[SERVICE DEBUG] _create_initial_support_plan completed")
 
             # 5. IDを返す (コミット/ロールバックは呼び出し元で行う)
-            logger.debug(f"[SERVICE DEBUG] create_recipient_with_initial_plan END: returning recipient_id={recipient_id}")
             return recipient_id
 
         except IntegrityError as e:
-            logger.error(f"[SERVICE DEBUG] IntegrityError occurred: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("create_recipient_with_initial_plan integrity error: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise BadRequestException("データの整合性エラーが発生しました。")
 
         except SQLAlchemyError as e:
-            logger.error(f"[SERVICE DEBUG] SQLAlchemyError occurred: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("create_recipient_with_initial_plan database error: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
-            raise InternalServerException(f"データベースエラーが発生しました: {e}")
+            raise InternalServerException("データベースエラーが発生しました")
 
         except Exception as e:
-            logger.error(f"[SERVICE DEBUG] Unexpected exception occurred: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("create_recipient_with_initial_plan failed: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise
 
@@ -146,16 +130,11 @@ class WelfareRecipientService:
         サイクル番号に応じて作成するステップを変更する。
         カレンダーイベントも自動作成する。
         """
-        logger.debug(f"[DEBUG] _create_initial_support_plan START: welfare_recipient_id={welfare_recipient_id}, office_id={office_id}")
-
         # 既存のサイクル数を取得して新しいサイクル番号を決定
-        logger.debug("[DEBUG] Counting existing cycles...")
         count_stmt = select(func.count()).select_from(SupportPlanCycle).where(SupportPlanCycle.welfare_recipient_id == welfare_recipient_id)
         existing_cycles_count = (await db.execute(count_stmt)).scalar_one()
         new_cycle_number = existing_cycles_count + 1
-        logger.debug(f"[DEBUG] New cycle_number={new_cycle_number}")
 
-        logger.debug("[DEBUG] Creating SupportPlanCycle...")
         cycle = SupportPlanCycle(
             welfare_recipient_id=welfare_recipient_id,
             office_id=office_id,
@@ -165,11 +144,8 @@ class WelfareRecipientService:
             next_renewal_deadline=date.today() + timedelta(days=180)
         )
         db.add(cycle)
-        logger.debug("[DEBUG] Flushing cycle...")
         await db.flush()  # cycle.id を取得するため
-        logger.debug(f"[DEBUG] Cycle created with id={cycle.id}")
 
-        logger.debug(f"[DEBUG] Creating {len(CYCLE_STEPS)} status records...")
         for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
@@ -181,12 +157,9 @@ class WelfareRecipientService:
             )
             db.add(status)
 
-        logger.debug("[DEBUG] Flushing status records...")
         await db.flush()
-        logger.debug("[DEBUG] Status records created successfully")
 
         # カレンダーイベントを自動作成（ベストエフォート：失敗してもサイクル作成は継続）
-        logger.debug("[DEBUG] Creating calendar events...")
         try:
             from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
 
@@ -195,20 +168,15 @@ class WelfareRecipientService:
                     db=db,
                     cycle=cycle,
                 )
-                logger.debug("[DEBUG] Calendar deadline events created successfully")
-            except SQLAlchemyIntegrityError as e:
-                logger.warning(f"[DEBUG] Calendar deadline event already exists for cycle_id={cycle.id}: {e}")
+            except SQLAlchemyIntegrityError:
+                logger.warning("[DEBUG] Calendar deadline event already exists")
             except Exception as e:
-                logger.warning(f"[DEBUG] Could not create calendar deadline events: {type(e).__name__}: {e}")
+                logger.warning("[DEBUG] Could not create calendar deadline events: %s", type(e).__name__)
 
         except Exception as e:
             # カレンダーイベント作成の予期しないエラー
-            logger.error(f"[DEBUG] Unexpected error during calendar event creation: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("[DEBUG] Unexpected error during calendar event creation: %s", type(e).__name__)
             # カレンダーイベント作成の失敗は利用者登録を妨げない
-
-        logger.debug("[DEBUG] _create_initial_support_plan END")
 
     @staticmethod
     def _create_initial_support_plan_sync(db: Session, welfare_recipient_id: UUID) -> None:
@@ -339,29 +307,25 @@ class WelfareRecipientService:
         Returns:
             削除成功フラグ
         """
-        logger.debug(f"[DEBUG] delete_recipient START: recipient_id={recipient_id}")
-
         try:
             deleted_count = await GoogleCalendarSyncService().delete_google_events_for_recipient(
                 db=db,
                 recipient_id=recipient_id,
             )
-            logger.debug(
-                "[DEBUG] Deleted %s Google Calendar events for recipient %s",
-                deleted_count,
-                recipient_id,
-            )
+            logger.debug("[DEBUG] Deleted %s Google Calendar events for recipient", deleted_count)
         except Exception as e:
-            logger.warning(f"[DEBUG] Failed to delete Google Calendar events for recipient {recipient_id}: {str(e)}")
+            logger.warning(
+                "[DEBUG] Failed to delete Google Calendar events for recipient: %s",
+                type(e).__name__,
+            )
 
         recipient = await db.get(WelfareRecipient, recipient_id)
         if recipient:
             await db.delete(recipient)
             await db.flush()
-            logger.debug(f"[DEBUG] delete_recipient END: deleted recipient {recipient_id}")
             return True
 
-        logger.warning(f"[DEBUG] delete_recipient END: recipient {recipient_id} not found")
+        logger.warning("[DEBUG] delete_recipient END: recipient not found")
         return False
 
     @staticmethod

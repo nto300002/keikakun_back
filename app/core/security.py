@@ -27,19 +27,42 @@ TEMPORARY_TOKEN_EXPIRE_MINUTES = 10  # 一時トークンの有効期限（10分
 TOTP_WINDOW = 1  # TOTP検証時間窓（30秒 * 1 = 前後30秒）
 RECOVERY_CODE_COUNT = 10  # 生成するリカバリーコード数
 MFA_APP_NAME = "KeikakuApp"  # TOTP アプリに表示される名前
+TEST_SECRET_KEY = "test_secret_key_for_pytest"
+
+
+def _is_production() -> bool:
+    return settings.ENVIRONMENT == "production" or os.getenv("ENVIRONMENT") == "production"
+
+
+def get_jwt_secret() -> str:
+    """JWT署名鍵を取得する。本番では既知のテスト用fallbackを許可しない。"""
+    secret_key = settings.SECRET_KEY
+    if _is_production() and (not secret_key or secret_key == TEST_SECRET_KEY):
+        raise RuntimeError("SECRET_KEY must be configured for production")
+    return secret_key
+
+
+def get_mfa_encryption_key_source() -> str:
+    """MFA secret暗号化キーの元文字列を取得する。本番では明示的なENCRYPTION_KEYを必須にする。"""
+    encryption_key = os.getenv("ENCRYPTION_KEY")
+    if encryption_key:
+        return encryption_key
+
+    if _is_production():
+        raise RuntimeError("ENCRYPTION_KEY must be configured for production")
+
+    return get_jwt_secret()
 
 
 def create_email_verification_token(email: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS)
     to_encode = {"exp": expire, "sub": email, "scope": "email_verification"}
-    secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 def verify_email_verification_token(token: str) -> str | None:
     try:
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[ALGORITHM])
         if payload.get("scope") == "email_verification":
             return payload.get("sub")
         return None
@@ -95,8 +118,7 @@ def create_access_token(
         "session_type": session_type,
         "session_duration": session_duration
     }
-    secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 def create_refresh_token(
@@ -124,8 +146,7 @@ def create_refresh_token(
         "session_duration": session_duration,
         "session_type": session_type
     }
-    secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -135,7 +156,7 @@ def create_refresh_token(
 
 def get_encryption_key() -> bytes:
     """暗号化キーを取得（環境変数またはシークレットキーから生成）"""
-    key_source = os.getenv("ENCRYPTION_KEY", os.getenv("SECRET_KEY", "test_secret_key_for_pytest"))
+    key_source = get_mfa_encryption_key_source()
     # Fernetキーは32バイト必要なので、適切な長さに調整
     key_bytes = key_source.encode()[:32].ljust(32, b'0')
     return base64.urlsafe_b64encode(key_bytes)
@@ -230,7 +251,7 @@ def verify_totp(secret: str, token: str, window: int = TOTP_WINDOW) -> bool:
 
         totp = pyotp.TOTP(secret)
         return totp.verify(token, valid_window=window)
-    except Exception as e:
+    except Exception:
         logger.error("[TOTP VERIFY] Verification failed due to an internal error")
         return False
 
@@ -318,16 +339,14 @@ def create_temporary_token(
         to_encode["session_duration"] = session_duration
         to_encode["session_type"] = session_type
 
-    secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
 def verify_temporary_token(token: str, expected_type: str) -> Optional[str]:
     """一時トークンを検証してユーザーIDを返す（後方互換性のため）"""
     try:
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[ALGORITHM])
 
         # スコープとタイプをチェック
         if payload.get("scope") != "temporary":
@@ -343,8 +362,7 @@ def verify_temporary_token(token: str, expected_type: str) -> Optional[str]:
 def verify_temporary_token_with_session(token: str, expected_type: str) -> Optional[dict]:
     """一時トークンを検証してユーザーIDとセッション情報を返す"""
     try:
-        secret_key = os.getenv("SECRET_KEY", "test_secret_key_for_pytest")
-        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[ALGORITHM])
 
         # スコープとタイプをチェック
         if payload.get("scope") != "temporary":

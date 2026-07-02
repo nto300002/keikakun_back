@@ -93,11 +93,6 @@ class RoleChangeService:
                 detail=ja.SERVICE_ROLE_ALREADY_ASSIGNED
             )
 
-        logger.info(
-            f"Creating role change request: staff={requester_staff_id}, "
-            f"from_role={from_role}, requested_role={obj_in.requested_role}"
-        )
-
         # リクエスト作成
         request = await approval_request.create_role_change_request(
             db=db,
@@ -188,11 +183,6 @@ class RoleChangeService:
                 detail=ja.SERVICE_NO_APPROVAL_PERMISSION
             )
 
-        logger.info(
-            f"Approving role change request: request_id={request_id}, "
-            f"reviewer={reviewer_staff_id}, target_role={_get_requested_role(request)}"
-        )
-
         # 1. リクエストを承認
         approved_request = await approval_request.approve(
             db=db,
@@ -206,11 +196,6 @@ class RoleChangeService:
         if requester:
             requester.role = _get_requested_role(request)
             await db.flush()
-
-            logger.info(
-                f"Staff role changed: staff_id={requester.id}, "
-                f"new_role={_get_requested_role(request)}"
-            )
 
         # 3. commit()前にIDを保存（commit()後はオブジェクトがexpiredになるため）
         approved_request_id = request_id
@@ -279,11 +264,6 @@ class RoleChangeService:
         Raises:
             ValueError: リクエストが見つからない場合
         """
-        logger.info(
-            f"Rejecting role change request: request_id={request_id}, "
-            f"reviewer={reviewer_staff_id}"
-        )
-
         # リクエストを却下
         rejected_request = await approval_request.reject(
             db=db,

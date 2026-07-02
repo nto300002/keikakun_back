@@ -3,12 +3,13 @@ app_admin用監査ログAPIエンドポイント
 """
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
+from app.models.office import Office
 from app.crud.crud_audit_log import audit_log as crud_audit_log
-from app.schemas.audit_log import AuditLogListResponse, AuditLogResponse
 
 router = APIRouter()
 
@@ -38,6 +39,23 @@ async def get_audit_logs(
         include_test_data=False
     )
 
+    staff_ids = {log.staff_id for log in logs if log.staff_id is not None}
+    office_ids = {log.office_id for log in logs if log.office_id is not None}
+
+    staff_names = {}
+    if staff_ids:
+        staff_result = await db.execute(
+            select(Staff.id, Staff.full_name).where(Staff.id.in_(staff_ids))
+        )
+        staff_names = {staff_id: full_name for staff_id, full_name in staff_result.all()}
+
+    office_names = {}
+    if office_ids:
+        office_result = await db.execute(
+            select(Office.id, Office.name).where(Office.id.in_(office_ids))
+        )
+        office_names = {office_id: name for office_id, name in office_result.all()}
+
     # レスポンスを作成（標準的なページネーション形式）
     items = []
     for log in logs:
@@ -45,13 +63,13 @@ async def get_audit_logs(
             "id": log.id,
             "staff_id": log.staff_id,
             "actor_id": log.staff_id,
-            "actor_name": None,  # TODO: リレーションシップから取得
+            "actor_name": staff_names.get(log.staff_id),
             "actor_role": log.actor_role,
             "action": log.action,
             "target_type": log.target_type,
             "target_id": log.target_id,
             "office_id": log.office_id,
-            "office_name": None,  # TODO: リレーションシップから取得
+            "office_name": office_names.get(log.office_id),
             "ip_address": log.ip_address,
             "user_agent": log.user_agent,
             "details": log.details,

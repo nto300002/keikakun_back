@@ -144,13 +144,6 @@ async def get_calendar_by_office(
             detail=ja.CALENDAR_NOT_FOUND_FOR_OFFICE.format(office_id=office_id),
         )
 
-    # デバッグログ: calendar_name の値を確認
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"[GET /office/{office_id}] calendar_name={account.calendar_name}")
-    logger.info(f"[GET /office/{office_id}] google_calendar_id={account.google_calendar_id}")
-    logger.info(f"[GET /office/{office_id}] connection_status={account.connection_status}")
-
     return OfficeCalendarAccountResponse.model_validate(account)
 
 

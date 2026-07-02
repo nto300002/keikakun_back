@@ -130,7 +130,7 @@ async def update_next_plan_start_date(
     await db.commit()
     await db.refresh(plan_status)
 
-    logger.info(f"次回計画開始期限を更新: status_id={status_id}, next_plan_start_date={update_data.next_plan_start_date}")
+    logger.info("次回計画開始期限を更新")
 
     return SupportPlanStatusResponse(
         id=plan_status.id,

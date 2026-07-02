@@ -34,7 +34,7 @@ async def test_webpush_exception():
         # 最初の購読を使用
         sub = subscriptions[0]
         print(f"📋 テスト対象購読:")
-        print(f"   エンドポイント: {sub.endpoint[:50]}...")
+        print("   エンドポイント: <hidden>")
         print(f"   スタッフID: {sub.staff_id}\n")
 
         invalid_subscription = {
@@ -64,8 +64,8 @@ async def test_webpush_exception():
         print("✅ WebPushExceptionが発生しました\n")
 
         print("📋 Exception詳細:")
-        print(f"   str(e): {str(e)}")
-        print(f"   e.message: {e.message if hasattr(e, 'message') else 'NO MESSAGE'}")
+        print(f"   error_type: {type(e).__name__}")
+        print("   e.message: <hidden>")
         print(f"   hasattr(e, 'response'): {hasattr(e, 'response')}")
         print(f"   e.response: {e.response}")
         print()
@@ -107,9 +107,7 @@ async def test_webpush_exception():
         print("\n" + "=" * 70)
 
     except Exception as e:
-        print(f"❌ 予期しないエラー: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ 予期しないエラー: {type(e).__name__}")
 
 
 if __name__ == "__main__":

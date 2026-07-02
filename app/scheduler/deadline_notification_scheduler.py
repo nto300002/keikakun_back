@@ -38,8 +38,8 @@ async def scheduled_send_alerts():
             )
         except Exception as e:
             logger.error(
-                f"[DEADLINE_NOTIFICATION_SCHEDULER] Deadline notification failed: {e}",
-                exc_info=True
+                "[DEADLINE_NOTIFICATION_SCHEDULER] Deadline notification failed: %s",
+                type(e).__name__,
             )
 
 

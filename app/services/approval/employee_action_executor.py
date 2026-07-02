@@ -69,7 +69,6 @@ class EmployeeActionExecutor:
     ) -> Dict[str, Any]:
         resource_type = _get_resource_type(request)
         action_type = _get_action_type(request)
-
         logger.info(
             "Executing action: resource_type=%s action_type=%s",
             resource_type,
@@ -416,7 +415,11 @@ class EmployeeActionExecutor:
         action_type = _get_action_type(request)
         request_data = request.request_data or {}
 
-        logger.info("Executing support_plan_status action: %s", action_type)
+        logger.info(
+            "Executing support_plan_status action: %s request_keys=%s",
+            action_type,
+            sorted(request_data.keys()),
+        )
 
         deliverable_id = request_data.get("deliverable_id")
 

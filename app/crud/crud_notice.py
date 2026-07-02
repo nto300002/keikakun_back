@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 
 from app.crud.base import CRUDBase
 from app.models.notice import Notice
@@ -44,6 +44,62 @@ class CRUDNotice(CRUDBase[Notice, NoticeCreate, NoticeUpdate]):
             .order_by(self.model.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def get_list_by_staff_id(
+        self,
+        db: AsyncSession,
+        staff_id: UUID,
+        is_read: Optional[bool] = None,
+        notice_type: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Notice]:
+        """スタッフIDでお知らせ一覧をDB側ページングして取得"""
+        stmt = (
+            select(self.model)
+            .where(self.model.recipient_staff_id == staff_id)
+            .order_by(self.model.created_at.desc(), self.model.id.desc())
+            .offset(skip)
+            .limit(limit)
+            .options(
+                selectinload(self.model.recipient_staff),
+                selectinload(self.model.office)
+            )
+        )
+        if is_read is not None:
+            stmt = stmt.where(self.model.is_read == is_read)
+        if notice_type:
+            stmt = stmt.where(self.model.type == notice_type)
+
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_by_staff_id(
+        self,
+        db: AsyncSession,
+        staff_id: UUID,
+        is_read: Optional[bool] = None,
+        notice_type: Optional[str] = None
+    ) -> int:
+        """スタッフIDでお知らせ件数をCOUNTで取得"""
+        stmt = select(func.count()).select_from(self.model).where(
+            self.model.recipient_staff_id == staff_id
+        )
+        if is_read is not None:
+            stmt = stmt.where(self.model.is_read == is_read)
+        if notice_type:
+            stmt = stmt.where(self.model.type == notice_type)
+
+        result = await db.execute(stmt)
+        return int(result.scalar_one())
+
+    async def count_unread_by_staff_id(
+        self,
+        db: AsyncSession,
+        staff_id: UUID
+    ) -> int:
+        """スタッフIDで未読のお知らせ件数をCOUNTで取得"""
+        return await self.count_by_staff_id(db=db, staff_id=staff_id, is_read=False)
 
     async def get_by_office_id(
         self,
@@ -175,24 +231,22 @@ class CRUDNotice(CRUDBase[Notice, NoticeCreate, NoticeUpdate]):
         Note:
             このメソッドはcommitしない。親メソッドで最後に1回だけcommitする。
         """
-        # 事務所の全通知を作成日時降順で取得
+        # 削除対象IDだけを取得し、DB側で一括削除する
         result = await db.execute(
-            select(self.model)
+            select(self.model.id)
             .where(self.model.office_id == office_id)
-            .order_by(self.model.created_at.desc())
+            .order_by(self.model.created_at.desc(), self.model.id.desc())
+            .offset(limit)
         )
-        notices = list(result.scalars().all())
+        notice_ids_to_delete = list(result.scalars().all())
 
-        # 制限を超える通知を削除
-        if len(notices) > limit:
-            notices_to_delete = notices[limit:]
-            delete_count = 0
-            for notice in notices_to_delete:
-                await db.delete(notice)
-                delete_count += 1
-            return delete_count
+        if not notice_ids_to_delete:
+            return 0
 
-        return 0
+        delete_result = await db.execute(
+            delete(self.model).where(self.model.id.in_(notice_ids_to_delete))
+        )
+        return int(delete_result.rowcount or 0)
 
 
 # インスタンス化

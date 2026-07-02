@@ -107,6 +107,114 @@ async def test_get_audit_logs_success(
     assert len(staff_deleted_logs) >= 1
 
 
+async def test_get_audit_logs_resolves_actor_and_office_names(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    app_admin_user_factory,
+    office_factory
+):
+    """正常系: staff/officeが存在する監査ログでは表示名が返る"""
+    # Arrange
+    app_admin = await app_admin_user_factory()
+    passphrase = "secret123!"
+    from app.core.security import get_password_hash
+    app_admin.hashed_passphrase = get_password_hash(passphrase)
+
+    office = await office_factory(name="名前解決テスト事業所")
+    await db_session.commit()
+
+    log = AuditLog(
+        staff_id=app_admin.id,
+        actor_role="app_admin",
+        action="office.name_resolution_test",
+        target_type=AuditLogTargetType.office.value,
+        target_id=office.id,
+        office_id=office.id,
+        timestamp=datetime.now(timezone.utc),
+        is_test_data=False
+    )
+    db_session.add(log)
+    await db_session.commit()
+
+    login_response = await async_client.post(
+        "/api/v1/auth/token",
+        data={
+            "username": app_admin.email,
+            "password": "a-very-secure-password",
+            "passphrase": passphrase
+        }
+    )
+    assert login_response.status_code == 200
+
+    # Act
+    response = await async_client.get(
+        "/api/v1/admin/audit-logs",
+        params={"skip": 0, "limit": 50}
+    )
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    target_log = next(
+        item for item in data["logs"]
+        if item["action"] == "office.name_resolution_test"
+    )
+    assert target_log["actor_name"] == app_admin.full_name
+    assert target_log["office_name"] == "名前解決テスト事業所"
+
+
+async def test_get_audit_logs_allows_missing_actor_and_office(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    app_admin_user_factory
+):
+    """正常系: システム処理などstaff/officeがNULLでも500にならない"""
+    # Arrange
+    app_admin = await app_admin_user_factory()
+    passphrase = "secret123!"
+    from app.core.security import get_password_hash
+    app_admin.hashed_passphrase = get_password_hash(passphrase)
+
+    log = AuditLog(
+        staff_id=None,
+        actor_role="system",
+        action="system.name_resolution_test",
+        target_type=AuditLogTargetType.terms_agreement.value,
+        target_id=uuid.uuid4(),
+        office_id=None,
+        timestamp=datetime.now(timezone.utc),
+        is_test_data=False
+    )
+    db_session.add(log)
+    await db_session.commit()
+
+    login_response = await async_client.post(
+        "/api/v1/auth/token",
+        data={
+            "username": app_admin.email,
+            "password": "a-very-secure-password",
+            "passphrase": passphrase
+        }
+    )
+    assert login_response.status_code == 200
+
+    # Act
+    response = await async_client.get(
+        "/api/v1/admin/audit-logs",
+        params={"skip": 0, "limit": 50}
+    )
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    target_log = next(
+        item for item in data["logs"]
+        if item["action"] == "system.name_resolution_test"
+    )
+    assert target_log["actor_name"] is None
+    assert target_log["office_name"] is None
+
+
 async def test_filter_by_target_type_staff(
     async_client: AsyncClient,
     db_session: AsyncSession,

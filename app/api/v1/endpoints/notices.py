@@ -36,41 +36,24 @@ async def get_notices(
     - skip: スキップ数
     - limit: 取得数上限
     """
-    # 自分宛の通知を取得
-    if is_read is False:
-        # 未読のみ
-        notices = await crud_notice.get_unread_by_staff_id(
-            db=db,
-            staff_id=current_user.id
-        )
-    elif type:
-        # タイプでフィルタリング
-        notices = await crud_notice.get_by_type(
-            db=db,
-            staff_id=current_user.id,
-            notice_type=type
-        )
-    else:
-        # 全て取得
-        notices = await crud_notice.get_by_staff_id(
-            db=db,
-            staff_id=current_user.id
-        )
-
-    # is_read=trueの場合、既読のみフィルタリング
-    if is_read is True:
-        notices = [n for n in notices if n.is_read]
-
-    # 未読件数を計算
-    unread_notices = await crud_notice.get_unread_by_staff_id(
+    notices = await crud_notice.get_list_by_staff_id(
+        db=db,
+        staff_id=current_user.id,
+        is_read=is_read,
+        notice_type=type,
+        skip=skip,
+        limit=limit
+    )
+    total = await crud_notice.count_by_staff_id(
+        db=db,
+        staff_id=current_user.id,
+        is_read=is_read,
+        notice_type=type
+    )
+    unread_count = await crud_notice.count_unread_by_staff_id(
         db=db,
         staff_id=current_user.id
     )
-    unread_count = len(unread_notices)
-
-    # ページネーション
-    total = len(notices)
-    notices = notices[skip : skip + limit]
 
     return NoticeListResponse(
         notices=notices,
@@ -88,11 +71,11 @@ async def get_unread_count(
     """
     未読通知の件数を取得
     """
-    unread_notices = await crud_notice.get_unread_by_staff_id(
+    unread_count = await crud_notice.count_unread_by_staff_id(
         db=db,
         staff_id=current_user.id
     )
-    return {"unread_count": len(unread_notices)}
+    return {"unread_count": unread_count}
 
 
 @router.get("/{notice_id}", response_model=NoticeResponse)

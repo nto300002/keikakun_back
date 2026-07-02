@@ -60,8 +60,8 @@ async def validate_csrf_token(
     if access_token_cookie:
         try:
             await csrf_protect.validate_csrf(request)
-        except CsrfProtectError as e:
+        except CsrfProtectError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"CSRF token validation failed: {str(e)}"
+                detail="CSRF token validation failed"
             )

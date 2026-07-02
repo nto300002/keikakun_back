@@ -19,6 +19,13 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
+async def get_csrf_tokens(async_client: AsyncClient) -> tuple[str, str]:
+    csrf_response = await async_client.get("/api/v1/csrf-token")
+    csrf_token = csrf_response.json()["csrf_token"]
+    csrf_cookie = csrf_response.cookies.get("fastapi-csrf-token")
+    return csrf_token, csrf_cookie
+
+
 # ========================================
 # GET /api/v1/notices
 # ========================================
@@ -259,6 +266,52 @@ async def test_get_unread_count(
     assert data["unread_count"] == 3
 
 
+async def test_get_unread_count_uses_count_query_without_loading_rows(
+    async_client: AsyncClient,
+    employee_user_factory,
+    monkeypatch
+):
+    """性能要件: 未読件数APIは未読通知の全行取得メソッドに依存しない"""
+    employee = await employee_user_factory()
+    access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    async_client.cookies.set("access_token", access_token)
+
+    async def fail_if_rows_are_loaded(*args, **kwargs):
+        raise AssertionError("unread-count must use COUNT query instead of loading unread notice rows")
+
+    monkeypatch.setattr(crud_notice, "get_unread_by_staff_id", fail_if_rows_are_loaded)
+
+    response = await async_client.get("/api/v1/notices/unread-count")
+
+    assert response.status_code == 200
+    assert response.json()["unread_count"] == 0
+
+
+async def test_get_notices_uses_db_pagination_without_loading_all_rows(
+    async_client: AsyncClient,
+    employee_user_factory,
+    monkeypatch
+):
+    """性能要件: 通知一覧APIは全件取得後のPythonページングに戻さない"""
+    employee = await employee_user_factory()
+    access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    async_client.cookies.set("access_token", access_token)
+
+    async def fail_if_all_rows_are_loaded(*args, **kwargs):
+        raise AssertionError("notice list must use DB pagination instead of loading all notice rows")
+
+    monkeypatch.setattr(crud_notice, "get_by_staff_id", fail_if_all_rows_are_loaded)
+    monkeypatch.setattr(crud_notice, "get_unread_by_staff_id", fail_if_all_rows_are_loaded)
+
+    response = await async_client.get("/api/v1/notices?skip=0&limit=10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["notices"] == []
+    assert data["total"] == 0
+    assert data["unread_count"] == 0
+
+
 # ========================================
 # PATCH /api/v1/notices/{id}/read
 # ========================================
@@ -287,9 +340,14 @@ async def test_mark_notice_as_read(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
+    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
-    response = await async_client.patch(f"/api/v1/notices/{notice.id}/read")
+    response = await async_client.patch(
+        f"/api/v1/notices/{notice.id}/read",
+        headers={"X-CSRF-Token": csrf_token},
+    )
 
     # Assert
     assert response.status_code == 200
@@ -368,9 +426,14 @@ async def test_mark_all_notices_as_read(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
+    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
-    response = await async_client.patch("/api/v1/notices/read-all")
+    response = await async_client.patch(
+        "/api/v1/notices/read-all",
+        headers={"X-CSRF-Token": csrf_token},
+    )
 
     # Assert
     assert response.status_code == 200
@@ -411,9 +474,14 @@ async def test_delete_notice(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
+    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
+    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
-    response = await async_client.delete(f"/api/v1/notices/{notice.id}")
+    response = await async_client.delete(
+        f"/api/v1/notices/{notice.id}",
+        headers={"X-CSRF-Token": csrf_token},
+    )
 
     # Assert
     assert response.status_code == 204

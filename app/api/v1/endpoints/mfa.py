@@ -351,7 +351,7 @@ async def disable_all_office_mfa(
         await db.rollback()
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"[DISABLE ALL MFA] Failed to disable MFA for office {office.id}: {str(e)}")
+        logger.error("[DISABLE ALL MFA] Failed to disable MFA for office %s: %s", office.id, type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA一括無効化中にエラーが発生しました。管理者に連絡してください。"
@@ -457,7 +457,7 @@ async def enable_all_office_mfa(
         await db.rollback()
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"[ENABLE ALL MFA] Failed to enable MFA for office {office.id}: {str(e)}")
+        logger.error("[ENABLE ALL MFA] Failed to enable MFA for office %s: %s", office.id, type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA一括有効化中にエラーが発生しました。管理者に連絡してください。"
@@ -468,6 +468,5 @@ async def enable_all_office_mfa(
         "enabled_count": enabled_count,
         "staff_mfa_data": staff_mfa_data
     }
-
 
 
