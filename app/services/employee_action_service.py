@@ -63,8 +63,9 @@ class EmployeeActionService:
             作成されたApprovalRequest
         """
         logger.info(
-            f"Creating employee action request: staff={requester_staff_id}, "
-            f"resource_type={obj_in.resource_type}, action_type={obj_in.action_type}"
+            "Creating employee action request: resource_type=%s action_type=%s",
+            obj_in.resource_type,
+            obj_in.action_type,
         )
 
         # ApprovalRequestを作成（employee_action種別）
@@ -140,8 +141,8 @@ class EmployeeActionService:
             )
 
         logger.info(
-            f"Approving employee action request: request_id={request_id}, "
-            f"approver={reviewer_staff_id}, action={_get_action_type(request)}"
+            "Approving employee action request: action=%s",
+            _get_action_type(request),
         )
 
         # 承認処理と作成、編集、実行
@@ -165,15 +166,12 @@ class EmployeeActionService:
                 execution_result=execution_result
             )
 
-            logger.info(
-                f"Employee action executed successfully: "
-                f"request_id={request_id}, result={execution_result}"
-            )
+            logger.info("Employee action executed successfully")
 
         except Exception as e:
             logger.error(
-                f"Failed to execute employee action: "
-                f"request_id={request_id}, error={str(e)}"
+                "Failed to execute employee action: error_type=%s",
+                type(e).__name__,
             )
 
             # トランザクションがロールバック状態になっているため、明示的にrollbackを実行
@@ -182,7 +180,7 @@ class EmployeeActionService:
             # エラー情報を記録
             execution_result = {
                 "success": False,
-                "error": str(e),
+                "error": "Employee action execution failed",
                 "error_type": type(e).__name__
             }
 
@@ -255,10 +253,7 @@ class EmployeeActionService:
         Returns:
             却下されたEmployee制限リクエスト
         """
-        logger.info(
-            f"Rejecting employee action request: request_id={request_id}, "
-            f"approver={reviewer_staff_id}"
-        )
+        logger.info("Rejecting employee action request")
 
         # リクエストを却下
         rejected_request = await approval_request.reject(

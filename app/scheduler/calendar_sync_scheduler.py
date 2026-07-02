@@ -61,9 +61,7 @@ class CalendarSyncScheduler:
                     logger.warning(f"{failed_count}件のイベント同期に失敗しました")
 
         except Exception as e:
-            logger.error(f"カレンダー同期ジョブでエラーが発生しました: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"トレースバック:\n{traceback.format_exc()}")
+            logger.error("カレンダー同期ジョブでエラーが発生しました: %s", type(e).__name__)
 
         logger.info("=" * 80)
         logger.info("カレンダー同期ジョブ終了")
