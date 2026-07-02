@@ -69,7 +69,7 @@ class WelfareRecipientService:
 
             # 2. 利用者基本情報の作成
             basic_info = registration_data.basic_info
-            logger.debug(f"[SERVICE DEBUG] Creating WelfareRecipient: {basic_info.lastName} {basic_info.firstName}")
+            logger.debug("[SERVICE DEBUG] Creating WelfareRecipient")
             welfare_recipient = WelfareRecipient(
                 first_name=basic_info.firstName,
                 last_name=basic_info.lastName,
@@ -109,23 +109,17 @@ class WelfareRecipientService:
             return recipient_id
 
         except IntegrityError as e:
-            logger.error(f"[SERVICE DEBUG] IntegrityError occurred: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("[SERVICE DEBUG] IntegrityError occurred: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise BadRequestException("データの整合性エラーが発生しました。")
 
         except SQLAlchemyError as e:
-            logger.error(f"[SERVICE DEBUG] SQLAlchemyError occurred: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("[SERVICE DEBUG] SQLAlchemyError occurred: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise InternalServerException(f"データベースエラーが発生しました: {e}")
 
         except Exception as e:
-            logger.error(f"[SERVICE DEBUG] Unexpected exception occurred: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[SERVICE DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("[SERVICE DEBUG] Unexpected exception occurred: %s", type(e).__name__)
             # トランザクション管理は呼び出し元（エンドポイント層）で行うため、ここではrollbackしない
             raise
 
@@ -196,16 +190,14 @@ class WelfareRecipientService:
                     cycle=cycle,
                 )
                 logger.debug("[DEBUG] Calendar deadline events created successfully")
-            except SQLAlchemyIntegrityError as e:
-                logger.warning(f"[DEBUG] Calendar deadline event already exists for cycle_id={cycle.id}: {e}")
+            except SQLAlchemyIntegrityError:
+                logger.warning("[DEBUG] Calendar deadline event already exists for cycle_id=%s", cycle.id)
             except Exception as e:
-                logger.warning(f"[DEBUG] Could not create calendar deadline events: {type(e).__name__}: {e}")
+                logger.warning("[DEBUG] Could not create calendar deadline events: %s", type(e).__name__)
 
         except Exception as e:
             # カレンダーイベント作成の予期しないエラー
-            logger.error(f"[DEBUG] Unexpected error during calendar event creation: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"[DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("[DEBUG] Unexpected error during calendar event creation: %s", type(e).__name__)
             # カレンダーイベント作成の失敗は利用者登録を妨げない
 
         logger.debug("[DEBUG] _create_initial_support_plan END")

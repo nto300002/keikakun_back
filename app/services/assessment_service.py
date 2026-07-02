@@ -60,7 +60,7 @@ async def verify_recipient_access(
     """
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"verify_recipient_access: recipient_id={recipient_id}, user={current_user.email}")
+    logger.info("verify_recipient_access: recipient_id=%s user_id=%s", recipient_id, current_user.id)
 
     # 利用者の取得
     stmt = select(WelfareRecipient).where(WelfareRecipient.id == recipient_id)
@@ -93,7 +93,7 @@ async def verify_recipient_access(
     user_office = current_user.office
 
     if not user_office:
-        logger.error(f"User {current_user.email} has no office")
+        logger.error("User has no office: user_id=%s", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="事業所に所属していません"

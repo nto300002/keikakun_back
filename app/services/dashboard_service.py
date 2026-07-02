@@ -80,7 +80,11 @@ class DashboardService:
         - 残り日数（マイナスの場合は期限切れ）
         - 条件を満たさない場合はNone
         """
-        logger.info(f"[NEXT_PLAN_START_DEBUG] recipient: {recipient.last_name} {recipient.first_name}, cycle: {latest_cycle.cycle_number if latest_cycle else 'None'}")
+        logger.info(
+            "[NEXT_PLAN_START_DEBUG] recipient_id=%s, cycle=%s",
+            recipient.id,
+            latest_cycle.cycle_number if latest_cycle else 'None',
+        )
 
         # 条件1: latest_cycleが存在し、is_latest_cycle=true
         if not latest_cycle or not latest_cycle.is_latest_cycle:

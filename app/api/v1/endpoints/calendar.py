@@ -147,7 +147,7 @@ async def get_calendar_by_office(
     # デバッグログ: calendar_name の値を確認
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"[GET /office/{office_id}] calendar_name={account.calendar_name}")
+    logger.info(f"[GET /office/{office_id}] calendar_name_present={bool(account.calendar_name)}")
     logger.info(f"[GET /office/{office_id}] google_calendar_id={account.google_calendar_id}")
     logger.info(f"[GET /office/{office_id}] connection_status={account.connection_status}")
 

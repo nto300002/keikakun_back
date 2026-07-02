@@ -418,8 +418,11 @@ class EmployeeActionExecutor:
         action_type = _get_action_type(request)
         request_data = request.request_data or {}
 
-        logger.info("Executing support_plan_status action: %s", action_type)
-        logger.info("Request data: %s", request_data)
+        logger.info(
+            "Executing support_plan_status action: %s request_keys=%s",
+            action_type,
+            sorted(request_data.keys()),
+        )
 
         deliverable_id = request_data.get("deliverable_id")
 

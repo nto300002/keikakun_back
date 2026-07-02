@@ -194,7 +194,7 @@ class StaffProfileService:
                 )
             except Exception as e:
                 # メール送信失敗はログに記録するが、処理は続行
-                logger.warning("Password change notification email failed: %s", e)
+                logger.warning("Password change notification email failed: %s", type(e).__name__)
 
             # commit前にupdated_atを取得（MissingGreenletエラー対策）
             updated_at = staff.updated_at
@@ -493,7 +493,7 @@ class StaffProfileService:
             )
         except Exception as e:
             # メール送信失敗はログに記録するが、リクエストは成功とする
-            logger.warning("Email change verification email failed: %s", e)
+            logger.warning("Email change verification email failed: %s", type(e).__name__)
 
         # 通知メール送信（旧メールアドレス）
         try:
@@ -503,7 +503,7 @@ class StaffProfileService:
                 new_email=email_request.new_email
             )
         except Exception as e:
-            logger.warning("Email change notification email failed: %s", e)
+            logger.warning("Email change notification email failed: %s", type(e).__name__)
 
         await db.commit()
 
@@ -622,7 +622,7 @@ class StaffProfileService:
                 new_email=new_email
             )
         except Exception as e:
-            logger.warning("Email change completion email failed: %s", e)
+            logger.warning("Email change completion email failed: %s", type(e).__name__)
 
         logger.debug("Committing email change transaction")
         await db.commit()

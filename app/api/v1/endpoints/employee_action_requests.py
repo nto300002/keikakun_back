@@ -78,20 +78,12 @@ async def get_employee_action_requests(
     - 自分が作成したリクエスト
     - 自分が承認可能なリクエスト（manager/owner）
     """
-    print(f"\n[DEBUG EMPLOYEE_ACTION_REQUEST] GET /employee-action-requests called")
-    print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Current user: {current_user.id}, Role: {current_user.role}")
-    print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Status filter: {status_filter}")
-
     # 自分が作成したリクエストを取得（employee_actionタイプのみ）
     my_requests = await approval_request.get_by_requester(
         db=db,
         requester_staff_id=current_user.id,
         resource_type=ApprovalResourceType.employee_action
     )
-    print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] My requests count: {len(my_requests)}")
-    for req in my_requests:
-        req_data = req.request_data or {}
-        print(f"[DEBUG EMPLOYEE_ACTION_REQUEST]   - Request {req.id}: {req_data.get('resource_type')}.{req_data.get('action_type')}, status={req.status}")
 
     # 自分が承認可能なリクエストを取得（manager/owner のみ）
     approvable_requests = []
@@ -106,20 +98,15 @@ async def get_employee_action_requests(
             )
             # リクエスト作成者を除外
             approvable_requests = [req for req in pending_requests if req.requester_staff_id != current_user.id]
-            print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Approvable requests count: {len(approvable_requests)}")
 
     # 重複を除いてマージ
     all_requests = {req.id: req for req in my_requests + approvable_requests}.values()
-    print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Total unique requests: {len(all_requests)}")
 
     # ステータスフィルタリング
     if status_filter:
         all_requests = [req for req in all_requests if req.status == status_filter]
-        print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] After filtering: {len(all_requests)}")
 
-    result = list(all_requests)
-    print(f"[DEBUG EMPLOYEE_ACTION_REQUEST] Returning {len(result)} requests\n")
-    return result
+    return list(all_requests)
 
 
 @router.patch("/{request_id}/approve", response_model=EmployeeActionRequestRead)

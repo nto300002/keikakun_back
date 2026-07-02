@@ -1,17 +1,96 @@
 # tests/api/test_deps_permissions.py
 
-import pytest
+import inspect
 import uuid
-from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
+
+from app.api import deps
 from app.api.deps import require_manager_or_owner, require_owner, check_employee_restriction
+from app.core.security import create_access_token
 from app.models.staff import Staff
 from app.models.office import OfficeStaff
 from app.models.enums import StaffRole, ResourceType, ActionType
 
 # Pytestに非同期テストであることを認識させる
 pytestmark = pytest.mark.asyncio
+
+
+def _dependency_default(function, parameter_name):
+    parameter = inspect.signature(function).parameters[parameter_name]
+    return parameter.default.dependency
+
+
+async def test_current_user_dependency_variants_are_available():
+    """用途別の認証依存を公開し、endpoint側で必要量を選べるようにする。"""
+    assert deps.get_current_user_minimal is not deps.get_current_user_with_office
+    assert deps.get_current_user is deps.get_current_user_with_office
+
+
+async def test_role_dependencies_use_minimal_current_user():
+    """role判定だけの依存はoffice associationを要求しない。"""
+    assert _dependency_default(deps.require_manager_or_owner, "current_staff") is deps.get_current_user_minimal
+    assert _dependency_default(deps.require_owner, "current_staff") is deps.get_current_user_minimal
+    assert _dependency_default(deps.require_app_admin, "current_staff") is deps.get_current_user_minimal
+
+
+async def test_billing_dependency_requires_current_user_with_office():
+    """課金チェックはoffice associationが必要なため、office付き依存を明示する。"""
+    assert _dependency_default(deps.require_active_billing, "current_staff") is deps.get_current_user_with_office
+
+
+async def test_get_current_user_minimal_does_not_eager_load_office(
+    db_session: AsyncSession,
+    service_admin_user_factory,
+    office_factory,
+):
+    """軽量依存はStaff本体だけを取得し、office associationをeager loadしない。"""
+    staff = await service_admin_user_factory(
+        email="minimal-current-user@example.com",
+        role=StaffRole.employee,
+    )
+    office = await office_factory(creator=staff)
+    await associate_staff_with_office(db_session, staff, office.id)
+    staff_id = staff.id
+    db_session.expire_all()
+
+    request = Request({"type": "http", "headers": []})
+    token = create_access_token(str(staff_id))
+
+    current_user = await deps.get_current_user_minimal(request=request, db=db_session, token=token)
+
+    assert current_user.id == staff_id
+    assert "office_associations" in sa_inspect(current_user).unloaded
+
+
+async def test_get_current_user_with_office_eager_loads_office(
+    db_session: AsyncSession,
+    service_admin_user_factory,
+    office_factory,
+):
+    """office付き依存はoffice associationとofficeをeager loadする。"""
+    staff = await service_admin_user_factory(
+        email="office-current-user@example.com",
+        role=StaffRole.employee,
+    )
+    office = await office_factory(creator=staff)
+    await associate_staff_with_office(db_session, staff, office.id)
+    staff_id = staff.id
+    db_session.expire_all()
+
+    request = Request({"type": "http", "headers": []})
+    token = create_access_token(str(staff_id))
+
+    current_user = await deps.get_current_user_with_office(request=request, db=db_session, token=token)
+
+    assert current_user.id == staff_id
+    assert "office_associations" not in sa_inspect(current_user).unloaded
+    assert current_user.office_associations
+    assert "office" not in sa_inspect(current_user.office_associations[0]).unloaded
 
 
 async def associate_staff_with_office(

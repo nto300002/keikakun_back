@@ -97,9 +97,7 @@ async def create_welfare_recipient(
             await db.commit()
             logger.info("[ENDPOINT DEBUG] db.commit() completed successfully")
         except Exception as commit_error:
-            logger.error(f"[ENDPOINT DEBUG] db.commit() FAILED: {type(commit_error).__name__}: {commit_error}")
-            import traceback
-            logger.error(f"[ENDPOINT DEBUG] Traceback:\n{traceback.format_exc()}")
+            logger.error("[ENDPOINT DEBUG] db.commit() FAILED: %s", type(commit_error).__name__)
             raise
 
         logger.info("[ENDPOINT DEBUG] Creating response...")
@@ -111,7 +109,7 @@ async def create_welfare_recipient(
         )
 
     except psycopg_errors.InvalidTextRepresentation as e:
-        logger.error(f"[ENDPOINT DEBUG] InvalidTextRepresentation: {e}")
+        logger.error("[ENDPOINT DEBUG] InvalidTextRepresentation")
         await db.rollback()
 
         if "disability_category" in str(e):
@@ -125,19 +123,16 @@ async def create_welfare_recipient(
         )
 
     except ValueError as e:
-        logger.error(f"[ENDPOINT DEBUG] ValueError: {e}")
+        logger.error("[ENDPOINT DEBUG] ValueError")
         await db.rollback()
         raise BadRequestException(str(e))
     except HTTPException as e:
-        logger.error(f"[ENDPOINT DEBUG] HTTPException: {e.status_code} - {e.detail}")
+        logger.error("[ENDPOINT DEBUG] HTTPException: %s", e.status_code)
         await db.rollback()
         raise
     except Exception as e:
-        logger.error(f"[ENDPOINT DEBUG] Unexpected Exception: {type(e).__name__}: {e}")
+        logger.error("[ENDPOINT DEBUG] Unexpected Exception: %s", type(e).__name__)
         await db.rollback()
-
-        import traceback
-        logger.error(f"[ENDPOINT DEBUG] Full traceback:\n{traceback.format_exc()}")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -235,9 +230,14 @@ async def get_deadline_alerts(
     logger.info(f"[DEADLINE_ALERTS_DEBUG] Total alerts returned: {result.total}")
     logger.info(f"[DEADLINE_ALERTS_DEBUG] Number of alerts in response: {len(result.alerts)}")
 
-    # ログに各アラートの詳細を出力（cycle_number=1の有無を確認）
     for i, alert in enumerate(result.alerts):
-        logger.info(f"[DEADLINE_ALERTS_DEBUG] Alert {i}: id={alert.id}, name={alert.full_name}, type={alert.alert_type}, cycle={alert.current_cycle_number}")
+        logger.info(
+            "[DEADLINE_ALERTS_DEBUG] Alert %s: id=%s, type=%s, cycle=%s",
+            i,
+            alert.id,
+            alert.alert_type,
+            alert.current_cycle_number,
+        )
 
     return result
 

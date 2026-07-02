@@ -95,7 +95,7 @@ async def check_password_breach(password: str, timeout: int = 5) -> tuple[bool, 
         return False, None
 
     except Exception as e:
-        logger.error(f"Error checking password breach: {str(e)}. Allowing password (fail-safe).")
+        logger.error("Error checking password breach: %s. Allowing password (fail-safe).", type(e).__name__)
         return False, None
 
 
@@ -119,5 +119,5 @@ async def check_password_breach_sync(password: str) -> tuple[bool, Optional[int]
         # 非同期関数を同期的に実行
         return loop.run_until_complete(check_password_breach(password))
     except Exception as e:
-        logger.error(f"Error in sync password breach check: {str(e)}")
+        logger.error("Error in sync password breach check: %s", type(e).__name__)
         return False, None
