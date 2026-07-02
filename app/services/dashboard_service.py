@@ -1,5 +1,4 @@
 import uuid
-import logging
 from datetime import date, timedelta
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,9 +8,6 @@ from app.models.enums import BillingStatus, SupportPlanStep, DeliverableType
 from app.models.welfare_recipient import WelfareRecipient
 from app.models.support_plan_cycle import SupportPlanCycle
 from app.schemas.dashboard import DashboardData, DashboardSummary
-
-logger = logging.getLogger(__name__)
-
 
 class DashboardService:
     def __init__(self, db: AsyncSession):

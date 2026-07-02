@@ -43,7 +43,7 @@ async def create_temporary_system_office(
     db.add(temp_office)
     await db.flush()
 
-    logger.info(f"一時的なシステム事務所を作成: {temp_office.id}")
+    logger.info("一時的なシステム事務所を作成")
     return temp_office
 
 
