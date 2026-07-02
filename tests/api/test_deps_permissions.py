@@ -38,6 +38,11 @@ async def test_role_dependencies_use_minimal_current_user():
     assert _dependency_default(deps.require_app_admin, "current_staff") is deps.get_current_user_minimal
 
 
+async def test_owner_with_office_dependency_eager_loads_office():
+    """office associationを読むowner endpointはoffice付き依存を明示できる。"""
+    assert _dependency_default(deps.require_owner_with_office, "current_staff") is deps.get_current_user_with_office
+
+
 async def test_billing_dependency_requires_current_user_with_office():
     """課金チェックはoffice associationが必要なため、office付き依存を明示する。"""
     assert _dependency_default(deps.require_active_billing, "current_staff") is deps.get_current_user_with_office
@@ -232,6 +237,7 @@ async def test_check_employee_restriction_manager_returns_none(
     result = await check_employee_restriction(
         db=db_session,
         current_staff=manager,
+        office_id=office.id,
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data={"name": "テスト利用者"}
@@ -258,6 +264,7 @@ async def test_check_employee_restriction_owner_returns_none(
     result = await check_employee_restriction(
         db=db_session,
         current_staff=owner,
+        office_id=office.id,
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.update,
         resource_id=uuid.uuid4(),
@@ -290,6 +297,7 @@ async def test_check_employee_restriction_employee_creates_request(
     result = await check_employee_restriction(
         db=db_session,
         current_staff=employee,
+        office_id=office.id,
         resource_type=ResourceType.welfare_recipient,
         action_type=ActionType.create,
         request_data=request_data
@@ -329,6 +337,7 @@ async def test_check_employee_restriction_employee_update_request(
     result = await check_employee_restriction(
         db=db_session,
         current_staff=employee,
+        office_id=office.id,
         resource_type=ResourceType.support_plan_cycle,
         action_type=ActionType.update,
         resource_id=resource_id,
@@ -365,6 +374,7 @@ async def test_check_employee_restriction_employee_delete_request(
     result = await check_employee_restriction(
         db=db_session,
         current_staff=employee,
+        office_id=office.id,
         resource_type=ResourceType.support_plan_status,
         action_type=ActionType.delete,
         resource_id=resource_id
@@ -378,3 +388,26 @@ async def test_check_employee_restriction_employee_delete_request(
     assert result.request_data["action_type"] == ActionType.delete.value
     # 削除時はoriginal_request_dataなし
     assert "original_request_data" not in result.request_data
+
+
+async def test_check_employee_restriction_employee_requires_explicit_office_id(
+    db_session: AsyncSession,
+    service_admin_user_factory,
+):
+    """Employee制限チェックはrelationshipをlazy loadせず、office_id未指定なら400を返す。"""
+    employee = await service_admin_user_factory(
+        email="employee-no-office-id@example.com",
+        role=StaffRole.employee
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await check_employee_restriction(
+            db=db_session,
+            current_staff=employee,
+            office_id=None,
+            resource_type=ResourceType.welfare_recipient,
+            action_type=ActionType.create,
+            request_data={"name": "新規利用者"}
+        )
+
+    assert exc_info.value.status_code == 400

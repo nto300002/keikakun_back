@@ -1,6 +1,6 @@
 """Add is_test_data flag to all test-related tables
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a1b2c3d4e5f7
 Revises: t5u6v7w8x9y0
 Create Date: 2025-11-19 10:00:00.000000
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'a1b2c3d4e5f6'
+revision = 'a1b2c3d4e5f7'
 down_revision = 't5u6v7w8x9y0'
 branch_labels = None
 depends_on = None

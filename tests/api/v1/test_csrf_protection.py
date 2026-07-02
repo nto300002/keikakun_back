@@ -210,6 +210,37 @@ class TestCSRFProtection:
         assert "CSRF" in response.json().get("detail", "").upper()
 
     @pytest.mark.asyncio
+    async def test_login_is_not_blocked_by_csrf_when_stale_access_cookie_exists(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        owner_user_factory,
+    ):
+        """
+        ログインAPIは既存Cookieが残っていてもCSRFでは止めない。
+
+        退会済み判定など、ログイン本体のエラーメッセージを返す必要があるため。
+        """
+        owner = await owner_user_factory()
+        office = owner.office_associations[0].office
+        office.is_deleted = True
+        await db_session.commit()
+
+        stale_access_token = create_access_token(str(owner.id), timedelta(minutes=30))
+
+        response = await async_client.post(
+            "/api/v1/auth/token",
+            data={
+                "username": owner.email,
+                "password": "a-very-secure-password",
+            },
+            cookies={"access_token": stale_access_token},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "所属事務所が退会済みのため、ログインできません"
+
+    @pytest.mark.asyncio
     async def test_get_requests_do_not_require_csrf(
         self,
         async_client: AsyncClient,
