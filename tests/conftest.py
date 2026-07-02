@@ -257,6 +257,13 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 
 
 @pytest_asyncio.fixture
+async def csrf_headers(async_client: AsyncClient) -> dict[str, str]:
+    """Return headers for cookie-authenticated state-changing test requests."""
+    response = await async_client.get("/api/v1/csrf-token")
+    return {"X-CSRF-Token": response.json()["csrf_token"]}
+
+
+@pytest_asyncio.fixture
 async def service_admin_user_factory(db_session: AsyncSession):
     counter = {"count": 0}  # ローカルカウンター
 

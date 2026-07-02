@@ -266,7 +266,8 @@ async def test_get_unread_count(
 async def test_mark_notice_as_read(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: 通知を既読にする"""
     # Arrange
@@ -289,7 +290,10 @@ async def test_mark_notice_as_read(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.patch(f"/api/v1/notices/{notice.id}/read")
+    response = await async_client.patch(
+        f"/api/v1/notices/{notice.id}/read",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 200
@@ -304,7 +308,8 @@ async def test_mark_notice_as_read(
 async def test_mark_others_notice_as_read_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 他人の通知は既読にできない"""
     # Arrange
@@ -330,7 +335,10 @@ async def test_mark_others_notice_as_read_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.patch(f"/api/v1/notices/{notice.id}/read")
+    response = await async_client.patch(
+        f"/api/v1/notices/{notice.id}/read",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403
@@ -343,7 +351,8 @@ async def test_mark_others_notice_as_read_fails(
 async def test_mark_all_notices_as_read(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: 全通知を既読にする"""
     # Arrange
@@ -370,7 +379,10 @@ async def test_mark_all_notices_as_read(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.patch("/api/v1/notices/read-all")
+    response = await async_client.patch(
+        "/api/v1/notices/read-all",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 200
@@ -390,7 +402,8 @@ async def test_mark_all_notices_as_read(
 async def test_delete_notice(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: 通知を削除"""
     # Arrange
@@ -413,7 +426,10 @@ async def test_delete_notice(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/notices/{notice.id}")
+    response = await async_client.delete(
+        f"/api/v1/notices/{notice.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 204
@@ -426,7 +442,8 @@ async def test_delete_notice(
 async def test_delete_others_notice_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 他人の通知は削除できない"""
     # Arrange
@@ -452,7 +469,10 @@ async def test_delete_others_notice_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/notices/{notice.id}")
+    response = await async_client.delete(
+        f"/api/v1/notices/{notice.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403
