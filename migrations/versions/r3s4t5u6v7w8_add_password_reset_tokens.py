@@ -1,7 +1,7 @@
 """add password reset tokens table
 
 Revision ID: r3s4t5u6v7w8
-Revises: a1b2c3d4e5f6
+Revises: q2r3s4t5u6v7
 Create Date: 2025-01-20 10:00:00.000000
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'r3s4t5u6v7w8'
-down_revision = 'a1b2c3d4e5f6'
+down_revision = 'q2r3s4t5u6v7'
 branch_labels = None
 depends_on = None
 

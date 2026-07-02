@@ -124,7 +124,7 @@ async def get_billing_status(
 @router.post("/create-checkout-session")
 async def create_checkout_session(
     db: Annotated[AsyncSession, Depends(deps.get_db)],
-    current_user: Annotated[Staff, Depends(deps.require_owner)]
+    current_user: Annotated[Staff, Depends(deps.require_owner_with_office)]
 ):
     """
     Stripe Checkout Session作成API（サービス層利用版）
@@ -205,7 +205,7 @@ async def create_checkout_session(
 @router.post("/create-portal-session")
 async def create_portal_session(
     db: Annotated[AsyncSession, Depends(deps.get_db)],
-    current_user: Annotated[Staff, Depends(deps.require_owner)]
+    current_user: Annotated[Staff, Depends(deps.require_owner_with_office)]
 ):
     """
     Stripe Customer Portal Session作成API
@@ -249,8 +249,28 @@ async def create_portal_session(
 
         return {"url": portal_session.url}
 
+    except stripe.error.StripeError as e:
+        logger.error(
+            "Stripe Customer Portal Session creation failed: "
+            "stripe_error_type=%s, billing_id=%s, office_id=%s, stripe_customer_id=%s",
+            type(e).__name__,
+            billing.id,
+            office_id,
+            billing.stripe_customer_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ja.BILLING_PORTAL_SESSION_FAILED
+        )
     except Exception as e:
-        logger.error("Stripe Customer Portal Session作成エラー: %s", type(e).__name__)
+        logger.error(
+            "Stripe Customer Portal Session creation failed: "
+            "error_type=%s, billing_id=%s, office_id=%s, has_stripe_customer_id=%s",
+            type(e).__name__,
+            billing.id,
+            office_id,
+            bool(billing.stripe_customer_id),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ja.BILLING_PORTAL_SESSION_FAILED

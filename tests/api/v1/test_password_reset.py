@@ -758,12 +758,15 @@ class TestSessionInvalidation:
         await db_session.commit()
 
         new_password = "NewPassword456!"
+        csrf_response = await async_client.get("/api/v1/csrf-token")
+        csrf_token = csrf_response.json()["csrf_token"]
         reset_response = await async_client.post(
             "/api/v1/auth/reset-password",
             json={
                 "token": reset_token,
                 "new_password": new_password
-            }
+            },
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert reset_response.status_code == 200, "パスワードリセットが成功"
 
@@ -816,12 +819,15 @@ class TestSessionInvalidation:
         assert len(blacklist_entries) > 0, "ブラックリストエントリが作成されていること"
 
         # パスワード変更後に新しくログインして新しいリフレッシュトークンを取得
+        csrf_response = await async_client.get("/api/v1/csrf-token")
+        csrf_token = csrf_response.json()["csrf_token"]
         new_login_response = await async_client.post(
             "/api/v1/auth/token",
             data={
                 "username": staff_email,
                 "password": new_password
-            }
+            },
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert new_login_response.status_code == 200, "新しいパスワードでログイン成功"
         new_refresh_token = new_login_response.json()["refresh_token"]
@@ -831,7 +837,8 @@ class TestSessionInvalidation:
         # 新しいリフレッシュトークンは有効であるべき
         new_refresh_response = await async_client.post(
             "/api/v1/auth/refresh-token",
-            json={"refresh_token": new_refresh_token}
+            json={"refresh_token": new_refresh_token},
+            headers={"X-CSRF-Token": csrf_token},
         )
         assert new_refresh_response.status_code == 200, (
             "パスワード変更後に発行された新しいリフレッシュトークンは有効であるべき"

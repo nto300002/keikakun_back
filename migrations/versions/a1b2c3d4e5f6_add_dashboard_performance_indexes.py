@@ -1,6 +1,6 @@
 """Add dashboard performance indexes
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a1b2c3d4e5f8
 Revises: z8a9b0c1d2e3
 Create Date: 2026-02-16
 
@@ -35,7 +35,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a1b2c3d4e5f6'
+revision: str = 'a1b2c3d4e5f8'
 down_revision: Union[str, None] = 'z8a9b0c1d2e3'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

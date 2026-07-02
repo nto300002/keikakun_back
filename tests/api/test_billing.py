@@ -364,6 +364,176 @@ async def test_create_checkout_session_includes_metadata(
     assert call_kwargs['automatic_tax']['enabled'] is True
 
 
+async def test_create_portal_session_loads_office_associations_for_token_auth(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    Token認証で取得したownerでもoffice associationを読み込んでPortal Sessionを作成できることを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_portal_{unique_id}"
+    portal_url = "https://billing.stripe.com/p/session/test"
+
+    mock_portal_create = mocker.patch('stripe.billing_portal.Session.create')
+    mock_portal_create.return_value = MagicMock(url=portal_url)
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(str(staff.id), access_token_expires)
+
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.active,
+        stripe_customer_id=customer_id,
+        stripe_subscription_id=f"sub_portal_{unique_id}",
+        trial_start_date=datetime.now(timezone.utc) - timedelta(days=190),
+        trial_end_date=datetime.now(timezone.utc) - timedelta(days=10),
+        subscription_start_date=datetime.now(timezone.utc) - timedelta(days=10),
+        next_billing_date=datetime.now(timezone.utc) + timedelta(days=20),
+        current_plan_amount=6000
+    )
+    await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+    db_session.expire_all()
+
+    response = await async_client.post(
+        "/api/v1/billing/create-portal-session",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["url"] == portal_url
+
+    mock_portal_create.assert_called_once()
+    call_kwargs = mock_portal_create.call_args.kwargs
+    assert call_kwargs["customer"] == customer_id
+    assert call_kwargs["return_url"] == f"{settings.FRONTEND_URL}/admin/plan"
+
+
+async def test_create_portal_session_loads_office_associations_for_cookie_auth(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    Cookie認証でもPortal Session作成時にoffice associationのlazy loadが起きないことを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_portal_cookie_{unique_id}"
+    portal_url = "https://billing.stripe.com/p/session/cookie-test"
+
+    mock_portal_create = mocker.patch('stripe.billing_portal.Session.create')
+    mock_portal_create.return_value = MagicMock(url=portal_url)
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    staff_id = staff.id
+    office_id = staff.office_associations[0].office_id
+
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.active,
+        stripe_customer_id=customer_id,
+        stripe_subscription_id=f"sub_portal_cookie_{unique_id}",
+        trial_start_date=datetime.now(timezone.utc) - timedelta(days=190),
+        trial_end_date=datetime.now(timezone.utc) - timedelta(days=10),
+        subscription_start_date=datetime.now(timezone.utc) - timedelta(days=10),
+        next_billing_date=datetime.now(timezone.utc) + timedelta(days=20),
+        current_plan_amount=6000
+    )
+    await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+    db_session.expire_all()
+
+    csrf_response = await async_client.get("/api/v1/csrf-token")
+    csrf_token = csrf_response.json()["csrf_token"]
+    access_token = create_access_token(
+        str(staff_id),
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    async_client.cookies.set("access_token", access_token)
+
+    response = await async_client.post(
+        "/api/v1/billing/create-portal-session",
+        headers={"X-CSRF-Token": csrf_token}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["url"] == portal_url
+    mock_portal_create.assert_called_once()
+
+
+async def test_create_checkout_session_loads_office_associations_for_cookie_auth(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock
+) -> None:
+    """
+    Cookie認証でもCheckout Session作成時にoffice associationのlazy loadが起きないことを確認。
+    """
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_PRICE_ID', 'price_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_checkout_cookie_{unique_id}"
+    checkout_session_id = f"cs_checkout_cookie_{unique_id}"
+
+    mock_customer_create = mocker.patch('stripe.Customer.create')
+    mock_customer_create.return_value = MagicMock(id=customer_id)
+
+    mock_session_create = mocker.patch('stripe.checkout.Session.create')
+    mock_session_create.return_value = MagicMock(
+        id=checkout_session_id,
+        url='https://checkout.stripe.com/cookie-test'
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    staff_id = staff.id
+    office_id = staff.office_associations[0].office_id
+
+    billing = await crud.billing.create_for_office(
+        db=db_session,
+        office_id=office_id,
+        trial_days=180
+    )
+    billing_id = billing.id
+    await db_session.commit()
+    db_session.expire_all()
+
+    csrf_response = await async_client.get("/api/v1/csrf-token")
+    csrf_token = csrf_response.json()["csrf_token"]
+    access_token = create_access_token(
+        str(staff_id),
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    async_client.cookies.set("access_token", access_token)
+
+    response = await async_client.post(
+        "/api/v1/billing/create-checkout-session",
+        headers={"X-CSRF-Token": csrf_token}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == checkout_session_id
+    assert data["url"] == "https://checkout.stripe.com/cookie-test"
+
+    mock_customer_create.assert_called_once()
+    mock_session_create.assert_called_once()
+    billing_after = await crud.billing.get(db=db_session, id=billing_id)
+    assert billing_after.stripe_customer_id == customer_id
+
+
 async def test_create_checkout_session_expired_free_without_customer_recovers_to_trial_expired(
     async_client: AsyncClient,
     db_session: AsyncSession,

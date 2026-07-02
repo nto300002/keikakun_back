@@ -48,6 +48,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 CSRF_EXEMPT_PATHS = {
     "/api/v1/csrf-token",
     "/api/v1/csrf-token/",
+    "/api/v1/auth/token",
+    "/api/v1/auth/token/",
+    "/api/v1/auth/token/verify-mfa",
+    "/api/v1/auth/token/verify-mfa/",
+    "/api/v1/auth/mfa/first-time-verify",
+    "/api/v1/auth/mfa/first-time-verify/",
     "/api/v1/auth/refresh-token",
     "/api/v1/auth/refresh-token/",
     "/api/v1/billing/webhook",
