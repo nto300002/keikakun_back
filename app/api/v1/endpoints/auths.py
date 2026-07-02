@@ -26,6 +26,10 @@ from app.core.security import (
     create_temporary_token, verify_temporary_token, verify_temporary_token_with_session, verify_totp,
     generate_totp_uri, get_password_hash
 )
+from app.core.auth_cookie import (
+    build_access_cookie_options,
+    build_delete_access_cookie_options,
+)
 from app.core.password_breach_check import check_password_breach
 from app.core.mail import send_verification_email
 from pydantic import BaseModel
@@ -308,53 +312,9 @@ async def login_for_access_token(
         session_type=session_type
     )
 
-    # Cookie設定
-    environment_value = os.getenv("ENVIRONMENT")
-    is_production = environment_value == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
-
-    # 環境変数の値を検証（コメントや日本語が含まれていないかチェック）
-    if cookie_domain:
-        cookie_domain = cookie_domain.strip()
-        # コメント記号で始まる、または空の場合はNoneに設定
-        if cookie_domain.startswith('#') or not cookie_domain:
-            cookie_domain = None
-        else:
-            # latin-1でエンコード可能かチェック（日本語等を除外）
-            try:
-                cookie_domain.encode('latin-1')
-            except UnicodeEncodeError:
-                logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_DOMAIN (contains non-latin-1 characters): {cookie_domain}")
-                cookie_domain = None
-
-    if cookie_samesite:
-        cookie_samesite = cookie_samesite.strip().lower()
-        # 有効な値のみを許可
-        if cookie_samesite not in ['none', 'lax', 'strict']:
-            logger.warning(f"[LOGIN COOKIE] Invalid COOKIE_SAMESITE value: {cookie_samesite}")
-            cookie_samesite = None
-
-    # デバッグログ
-    logger.info(f"[LOGIN COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
-    logger.info(f"[LOGIN COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
-
-    cookie_options = {
-        "key": "access_token",
-        "value": access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
-        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-    logger.info(f"[LOGIN COOKIE DEBUG] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=access_token, max_age=session_duration)
+    )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     # トークンはCookieでのみ送信される（refresh_tokenは保持）
@@ -424,24 +384,9 @@ async def refresh_access_token(
         session_type=session_type
     )
 
-    # Cookie設定
-    is_production = os.getenv("ENVIRONMENT") == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
-
-    cookie_options = {
-        "key": "access_token",
-        "value": new_access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        # samesiteのデフォルトは'lax'なので、開発環境ではNoneを明示的に設定
-        "samesite": cookie_samesite if cookie_samesite else "none" if not is_production else "lax",
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=new_access_token, max_age=session_duration)
+    )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     return {
@@ -558,32 +503,9 @@ async def verify_mfa_for_login(
         session_type=session_type
     )
 
-    # Cookie設定
-    environment_value = os.getenv("ENVIRONMENT")
-    is_production = environment_value == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)  # 未設定の場合はNone
-
-    # デバッグログ
-    logger.info(f"[MFA COOKIE DEBUG] ENVIRONMENT={environment_value}, is_production={is_production}")
-    logger.info(f"[MFA COOKIE DEBUG] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
-
-    cookie_options = {
-        "key": "access_token",
-        "value": access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
-        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-    logger.info(f"[MFA COOKIE DEBUG] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=access_token, max_age=session_duration)
+    )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     return {
@@ -714,29 +636,9 @@ async def verify_mfa_first_time(
         session_type=session_type
     )
 
-    # Cookie設定
-    environment_value = os.getenv("ENVIRONMENT")
-    is_production = environment_value == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)
-
-    logger.info(f"[MFA FIRST TIME VERIFY COOKIE] ENVIRONMENT={environment_value}, is_production={is_production}")
-    logger.info(f"[MFA FIRST TIME VERIFY COOKIE] COOKIE_DOMAIN={cookie_domain}, COOKIE_SAMESITE={cookie_samesite}")
-
-    cookie_options = {
-        "key": "access_token",
-        "value": access_token,
-        "httponly": True,
-        "secure": is_production,
-        "max_age": session_duration,
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        cookie_options["domain"] = cookie_domain
-
-    logger.info(f"[MFA FIRST TIME VERIFY COOKIE] Cookie options: secure={cookie_options['secure']}, samesite={cookie_options['samesite']}, domain={cookie_options.get('domain', 'not set')}")
-
-    response.set_cookie(**cookie_options)
+    response.set_cookie(
+        **build_access_cookie_options(value=access_token, max_age=session_duration)
+    )
 
     # レスポンス返却
     return {
@@ -760,22 +662,7 @@ async def logout(
     クライアント側でトークンを無効化するためのエンドポイントです。
     サーバー側での追加のアクションは現在ありません。
     """
-    # Cookieをクリア（ログイン時と同じパラメータで削除）
-    is_production = os.getenv("ENVIRONMENT") == "production"
-    cookie_domain = os.getenv("COOKIE_DOMAIN", None)
-    cookie_samesite = os.getenv("COOKIE_SAMESITE", None)
-
-    delete_cookie_options = {
-        "key": "access_token",
-        "path": "/",  # Cookie設定時と同じpathを明示的に指定
-        # 開発環境(HTTP): SameSite=Lax (localhost間は同一サイトとみなされる)
-        # 本番環境(HTTPS): SameSite=None (クロスオリジンでCookie送信が必要、secure=Trueと組み合わせ)
-        "samesite": cookie_samesite if cookie_samesite else ("none" if is_production else "lax"),
-    }
-    if cookie_domain:
-        delete_cookie_options["domain"] = cookie_domain
-
-    response.delete_cookie(**delete_cookie_options)
+    response.delete_cookie(**build_delete_access_cookie_options())
 
     # 今後のためにcurrent_userとdbは引数として残しておく
     return {"message": ja.AUTH_LOGOUT_SUCCESS}
