@@ -29,7 +29,8 @@ pytestmark = pytest.mark.asyncio
 async def test_create_employee_action_request(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: employeeがアクションリクエストを作成"""
     # Arrange
@@ -53,7 +54,11 @@ async def test_create_employee_action_request(
     }
 
     # Act
-    response = await async_client.post("/api/v1/employee-action-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/employee-action-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -70,7 +75,8 @@ async def test_create_employee_action_request(
 async def test_create_employee_action_request_update(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: employeeが更新リクエストを作成"""
     # Arrange
@@ -90,7 +96,11 @@ async def test_create_employee_action_request_update(
     }
 
     # Act
-    response = await async_client.post("/api/v1/employee-action-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/employee-action-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -102,7 +112,8 @@ async def test_create_employee_action_request_update(
 async def test_create_employee_action_request_delete(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: employeeが削除リクエストを作成"""
     # Arrange
@@ -119,7 +130,11 @@ async def test_create_employee_action_request_delete(
     }
 
     # Act
-    response = await async_client.post("/api/v1/employee-action-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/employee-action-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -239,7 +254,8 @@ async def test_approve_employee_action_request_as_manager(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """正常系: managerがemployeeのリクエストを承認"""
     # Arrange
@@ -275,7 +291,8 @@ async def test_approve_employee_action_request_as_manager(
     # Act
     response = await async_client.patch(
         f"/api/v1/employee-action-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -291,7 +308,8 @@ async def test_approve_employee_action_request_as_owner(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """正常系: ownerがリクエストを承認"""
     # Arrange
@@ -327,7 +345,8 @@ async def test_approve_employee_action_request_as_owner(
     # Act
     response = await async_client.patch(
         f"/api/v1/employee-action-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -339,7 +358,8 @@ async def test_approve_employee_action_request_as_owner(
 async def test_approve_employee_action_request_insufficient_permission(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: employeeは承認できない"""
     # Arrange
@@ -368,7 +388,8 @@ async def test_approve_employee_action_request_insufficient_permission(
     # Act
     response = await async_client.patch(
         f"/api/v1/employee-action-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -379,7 +400,8 @@ async def test_approve_employee_action_request_already_approved(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """異常系: 既に承認済みのリクエストは再承認できない"""
     # Arrange
@@ -414,7 +436,8 @@ async def test_approve_employee_action_request_already_approved(
     # Act
     response = await async_client.patch(
         f"/api/v1/employee-action-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -429,7 +452,8 @@ async def test_reject_employee_action_request(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """正常系: managerがリクエストを却下"""
     # Arrange
@@ -458,7 +482,8 @@ async def test_reject_employee_action_request(
     # Act
     response = await async_client.patch(
         f"/api/v1/employee-action-requests/{request.id}/reject",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -476,7 +501,8 @@ async def test_reject_employee_action_request(
 async def test_delete_pending_employee_action_request(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: pending状態のリクエストを削除"""
     # Arrange
@@ -498,7 +524,10 @@ async def test_delete_pending_employee_action_request(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/employee-action-requests/{request.id}")
+    response = await async_client.delete(
+        f"/api/v1/employee-action-requests/{request.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 204
@@ -512,7 +541,8 @@ async def test_delete_approved_employee_action_request_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """異常系: 承認済みリクエストは削除できない"""
     # Arrange
@@ -540,7 +570,10 @@ async def test_delete_approved_employee_action_request_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/employee-action-requests/{request.id}")
+    response = await async_client.delete(
+        f"/api/v1/employee-action-requests/{request.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 400
@@ -549,7 +582,8 @@ async def test_delete_approved_employee_action_request_fails(
 async def test_delete_others_employee_action_request_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 他人のリクエストは削除できない"""
     # Arrange
@@ -573,7 +607,10 @@ async def test_delete_others_employee_action_request_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/employee-action-requests/{request.id}")
+    response = await async_client.delete(
+        f"/api/v1/employee-action-requests/{request.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403

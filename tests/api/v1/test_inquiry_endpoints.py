@@ -29,7 +29,8 @@ class TestInquiryPublicEndpoint:
         async_client: AsyncClient,
         employee_user_factory,
         app_admin_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         ログイン済みユーザーからの問い合わせ送信
@@ -59,7 +60,8 @@ class TestInquiryPublicEndpoint:
         response = await async_client.post(
             "/api/v1/inquiries",
             json=payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -398,7 +400,8 @@ class TestAdminInquiryUpdateEndpoint:
         async_client: AsyncClient,
         app_admin_user_factory,
         employee_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         app_adminが問い合わせを更新
@@ -440,7 +443,8 @@ class TestAdminInquiryUpdateEndpoint:
         response = await async_client.patch(
             f"/api/v1/admin/inquiries/{inquiry.id}",
             json=update_payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -464,7 +468,8 @@ class TestAdminInquiryReplyEndpoint:
         async_client: AsyncClient,
         app_admin_user_factory,
         employee_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         ログイン済み送信者への返信（内部通知）
@@ -508,7 +513,8 @@ class TestAdminInquiryReplyEndpoint:
         response = await async_client.post(
             f"/api/v1/admin/inquiries/{inquiry.id}/reply",
             json=reply_payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -538,7 +544,8 @@ class TestAdminInquiryReplyEndpoint:
         async_client: AsyncClient,
         app_admin_user_factory,
         employee_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         メール送信フラグ付き返信
@@ -584,7 +591,8 @@ class TestAdminInquiryReplyEndpoint:
         response = await async_client.post(
             f"/api/v1/admin/inquiries/{inquiry.id}/reply",
             json=reply_payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -602,7 +610,8 @@ class TestAdminInquiryReplyEndpoint:
     async def test_reply_to_inquiry_not_found(
         self,
         async_client: AsyncClient,
-        app_admin_user_factory
+        app_admin_user_factory,
+        csrf_headers
     ):
         """
         存在しない問い合わせへの返信
@@ -630,7 +639,8 @@ class TestAdminInquiryReplyEndpoint:
         response = await async_client.post(
             f"/api/v1/admin/inquiries/{fake_id}/reply",
             json=reply_payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -642,7 +652,8 @@ class TestAdminInquiryReplyEndpoint:
         async_client: AsyncClient,
         app_admin_user_factory,
         employee_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         返信内容が空の場合はバリデーションエラー
@@ -684,7 +695,8 @@ class TestAdminInquiryReplyEndpoint:
         response = await async_client.post(
             f"/api/v1/admin/inquiries/{inquiry.id}/reply",
             json=reply_payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -696,7 +708,8 @@ class TestAdminInquiryReplyEndpoint:
         async_client: AsyncClient,
         employee_user_factory,
         app_admin_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         非app_adminは返信できない
@@ -740,7 +753,8 @@ class TestAdminInquiryReplyEndpoint:
         response = await async_client.post(
             f"/api/v1/admin/inquiries/{inquiry.id}/reply",
             json=reply_payload,
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -756,7 +770,8 @@ class TestAdminInquiryDeleteEndpoint:
         async_client: AsyncClient,
         app_admin_user_factory,
         employee_user_factory,
-        db_session: AsyncSession
+        db_session: AsyncSession,
+        csrf_headers
     ):
         """
         app_adminが問い合わせを削除
@@ -792,7 +807,8 @@ class TestAdminInquiryDeleteEndpoint:
         # Execute
         response = await async_client.delete(
             f"/api/v1/admin/inquiries/{inquiry_id}",
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert
@@ -807,7 +823,8 @@ class TestAdminInquiryDeleteEndpoint:
     async def test_delete_inquiry_not_found(
         self,
         async_client: AsyncClient,
-        app_admin_user_factory
+        app_admin_user_factory,
+        csrf_headers
     ):
         """
         存在しない問い合わせの削除
@@ -828,7 +845,8 @@ class TestAdminInquiryDeleteEndpoint:
         fake_id = uuid4()
         response = await async_client.delete(
             f"/api/v1/admin/inquiries/{fake_id}",
-            cookies={"access_token": access_token}
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
         )
 
         # Assert

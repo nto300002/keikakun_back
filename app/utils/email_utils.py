@@ -68,7 +68,7 @@ async def send_email_with_retry(
             return result
 
         except Exception as e:
-            last_error = type(e).__name__
+            last_error = str(e) or type(e).__name__
             result["retry_count"] = attempt
 
             logger.warning(

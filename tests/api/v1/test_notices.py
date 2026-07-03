@@ -19,13 +19,6 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
-async def get_csrf_tokens(async_client: AsyncClient) -> tuple[str, str]:
-    csrf_response = await async_client.get("/api/v1/csrf-token")
-    csrf_token = csrf_response.json()["csrf_token"]
-    csrf_cookie = csrf_response.cookies.get("fastapi-csrf-token")
-    return csrf_token, csrf_cookie
-
-
 # ========================================
 # GET /api/v1/notices
 # ========================================
@@ -319,7 +312,8 @@ async def test_get_notices_uses_db_pagination_without_loading_all_rows(
 async def test_mark_notice_as_read(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: 通知を既読にする"""
     # Arrange
@@ -340,13 +334,11 @@ async def test_mark_notice_as_read(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
-    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
-    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
     response = await async_client.patch(
         f"/api/v1/notices/{notice.id}/read",
-        headers={"X-CSRF-Token": csrf_token},
+        headers=csrf_headers,
     )
 
     # Assert
@@ -362,7 +354,8 @@ async def test_mark_notice_as_read(
 async def test_mark_others_notice_as_read_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 他人の通知は既読にできない"""
     # Arrange
@@ -388,7 +381,10 @@ async def test_mark_others_notice_as_read_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.patch(f"/api/v1/notices/{notice.id}/read")
+    response = await async_client.patch(
+        f"/api/v1/notices/{notice.id}/read",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403
@@ -401,7 +397,8 @@ async def test_mark_others_notice_as_read_fails(
 async def test_mark_all_notices_as_read(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: 全通知を既読にする"""
     # Arrange
@@ -426,13 +423,11 @@ async def test_mark_all_notices_as_read(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
-    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
-    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
     response = await async_client.patch(
         "/api/v1/notices/read-all",
-        headers={"X-CSRF-Token": csrf_token},
+        headers=csrf_headers,
     )
 
     # Assert
@@ -453,7 +448,8 @@ async def test_mark_all_notices_as_read(
 async def test_delete_notice(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: 通知を削除"""
     # Arrange
@@ -474,13 +470,11 @@ async def test_delete_notice(
 
     access_token = create_access_token(str(employee.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     async_client.cookies.set("access_token", access_token)
-    csrf_token, csrf_cookie = await get_csrf_tokens(async_client)
-    async_client.cookies.set("fastapi-csrf-token", csrf_cookie)
 
     # Act
     response = await async_client.delete(
         f"/api/v1/notices/{notice.id}",
-        headers={"X-CSRF-Token": csrf_token},
+        headers=csrf_headers,
     )
 
     # Assert
@@ -494,7 +488,8 @@ async def test_delete_notice(
 async def test_delete_others_notice_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 他人の通知は削除できない"""
     # Arrange
@@ -520,7 +515,10 @@ async def test_delete_others_notice_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/notices/{notice.id}")
+    response = await async_client.delete(
+        f"/api/v1/notices/{notice.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403

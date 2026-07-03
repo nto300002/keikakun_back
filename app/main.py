@@ -54,6 +54,8 @@ CSRF_EXEMPT_PATHS = {
     "/api/v1/auth/token/verify-mfa/",
     "/api/v1/auth/mfa/first-time-verify",
     "/api/v1/auth/mfa/first-time-verify/",
+    "/api/v1/auth/logout",
+    "/api/v1/auth/logout/",
     "/api/v1/auth/refresh-token",
     "/api/v1/auth/refresh-token/",
     "/api/v1/billing/webhook",

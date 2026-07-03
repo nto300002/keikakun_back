@@ -26,7 +26,8 @@ pytestmark = pytest.mark.asyncio
 async def test_create_role_change_request_employee_to_manager(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: employeeがmanagerへの変更リクエストを作成"""
     # Arrange
@@ -42,7 +43,11 @@ async def test_create_role_change_request_employee_to_manager(
     }
 
     # Act
-    response = await async_client.post("/api/v1/role-change-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/role-change-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -64,7 +69,8 @@ async def test_create_role_change_request_employee_to_manager(
 async def test_create_role_change_request_employee_to_owner(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: employeeがownerへの変更リクエストを作成"""
     # Arrange
@@ -79,7 +85,11 @@ async def test_create_role_change_request_employee_to_owner(
     }
 
     # Act
-    response = await async_client.post("/api/v1/role-change-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/role-change-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -90,7 +100,8 @@ async def test_create_role_change_request_employee_to_owner(
 async def test_create_role_change_request_manager_to_owner(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """正常系: managerがownerへの変更リクエストを作成"""
     # Arrange
@@ -105,7 +116,11 @@ async def test_create_role_change_request_manager_to_owner(
     }
 
     # Act
-    response = await async_client.post("/api/v1/role-change-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/role-change-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -133,7 +148,8 @@ async def test_create_role_change_request_unauthenticated(
 
 async def test_create_role_change_request_same_role(
     async_client: AsyncClient,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 自分と同じroleへの変更リクエストは作成不可"""
     # Arrange
@@ -148,7 +164,11 @@ async def test_create_role_change_request_same_role(
     }
 
     # Act
-    response = await async_client.post("/api/v1/role-change-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/role-change-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 400
@@ -250,7 +270,8 @@ async def test_approve_role_change_request_as_manager(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """正常系: managerがemployee→managerリクエストを承認"""
     # Arrange
@@ -280,7 +301,8 @@ async def test_approve_role_change_request_as_manager(
     # Act
     response = await async_client.patch(
         f"/api/v1/role-change-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -299,7 +321,8 @@ async def test_approve_role_change_request_as_owner(
     async_client: AsyncClient,
     db_session: AsyncSession,
     manager_user_factory,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """正常系: ownerがmanager→ownerリクエストを承認"""
     # Arrange
@@ -329,7 +352,8 @@ async def test_approve_role_change_request_as_owner(
     # Act
     response = await async_client.patch(
         f"/api/v1/role-change-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -345,7 +369,8 @@ async def test_approve_role_change_request_as_owner(
 async def test_approve_role_change_request_insufficient_permission(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: employeeは承認できない"""
     # Arrange
@@ -375,7 +400,8 @@ async def test_approve_role_change_request_insufficient_permission(
     # Act
     response = await async_client.patch(
         f"/api/v1/role-change-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -385,7 +411,8 @@ async def test_approve_role_change_request_insufficient_permission(
 async def test_approve_role_change_request_manager_cannot_approve_manager_to_owner(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """異常系: managerはmanager→ownerリクエストを承認できない"""
     # Arrange
@@ -415,7 +442,8 @@ async def test_approve_role_change_request_manager_cannot_approve_manager_to_own
     # Act
     response = await async_client.patch(
         f"/api/v1/role-change-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -426,7 +454,8 @@ async def test_approve_role_change_request_already_approved(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """異常系: 既に承認済みのリクエストは再承認できない"""
     # Arrange
@@ -462,7 +491,8 @@ async def test_approve_role_change_request_already_approved(
     # Act
     response = await async_client.patch(
         f"/api/v1/role-change-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -477,7 +507,8 @@ async def test_reject_role_change_request(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """正常系: managerがリクエストを却下"""
     # Arrange
@@ -507,7 +538,8 @@ async def test_reject_role_change_request(
     # Act
     response = await async_client.patch(
         f"/api/v1/role-change-requests/{request.id}/reject",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -529,7 +561,8 @@ async def test_reject_role_change_request(
 async def test_delete_pending_role_change_request(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """正常系: pending状態のリクエストを削除"""
     # Arrange
@@ -552,7 +585,10 @@ async def test_delete_pending_role_change_request(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/role-change-requests/{request.id}")
+    response = await async_client.delete(
+        f"/api/v1/role-change-requests/{request.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 204
@@ -566,7 +602,8 @@ async def test_delete_approved_role_change_request_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """異常系: 承認済みリクエストは削除できない"""
     # Arrange
@@ -595,7 +632,10 @@ async def test_delete_approved_role_change_request_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/role-change-requests/{request.id}")
+    response = await async_client.delete(
+        f"/api/v1/role-change-requests/{request.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 400
@@ -604,7 +644,8 @@ async def test_delete_approved_role_change_request_fails(
 async def test_delete_others_role_change_request_fails(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: 他人のリクエストは削除できない"""
     # Arrange
@@ -629,7 +670,10 @@ async def test_delete_others_role_change_request_fails(
     async_client.cookies.set("access_token", access_token)
 
     # Act
-    response = await async_client.delete(f"/api/v1/role-change-requests/{request.id}")
+    response = await async_client.delete(
+        f"/api/v1/role-change-requests/{request.id}",
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403

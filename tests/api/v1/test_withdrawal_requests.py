@@ -25,7 +25,8 @@ pytestmark = pytest.mark.asyncio
 async def test_create_withdrawal_request_as_owner(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """正常系: ownerが退会リクエストを作成"""
     # Arrange
@@ -41,7 +42,11 @@ async def test_create_withdrawal_request_as_owner(
     }
 
     # Act
-    response = await async_client.post("/api/v1/withdrawal-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/withdrawal-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 201
@@ -67,7 +72,8 @@ async def test_create_withdrawal_request_as_owner(
 
 async def test_create_withdrawal_request_employee_forbidden(
     async_client: AsyncClient,
-    employee_user_factory
+    employee_user_factory,
+    csrf_headers
 ):
     """異常系: employeeは退会リクエストを作成できない (403)"""
     # Arrange
@@ -82,7 +88,11 @@ async def test_create_withdrawal_request_employee_forbidden(
     }
 
     # Act
-    response = await async_client.post("/api/v1/withdrawal-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/withdrawal-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403
@@ -90,7 +100,8 @@ async def test_create_withdrawal_request_employee_forbidden(
 
 async def test_create_withdrawal_request_manager_forbidden(
     async_client: AsyncClient,
-    manager_user_factory
+    manager_user_factory,
+    csrf_headers
 ):
     """異常系: managerは退会リクエストを作成できない (403)"""
     # Arrange
@@ -105,7 +116,11 @@ async def test_create_withdrawal_request_manager_forbidden(
     }
 
     # Act
-    response = await async_client.post("/api/v1/withdrawal-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/withdrawal-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 403
@@ -113,7 +128,8 @@ async def test_create_withdrawal_request_manager_forbidden(
 
 async def test_create_withdrawal_request_empty_title(
     async_client: AsyncClient,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """異常系: タイトルが空 (422)"""
     # Arrange
@@ -128,7 +144,11 @@ async def test_create_withdrawal_request_empty_title(
     }
 
     # Act
-    response = await async_client.post("/api/v1/withdrawal-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/withdrawal-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 422
@@ -136,7 +156,8 @@ async def test_create_withdrawal_request_empty_title(
 
 async def test_create_withdrawal_request_empty_reason(
     async_client: AsyncClient,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """異常系: 申請内容が空 (422)"""
     # Arrange
@@ -151,7 +172,11 @@ async def test_create_withdrawal_request_empty_reason(
     }
 
     # Act
-    response = await async_client.post("/api/v1/withdrawal-requests", json=payload)
+    response = await async_client.post(
+        "/api/v1/withdrawal-requests",
+        json=payload,
+        headers=csrf_headers,
+    )
 
     # Assert
     assert response.status_code == 422
@@ -303,7 +328,8 @@ async def test_approve_withdrawal_request_as_app_admin(
     async_client: AsyncClient,
     db_session: AsyncSession,
     app_admin_user_factory,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """正常系: app_adminがリクエストを承認"""
     # Arrange
@@ -336,7 +362,8 @@ async def test_approve_withdrawal_request_as_app_admin(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -350,7 +377,8 @@ async def test_approve_withdrawal_request_as_app_admin(
 async def test_approve_withdrawal_request_owner_forbidden(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """異常系: ownerは承認できない (403)"""
     # Arrange
@@ -382,7 +410,8 @@ async def test_approve_withdrawal_request_owner_forbidden(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -391,7 +420,8 @@ async def test_approve_withdrawal_request_owner_forbidden(
 
 async def test_approve_withdrawal_request_not_found(
     async_client: AsyncClient,
-    app_admin_user_factory
+    app_admin_user_factory,
+    csrf_headers
 ):
     """異常系: 存在しないリクエスト (404)"""
     # Arrange
@@ -408,7 +438,8 @@ async def test_approve_withdrawal_request_not_found(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{non_existent_id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -419,7 +450,8 @@ async def test_approve_withdrawal_request_already_processed(
     async_client: AsyncClient,
     db_session: AsyncSession,
     app_admin_user_factory,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """異常系: 既に処理済みのリクエスト (400)"""
     # Arrange
@@ -453,7 +485,8 @@ async def test_approve_withdrawal_request_already_processed(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{request.id}/approve",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -468,7 +501,8 @@ async def test_reject_withdrawal_request_as_app_admin(
     async_client: AsyncClient,
     db_session: AsyncSession,
     app_admin_user_factory,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """正常系: app_adminがリクエストを却下"""
     # Arrange
@@ -501,7 +535,8 @@ async def test_reject_withdrawal_request_as_app_admin(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{request.id}/reject",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -515,7 +550,8 @@ async def test_reject_withdrawal_request_as_app_admin(
 async def test_reject_withdrawal_request_owner_forbidden(
     async_client: AsyncClient,
     db_session: AsyncSession,
-    owner_user_factory
+    owner_user_factory,
+    csrf_headers
 ):
     """異常系: ownerは却下できない (403)"""
     # Arrange
@@ -547,7 +583,8 @@ async def test_reject_withdrawal_request_owner_forbidden(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{request.id}/reject",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert
@@ -556,7 +593,8 @@ async def test_reject_withdrawal_request_owner_forbidden(
 
 async def test_reject_withdrawal_request_not_found(
     async_client: AsyncClient,
-    app_admin_user_factory
+    app_admin_user_factory,
+    csrf_headers
 ):
     """異常系: 存在しないリクエスト (404)"""
     # Arrange
@@ -573,7 +611,8 @@ async def test_reject_withdrawal_request_not_found(
     # Act
     response = await async_client.patch(
         f"/api/v1/withdrawal-requests/{non_existent_id}/reject",
-        json=payload
+        json=payload,
+        headers=csrf_headers,
     )
 
     # Assert

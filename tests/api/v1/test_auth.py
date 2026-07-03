@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.main import app  # appをインポート
 from app.models.staff import Staff
+from app.core.config import settings
 from app.core.security import verify_password, generate_totp_secret
 from app import crud
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -894,6 +895,7 @@ class TestCookieAuthentication:
         """正常系: 本番環境でSecure=True、SameSite=Noneが設定される"""
         # Arrange: 環境変数を本番環境に設定
         monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.setattr(settings, "SECRET_KEY", "production-cookie-test-secret")
         # COOKIE_DOMAINは設定しない（空文字列）
 
         password = "Test-password123!"
@@ -928,6 +930,7 @@ class TestCookieAuthentication:
         # Arrange: 環境変数を本番環境に設定
         monkeypatch.setenv("ENVIRONMENT", "production")
         monkeypatch.setenv("COOKIE_DOMAIN", ".keikakun.com")
+        monkeypatch.setattr(settings, "SECRET_KEY", "production-cookie-test-secret")
 
         password = "Test-password123!"
         user = await service_admin_user_factory(

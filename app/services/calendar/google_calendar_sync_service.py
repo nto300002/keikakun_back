@@ -114,7 +114,7 @@ class GoogleCalendarSyncService:
                 await self.sync_result_service.mark_failed(
                     db=db,
                     event=event,
-                    message=type(exc).__name__,
+                    message=str(exc) or type(exc).__name__,
                 )
                 failed_count += 1
 
