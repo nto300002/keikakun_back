@@ -1,7 +1,7 @@
 """baseline current schema for Alembic restart
 
 Revision ID: baseline_20260701
-Revises: a1b2c3d4e5f6, a1b2c3d4e5f7, a1b2c3d4e5f8, b0c1d2e3f4g5, n3o4p5q6r7s8, q8r9s0t1u2v3
+Revises: a1b2c3d4e5f6, a1b2c3d4e5f7, a1b2c3d4e5f8, b0c1d2e3f4g5, p9q0r1s2t3u4, q8r9s0t1u2v3
 Create Date: 2026-07-01
 
 This revision is a no-op baseline marker.
@@ -22,7 +22,7 @@ down_revision: Union[str, tuple[str, ...], None] = (
     "a1b2c3d4e5f7",
     "a1b2c3d4e5f8",
     "b0c1d2e3f4g5",
-    "n3o4p5q6r7s8",
+    "p9q0r1s2t3u4",
     "q8r9s0t1u2v3",
 )
 branch_labels: Union[str, Sequence[str], None] = None
