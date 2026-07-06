@@ -152,11 +152,12 @@ class TestGetDeliverablesList:
                     assert item1.welfare_recipient.full_name == "山田 太郎"
                     assert item1.plan_cycle.cycle_number == 1
                     assert item1.uploaded_by.name == "アップロード者"
-                    assert item1.download_url == "https://s3.amazonaws.com/test-bucket/signed-url"
+                    assert item1.download_url is None
 
                     # CRUD層が正しく呼ばれたか確認
                     mock_get_multi.assert_called_once()
                     mock_count.assert_called_once()
+                    mock_presigned.assert_not_called()
 
     async def test_get_deliverables_list_with_filters(
         self,
@@ -276,11 +277,11 @@ class TestGetDeliverablesList:
         sample_deliverables_data
     ):
         """
-        異常系: S3 presigned URL生成エラー時のハンドリング
+        正常系: PDF一覧では署名付きURLを生成しない
 
-        Given: S3 URL生成でエラーが発生
+        Given: PDFデータが存在
         When: get_deliverables_listを呼び出す
-        Then: download_urlがNoneになり、処理は続行される
+        Then: download_urlはNoneで、署名付きURL生成は呼ばれない
         """
         deliverables, office_id = sample_deliverables_data
 
@@ -289,7 +290,6 @@ class TestGetDeliverablesList:
                 with patch('app.core.storage.create_presigned_url') as mock_presigned:
                     mock_get_multi.return_value = deliverables
                     mock_count.return_value = 2
-                    # S3エラーをシミュレート
                     mock_presigned.side_effect = Exception("S3 connection error")
 
                     # テスト実行
@@ -308,6 +308,7 @@ class TestGetDeliverablesList:
                     # download_urlがNoneになっている
                     assert result.items[0].download_url is None
                     assert result.items[1].download_url is None
+                    mock_presigned.assert_not_called()
 
     async def test_deliverable_type_display_mapping(
         self,
