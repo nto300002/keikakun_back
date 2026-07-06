@@ -46,6 +46,38 @@ class TestBillingAuditLog:
         assert audit_log.details["old_status"] == "trial"
         assert audit_log.details["new_status"] == "active"
 
+    async def test_billing_status_change_uses_action_allowlist_for_details(self, db_session, staff_factory, office_factory):
+        """Billing status監査ログはaction別allowlist外のdetailsを保存前にredactする"""
+        office = await office_factory(session=db_session, is_test_data=True)
+        staff = await staff_factory(office_id=office.id, session=db_session, is_test_data=True)
+        billing = await crud.billing.create_for_office(db=db_session, office_id=office.id)
+        await db_session.commit()
+
+        audit_log = await crud.audit_log.create_log(
+            db=db_session,
+            actor_id=staff.id,
+            action="billing.status_changed",
+            target_type="billing",
+            target_id=billing.id,
+            office_id=office.id,
+            details={
+                "old_status": "free",
+                "new_status": "active",
+                "reason": "manual repair",
+                "raw_payload": {"customer_email": "payer@example.com"},
+                "stripe_customer_id": "cus_1234567890abcdef",
+            },
+            is_test_data=True,
+        )
+
+        assert audit_log.details["old_status"] == "free"
+        assert audit_log.details["new_status"] == "active"
+        assert audit_log.details["reason"] == "manual repair"
+        assert audit_log.details["raw_payload"] == "<redacted>"
+        assert audit_log.details["stripe_customer_id"] == "<present>"
+        assert "payer@example.com" not in str(audit_log.details)
+        assert "cus_1234567890abcdef" not in str(audit_log.details)
+
     async def test_get_billing_audit_logs_by_target(self, db_session, staff_factory, office_factory):
         """Billing関連の監査ログ取得テスト"""
         office = await office_factory(session=db_session, is_test_data=True)

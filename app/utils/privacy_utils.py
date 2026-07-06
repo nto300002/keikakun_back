@@ -44,6 +44,18 @@ REDACT_DETAIL_KEYS = {
     "authorization",
     "cookie",
 }
+AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
+    "billing.status_changed": {
+        "old_status",
+        "new_status",
+        "reason",
+        "change_number",
+        "source",
+        "event_type",
+        "stripe_customer_id",
+        "stripe_subscription_id",
+    },
+}
 
 WEBHOOK_TOP_LEVEL_KEYS = {
     "id",
@@ -301,6 +313,27 @@ def mask_sensitive_details_for_display(value: Any) -> Any:
         return [mask_sensitive_details_for_display(item) for item in value]
 
     return value
+
+
+def sanitize_audit_log_details_for_storage(value: Any, *, action: Optional[str] = None) -> Any:
+    """
+    監査ログ保存用のdetails sanitizer。
+
+    保存前に明らかな機微情報を除去し、表示時マスクだけに依存しない。
+    非機微な件数・状態などの監査に必要な値は保持する。
+    """
+    sanitized = mask_sensitive_details_for_display(value)
+    if not isinstance(sanitized, dict) or not action:
+        return sanitized
+
+    allowed_keys = AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS.get(action)
+    if not allowed_keys:
+        return sanitized
+
+    return {
+        key: item if key in allowed_keys else REDACTED
+        for key, item in sanitized.items()
+    }
 
 
 def _mask_detail_value(key: str, value: Any) -> Any:
