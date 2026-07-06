@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.crud.crud_welfare_recipient import crud_welfare_recipient
 from app.models.staff import Staff
-from app.models.enums import ResourceType, ActionType
+from app.models.enums import ResourceType, ActionType, StaffRole
 from app.schemas.welfare_recipient import (
     WelfareRecipientResponse,
     WelfareRecipientCreate,
@@ -246,6 +246,19 @@ async def get_welfare_recipient(
     recipient_office_ids = [assoc.office_id for assoc in welfare_recipient.office_associations]
     if office_id not in recipient_office_ids:
         raise ForbiddenException(ja.RECIPIENT_ACCESS_DENIED)
+
+    if current_staff.role == StaffRole.employee:
+        return WelfareRecipientResponse(
+            id=welfare_recipient.id,
+            first_name=welfare_recipient.first_name,
+            last_name=welfare_recipient.last_name,
+            first_name_furigana=welfare_recipient.first_name_furigana,
+            last_name_furigana=welfare_recipient.last_name_furigana,
+            birth_day=welfare_recipient.birth_day,
+            gender=welfare_recipient.gender,
+            detail=None,
+            disability_status=None,
+        )
 
     return welfare_recipient
 

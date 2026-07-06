@@ -176,6 +176,74 @@ async def test_get_recipient_by_id(
 
 
 @pytest.mark.asyncio
+async def test_get_recipient_by_id_as_employee_masks_sensitive_details(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    office_factory,
+    manager_user_factory,
+    employee_user_factory,
+):
+    """
+    employeeの詳細取得では住所・電話・緊急連絡先・障害詳細を返さない。
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.api.deps import get_current_user
+    from app.main import app
+    from app.models.office import OfficeStaff
+    from app.models.staff import Staff
+
+    office = await office_factory()
+    manager = await manager_user_factory(office=office)
+    employee = await employee_user_factory(office=office)
+
+    async def override_manager():
+        stmt = select(Staff).where(Staff.id == manager.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    async def override_employee():
+        stmt = select(Staff).where(Staff.id == employee.id).options(
+            selectinload(Staff.office_associations).selectinload(OfficeStaff.office)
+        )
+        result = await db_session.execute(stmt)
+        return result.scalars().first()
+
+    app.dependency_overrides[get_current_user] = override_manager
+    try:
+        create_response = await async_client.post(
+            f"{settings.API_V1_STR}/welfare-recipients/",
+            headers={"Authorization": "Bearer test-manager-token"},
+            json=RECIPIENT_CREATE_DATA,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        recipient_id = create_response.json()["recipient_id"]
+
+        app.dependency_overrides[get_current_user] = override_employee
+        response = await async_client.get(
+            f"{settings.API_V1_STR}/welfare-recipients/{recipient_id}",
+            headers={"Authorization": "Bearer test-employee-token"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    serialized = str(data)
+    assert data["id"] == str(recipient_id)
+    assert data["detail"] is None
+    assert data["disability_status"] is None
+    assert "東京都新宿区西新宿2-8-1" not in serialized
+    assert "090-1234-5678" not in serialized
+    assert "080-9876-5432" not in serialized
+    assert "統合失調症" not in serialized
+    assert "mental_health_handbook" not in serialized
+
+
+@pytest.mark.asyncio
 async def test_list_recipients_does_not_expose_contact_or_disability_details(
     async_client: AsyncClient, manager_user_token_headers: dict, db_session: AsyncSession
 ):
