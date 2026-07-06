@@ -4,9 +4,11 @@ TDD方式でテストを先に作成
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 import pytest
-from uuid import UUID
+from uuid import UUID, uuid4
+from unittest.mock import AsyncMock
 
 from app import crud
+from app.crud.crud_office_audit_log import crud_office_audit_log
 from app.models.office import Office
 
 pytestmark = pytest.mark.asyncio
@@ -183,6 +185,47 @@ async def test_create_office_audit_log(
     # details に JSON 形式で保存されることを確認
     assert audit_log.details is not None
     assert "name" in str(audit_log.details)
+
+
+async def test_create_legacy_office_audit_log_sanitizes_contact_values(
+) -> None:
+    """
+    旧OfficeAuditLog CRUDでも事務所連絡先を保存前にマスクする。
+    """
+    mock_db = AsyncMock(spec=AsyncSession)
+    office_id = uuid4()
+    staff_id = uuid4()
+
+    audit_log = await crud_office_audit_log.create_office_update_log(
+        db=mock_db,
+        office_id=office_id,
+        staff_id=staff_id,
+        action_type="office_info_updated",
+        old_values={
+            "name": "元の事務所名",
+            "address": "東京都新宿区1-2-3",
+            "phone_number": "03-1234-5678",
+            "email": "office-old@example.com",
+        },
+        new_values={
+            "name": "新しい事務所名",
+            "address": "東京都渋谷区4-5-6",
+            "phone_number": "03-9999-8888",
+            "email": "office-new@example.com",
+        },
+    )
+
+    details = audit_log.details or ""
+    assert audit_log.office_id == office_id
+    assert audit_log.staff_id == staff_id
+    assert "東京都新宿区1-2-3" not in details
+    assert "東京都渋谷区4-5-6" not in details
+    assert "03-1234-5678" not in details
+    assert "03-9999-8888" not in details
+    assert "office-old@example.com" not in details
+    assert "office-new@example.com" not in details
+    assert "o***@example.com" in details
+    assert "<redacted>" in details
 
 
 async def test_get_office_audit_logs(

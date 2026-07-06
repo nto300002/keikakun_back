@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from sqlalchemy import desc
 
 from app.models.office import OfficeAuditLog
+from app.utils.privacy_utils import mask_sensitive_details_for_display
 
 
 class CRUDOfficeAuditLog:
@@ -28,10 +29,11 @@ class CRUDOfficeAuditLog:
         - flush のみ実行（commit は endpoint で実行）
         """
         # 変更内容を JSON 形式で保存
-        details = json.dumps({
+        sanitized_details = mask_sensitive_details_for_display({
             "old_values": old_values,
             "new_values": new_values
-        }, ensure_ascii=False)
+        })
+        details = json.dumps(sanitized_details, ensure_ascii=False)
 
         audit_log = OfficeAuditLog(
             office_id=office_id,
