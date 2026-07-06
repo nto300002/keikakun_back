@@ -15,6 +15,7 @@ from app.schemas.staff_profile import StaffNameUpdate, PasswordChange, EmailChan
 from app.core.security import verify_password, get_password_hash
 from app.core import mail
 from app.messages import ja
+from app.utils.privacy_utils import mask_email, mask_name
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 logger = logging.getLogger(__name__)
@@ -92,8 +93,8 @@ class StaffProfileService:
         audit_log = AuditLog(
             staff_id=staff_id,
             action="UPDATE_NAME",
-            old_value=old_name,
-            new_value=new_name,
+            old_value=mask_name(old_name),
+            new_value=mask_name(new_name),
             timestamp=datetime.now(timezone.utc)
         )
         db.add(audit_log)
@@ -606,8 +607,8 @@ class StaffProfileService:
         audit_log = AuditLog(
             staff_id=staff.id,
             action="UPDATE_EMAIL",
-            old_value=old_email,
-            new_value=new_email,
+            old_value=mask_email(old_email),
+            new_value=mask_email(new_email),
             timestamp=datetime.now(timezone.utc)
         )
         db.add(audit_log)
