@@ -1,9 +1,10 @@
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_serializer
 
 from app.models.enums import OfficeType
+from app.utils.privacy_utils import REDACTED, mask_email
 
 # --- Request Schemas ---
 
@@ -77,6 +78,10 @@ class StaffInOffice(BaseModel):
     is_mfa_enabled: bool
     is_email_verified: bool
 
+    @field_serializer("email")
+    def serialize_email(self, email: str) -> str:
+        return mask_email(email)
+
     model_config = ConfigDict(
         from_attributes=True,
     )
@@ -107,6 +112,10 @@ class OfficeDetailResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     staffs: list[StaffInOffice] = []
+
+    @field_serializer("address", "phone_number", "email")
+    def serialize_contact(self, value: Optional[str]) -> Optional[str]:
+        return REDACTED if value else value
 
     model_config = ConfigDict(
         from_attributes=True,

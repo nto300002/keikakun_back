@@ -3,13 +3,21 @@
 
 問い合わせ送信、一覧取得、詳細表示、返信、更新などのスキーマを提供
 """
-from pydantic import BaseModel, Field, ConfigDict, field_validator, EmailStr
-from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict, field_validator, EmailStr, field_serializer
+from typing import Any, Optional, List
 from datetime import datetime
 import uuid
 import re
 
 from app.models.enums import InquiryStatus, InquiryPriority, MessageType
+from app.utils.privacy_utils import REDACTED, mask_email, mask_name, mask_sensitive_details_for_display
+
+
+def _inquiry_summary(content: str, max_length: int = 40) -> str:
+    """問い合わせ一覧用に本文を短い概要へ変換する。"""
+    if not content:
+        return ""
+    return "問い合わせ本文あり"
 
 
 # ========================================
@@ -115,9 +123,25 @@ class InquiryDetailResponse(BaseModel):
     assigned_staff_id: Optional[uuid.UUID] = None
     priority: InquiryPriority
     admin_notes: Optional[str] = None
-    delivery_log: Optional[dict] = None
+    delivery_log: Optional[Any] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("sender_name")
+    def serialize_sender_name(self, sender_name: Optional[str]) -> Optional[str]:
+        return mask_name(sender_name) if sender_name else sender_name
+
+    @field_serializer("sender_email")
+    def serialize_sender_email(self, sender_email: Optional[str]) -> Optional[str]:
+        return mask_email(sender_email) if sender_email else sender_email
+
+    @field_serializer("ip_address", "user_agent")
+    def serialize_request_metadata(self, value: Optional[str]) -> Optional[str]:
+        return REDACTED if value else value
+
+    @field_serializer("delivery_log")
+    def serialize_delivery_log(self, delivery_log: Optional[Any]) -> Optional[Any]:
+        return mask_sensitive_details_for_display(delivery_log) if delivery_log else delivery_log
 
 
 class MessageInfo(BaseModel):
@@ -139,6 +163,10 @@ class StaffInfo(BaseModel):
     first_name: str
     last_name: str
     email: str
+
+    @field_serializer("email")
+    def serialize_email(self, email: str) -> str:
+        return mask_email(email)
 
     @property
     def full_name(self) -> str:
@@ -177,6 +205,18 @@ class InquiryListItem(BaseModel):
     assigned_staff: Optional[StaffInfo] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("content")
+    def serialize_content(self, content: str) -> str:
+        return _inquiry_summary(content)
+
+    @field_serializer("sender_name")
+    def serialize_sender_name(self, sender_name: Optional[str]) -> Optional[str]:
+        return mask_name(sender_name) if sender_name else sender_name
+
+    @field_serializer("sender_email")
+    def serialize_sender_email(self, sender_email: Optional[str]) -> Optional[str]:
+        return mask_email(sender_email) if sender_email else sender_email
 
 
 class InquiryListResponse(BaseModel):

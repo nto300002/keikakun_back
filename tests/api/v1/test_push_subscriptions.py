@@ -51,7 +51,7 @@ class TestSubscribePush:
 
         assert "id" in data
         assert data["staff_id"] == str(staff.id)
-        assert data["endpoint"] == subscription_data["endpoint"]
+        assert data["endpoint"] == "<registered>"
         assert "created_at" in data
 
         # DBに保存されていることを確認
@@ -332,9 +332,7 @@ class TestGetMySubscriptions:
 
         assert len(data) == 3
         endpoints = [sub["endpoint"] for sub in data]
-        assert "https://fcm.googleapis.com/fcm/send/device0" in endpoints
-        assert "https://fcm.googleapis.com/fcm/send/device1" in endpoints
-        assert "https://fcm.googleapis.com/fcm/send/device2" in endpoints
+        assert endpoints == ["<registered>", "<registered>", "<registered>"]
 
     async def test_get_my_subscriptions_empty(
         self,
@@ -405,7 +403,7 @@ class TestGetMySubscriptions:
         data = response.json()
 
         assert len(data) == 1
-        assert data[0]["endpoint"] == "https://fcm.googleapis.com/fcm/send/staff1"
+        assert data[0]["endpoint"] == "<registered>"
 
     async def test_get_my_subscriptions_unauthorized(
         self,
@@ -516,4 +514,3 @@ class TestSubscriptionCleanup:
             subscription_data_3["endpoint"]
         }
         assert endpoints == expected_endpoints, "All unique endpoints should be stored"
-

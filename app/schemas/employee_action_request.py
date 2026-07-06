@@ -1,9 +1,10 @@
-from pydantic import BaseModel, Field, ConfigDict, computed_field
+from pydantic import BaseModel, Field, ConfigDict, computed_field, field_serializer
 from typing import Optional
 from datetime import datetime
 import uuid
 
 from app.models.enums import RequestStatus, ActionType, ResourceType
+from app.utils.privacy_utils import mask_employee_action_request_data_for_display
 
 
 class EmployeeActionRequestBase(BaseModel):
@@ -37,6 +38,12 @@ class EmployeeActionRequestRead(BaseModel):
 
     # 統合モデルのrequest_dataから抽出
     request_data: Optional[dict] = None
+
+    @field_serializer("request_data")
+    def serialize_request_data(self, request_data: Optional[dict]) -> Optional[dict]:
+        if request_data is None:
+            return None
+        return mask_employee_action_request_data_for_display(request_data)
 
     @computed_field
     @property

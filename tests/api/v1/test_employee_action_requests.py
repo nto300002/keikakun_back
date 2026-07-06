@@ -246,6 +246,94 @@ async def test_get_pending_requests_for_approval_as_manager(
     assert any(item["id"] == str(request.id) for item in data)
 
 
+async def test_get_pending_requests_masks_welfare_recipient_sensitive_request_data(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    manager_user_factory
+):
+    """正常系: 承認一覧のrequest_dataでは利用者の住所・電話・障害詳細を生返却しない"""
+    # Arrange
+    manager = await manager_user_factory(role=StaffRole.manager)
+    office = manager.office_associations[0].office
+    employee = await employee_user_factory(office=office, role=StaffRole.employee)
+
+    request = await approval_request.create_employee_action_request(
+        db=db_session,
+        requester_staff_id=employee.id,
+        office_id=office.id,
+        resource_type=ResourceType.welfare_recipient.value,
+        action_type=ActionType.create.value,
+        original_request_data={
+            "basic_info": {
+                "last_name": "山田",
+                "first_name": "太郎",
+                "last_name_furigana": "ヤマダ",
+                "first_name_furigana": "タロウ",
+                "birth_day": "1990-01-01",
+            },
+            "contact_address": {
+                "postal_code": "160-0022",
+                "prefecture": "東京都",
+                "city": "新宿区",
+                "address_line1": "1-2-3",
+                "phone_number": "090-1234-5678",
+            },
+            "emergency_contacts": [
+                {
+                    "name": "山田 花子",
+                    "relationship": "母",
+                    "phone_number": "080-1111-2222",
+                }
+            ],
+            "disability_info": {
+                "disability_type": "精神障害",
+                "has_certificate": True,
+            },
+            "disability_details": [
+                {
+                    "disability_name": "うつ病",
+                    "grade": "2級",
+                    "notes": "詳細な病歴",
+                }
+            ],
+        }
+    )
+    await db_session.commit()
+
+    access_token = create_access_token(str(manager.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    async_client.cookies.set("access_token", access_token)
+
+    # Act
+    response = await async_client.get("/api/v1/employee-action-requests?status=pending")
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    target = next(item for item in data if item["id"] == str(request.id))
+    request_data = target["request_data"]
+    serialized = str(request_data)
+
+    assert request_data["resource_type"] == ResourceType.welfare_recipient.value
+    assert request_data["action_type"] == ActionType.create.value
+    assert request_data["original_request_data"]["basic_info"]["last_name"] == "山田 *"
+    assert request_data["original_request_data"]["basic_info"]["first_name"] == "*"
+    assert request_data["original_request_data"]["contact_address"] == "<redacted>"
+    assert request_data["original_request_data"]["emergency_contacts"] == "<redacted>"
+    assert request_data["original_request_data"]["disability_info"] == "<redacted>"
+    assert request_data["original_request_data"]["disability_details"] == "<redacted>"
+    assert "太郎" not in serialized
+    assert "ヤマダ" not in serialized
+    assert "タロウ" not in serialized
+    assert "1990-01-01" not in serialized
+    assert "東京都" not in serialized
+    assert "090-1234-5678" not in serialized
+    assert "080-1111-2222" not in serialized
+    assert "精神障害" not in serialized
+    assert "うつ病" not in serialized
+    assert "詳細な病歴" not in serialized
+
+
 # ========================================
 # PATCH /api/v1/employee-action-requests/{id}/approve
 # ========================================

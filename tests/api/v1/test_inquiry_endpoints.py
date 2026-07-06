@@ -225,6 +225,68 @@ class TestAdminInquiryListEndpoint:
         assert isinstance(data["inquiries"], list)
         assert data["total"] >= 1
 
+    async def test_get_inquiries_masks_sensitive_fields_in_list(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        db_session: AsyncSession
+    ):
+        """
+        app_admin問い合わせ一覧では本文全文・送信者メールを生返却しない。
+        """
+        app_admin = await app_admin_user_factory()
+
+        from app.models.office import Office
+        from app.models.enums import OfficeType
+        from app import crud
+
+        system_office = Office(
+            id=uuid4(),
+            name="問い合わせマスク確認事務所",
+            type=OfficeType.type_A_office,
+            created_by=app_admin.id,
+            last_modified_by=app_admin.id,
+            is_test_data=True,
+        )
+        db_session.add(system_office)
+        await db_session.flush()
+
+        raw_content = "問い合わせ本文の全文です。住所は東京都新宿区1-2-3、電話は090-1234-5678です。"
+        raw_email = "guest-sensitive@example.com"
+        await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=None,
+            office_id=system_office.id,
+            title="マスク確認",
+            content=raw_content,
+            sender_name="山田 太郎",
+            sender_email=raw_email,
+            priority=InquiryPriority.normal,
+            ip_address="203.0.113.42",
+            user_agent="Sensitive UA",
+            admin_recipient_ids=[app_admin.id],
+            is_test_data=True,
+        )
+        await db_session.commit()
+
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        response = await async_client.get(
+            "/api/v1/admin/inquiries?include_test_data=true",
+            cookies={"access_token": access_token},
+        )
+
+        assert response.status_code == 200
+        inquiry = next(item for item in response.json()["inquiries"] if item["title"] == "マスク確認")
+        assert inquiry["content"] != raw_content
+        assert "東京都新宿区1-2-3" not in inquiry["content"]
+        assert "090-1234-5678" not in inquiry["content"]
+        assert inquiry["sender_email"] == "g***@example.com"
+        assert inquiry["sender_name"] == "山田 *"
+
     async def test_get_inquiries_as_employee_fails(
         self,
         async_client: AsyncClient,
@@ -359,6 +421,75 @@ class TestAdminInquiryDetailEndpoint:
         assert data["id"] == str(inquiry.id)
         assert data["message"]["title"] == "詳細テスト"
         assert data["inquiry_detail"]["status"] == "new"
+
+    async def test_get_inquiry_detail_masks_sender_metadata_and_delivery_log(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        db_session: AsyncSession
+    ):
+        """
+        app_admin問い合わせ詳細では送信元情報・配信ログを生返却しない。
+        """
+        app_admin = await app_admin_user_factory()
+
+        from app.models.office import Office
+        from app.models.enums import OfficeType
+        from app import crud
+
+        system_office = Office(
+            id=uuid4(),
+            name="問い合わせ詳細マスク確認事務所",
+            type=OfficeType.type_A_office,
+            created_by=app_admin.id,
+            last_modified_by=app_admin.id,
+            is_test_data=True,
+        )
+        db_session.add(system_office)
+        await db_session.flush()
+
+        raw_email = "reply-target@example.com"
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=None,
+            office_id=system_office.id,
+            title="詳細マスク確認",
+            content="詳細本文",
+            sender_name="山田 太郎",
+            sender_email=raw_email,
+            priority=InquiryPriority.normal,
+            ip_address="203.0.113.42",
+            user_agent="Sensitive Browser UA",
+            admin_recipient_ids=[app_admin.id],
+            is_test_data=True,
+        )
+        inquiry.delivery_log = [{
+            "action": "reply_email_queued",
+            "recipient": raw_email,
+            "message_id": "msg-sensitive-id",
+        }]
+        await db_session.commit()
+
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        response = await async_client.get(
+            f"/api/v1/admin/inquiries/{inquiry.id}",
+            cookies={"access_token": access_token},
+        )
+
+        assert response.status_code == 200
+        detail = response.json()["inquiry_detail"]
+        assert detail["sender_name"] == "山田 *"
+        assert detail["sender_email"] == "r***@example.com"
+        assert detail["ip_address"] == "<redacted>"
+        assert detail["user_agent"] == "<redacted>"
+        assert detail["delivery_log"][0]["recipient"] == "r***@example.com"
+        assert raw_email not in str(detail)
+        assert "203.0.113.42" not in str(detail)
+        assert "Sensitive Browser UA" not in str(detail)
 
     async def test_get_inquiry_detail_not_found(
         self,
