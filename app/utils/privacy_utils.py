@@ -43,6 +43,10 @@ REDACT_DETAIL_KEYS = {
     "api_key",
     "authorization",
     "cookie",
+    "raw_payload",
+    "raw_details",
+    "request_body",
+    "response_body",
 }
 AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
     "billing.status_changed": {

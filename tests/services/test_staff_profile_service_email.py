@@ -265,8 +265,8 @@ class TestEmailChangeVerification:
         audit_log = mock_db.add.call_args[0][0]
         assert isinstance(audit_log, AuditLog)
         assert audit_log.action == "UPDATE_EMAIL"
-        assert audit_log.old_value == "old.email@example.com"
-        assert audit_log.new_value == "new.email@example.com"
+        assert audit_log.old_value == "o***@example.com"
+        assert audit_log.new_value == "n***@example.com"
 
         # 完了通知メールが送信されたことを確認
         mock_completed.assert_called_once()
