@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud
 from app.models.staff import Staff
 from app.models.enums import StaffRole
+from app.utils.privacy_utils import mask_email
 
 pytestmark = pytest.mark.asyncio
 
@@ -268,6 +269,6 @@ class TestStaffAuditLogCRUDCreateAuditLog:
         assert audit_log.staff_id == performer.id
         assert audit_log.ip_address == "192.168.1.1"
         assert audit_log.user_agent == "Mozilla/5.0..."
-        assert audit_log.details["deleted_staff_email"] == target_staff.email
+        assert audit_log.details["deleted_staff_email"] == mask_email(target_staff.email)
         assert audit_log.timestamp is not None
         assert audit_log.timestamp.tzinfo is not None  # タイムゾーン情報あり
