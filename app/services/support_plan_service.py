@@ -524,8 +524,6 @@ class SupportPlanService:
             StaffBrief,
             PlanCycleBrief,
         )
-        from app.core import storage
-        from app.core.config import settings
 
         # フィルター条件の構築
         filters = {}
@@ -570,18 +568,6 @@ class SupportPlanService:
         # レスポンスデータの構築
         items = []
         for deliverable in deliverables:
-            # S3パスから署名付きURL生成
-            object_name = deliverable.file_path.replace(f"s3://{settings.S3_BUCKET_NAME}/", "")
-            try:
-                download_url = await storage.create_presigned_url(
-                    object_name=object_name,
-                    expiration=3600,  # 1時間
-                    inline=True
-                )
-            except Exception as e:
-                logger.warning("Failed to generate presigned URL: %s", type(e).__name__)
-                download_url = None
-
             # レスポンスオブジェクト作成
             item = PlanDeliverableListItem(
                 id=deliverable.id,
@@ -610,7 +596,7 @@ class SupportPlanService:
                     role=deliverable.uploaded_by_staff.role.value,
                 ),
                 uploaded_at=deliverable.uploaded_at,
-                download_url=download_url,
+                download_url=None,
             )
             items.append(item)
 
