@@ -119,8 +119,8 @@ class TestStaffProfileServiceNameUpdate:
         audit_log = mock_db.add.call_args[0][0]
         assert isinstance(audit_log, AuditLog)
         assert audit_log.action == "UPDATE_NAME"
-        assert audit_log.old_value == "旧姓 旧名"
-        assert audit_log.new_value == "山田 太郎"
+        assert audit_log.old_value == "旧姓 *"
+        assert audit_log.new_value == "山田 *"
 
 
 class TestStaffProfileServicePasswordChange:

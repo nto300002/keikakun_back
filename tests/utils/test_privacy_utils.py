@@ -188,6 +188,7 @@ def test_mask_sensitive_details_for_display_recursively_masks_known_sensitive_ke
         "full_name": "山田 太郎",
         "stripe_customer_id": "cus_1234567890abcdef",
         "access_token": "raw-access-token-value",
+        "raw_payload": {"customer_email": "customer@example.com"},
         "changes": {
             "address": "東京都新宿区1-2-3",
             "phone_number": "090-1234-5678",
@@ -201,6 +202,7 @@ def test_mask_sensitive_details_for_display_recursively_masks_known_sensitive_ke
         "full_name": "山田 *",
         "stripe_customer_id": "<present>",
         "access_token": "<redacted>",
+        "raw_payload": "<redacted>",
         "changes": {
             "address": "<redacted>",
             "phone_number": "<redacted>",
