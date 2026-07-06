@@ -153,9 +153,21 @@ class WelfareRecipientResponse(BaseModel):
     disability_status: Optional[DisabilityStatusResponse] = None
 
 
+class WelfareRecipientListItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    first_name: str
+    last_name: str
+    first_name_furigana: str
+    last_name_furigana: str
+    birth_day: date
+    gender: GenderType
+
+
 # List response for paginated results
 class WelfareRecipientListResponse(BaseModel):
-    recipients: List[WelfareRecipientResponse]
+    recipients: List[WelfareRecipientListItemResponse]
     total: int
     page: int
     per_page: int
