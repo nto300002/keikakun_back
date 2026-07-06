@@ -384,7 +384,7 @@ async def enable_all_office_mfa(
     Returns:
         - message: 成功メッセージ
         - enabled_count: 有効化されたスタッフ数
-        - staff_mfa_data: 各スタッフのMFA設定情報（QRコード、シークレットキー、リカバリーコード）
+        - enabled_staffs: 有効化されたスタッフの最小情報
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
@@ -423,8 +423,8 @@ async def enable_all_office_mfa(
     result_staffs = await db.execute(stmt_staffs)
     all_staffs = result_staffs.scalars().all()
 
-    # MFAが無効なスタッフのみ有効化し、設定情報を収集
-    staff_mfa_data = []
+    # MFAが無効なスタッフのみ有効化し、レスポンスは最小情報に限定する
+    enabled_staffs = []
     enabled_count = 0
 
     try:
@@ -432,7 +432,6 @@ async def enable_all_office_mfa(
             if not staff.is_mfa_enabled:
                 # MFAシークレットとリカバリーコードを生成
                 secret = generate_totp_secret()
-                totp_uri = generate_totp_uri(staff.email, secret)
                 recovery_codes = generate_recovery_codes()
 
                 # MFAを有効化（暗号化して保存）
@@ -442,13 +441,10 @@ async def enable_all_office_mfa(
                 staff.is_mfa_verified_by_user = False
                 enabled_count += 1
 
-                # スタッフごとのMFA設定情報を収集
-                staff_mfa_data.append({
+                enabled_staffs.append({
                     "staff_id": str(staff.id),
                     "staff_name": staff.full_name,
-                    "qr_code_uri": totp_uri,
-                    "secret_key": secret,
-                    "recovery_codes": recovery_codes
+                    "setup_required": True,
                 })
 
         await db.commit()
@@ -466,7 +462,6 @@ async def enable_all_office_mfa(
     return {
         "message": f"{enabled_count}名のスタッフのMFAを有効化しました。",
         "enabled_count": enabled_count,
-        "staff_mfa_data": staff_mfa_data
+        "enabled_staffs": enabled_staffs
     }
-
 
