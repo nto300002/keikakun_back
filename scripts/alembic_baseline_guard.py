@@ -30,9 +30,29 @@ def revision_includes_baseline(
 
     try:
         revisions = script.iterate_revisions(current_revision, baseline_revision)
-        return any(revision.revision == baseline_revision for revision in revisions)
+        return any(
+            revision.revision == baseline_revision
+            or down_revision_includes(
+                getattr(revision, "down_revision", None),
+                baseline_revision,
+            )
+            for revision in revisions
+        )
     except Exception:
         return False
+
+
+def down_revision_includes(down_revision: object, baseline_revision: str) -> bool:
+    if down_revision is None:
+        return False
+
+    if isinstance(down_revision, str):
+        return down_revision == baseline_revision
+
+    if isinstance(down_revision, (tuple, list, set)):
+        return baseline_revision in down_revision
+
+    return False
 
 
 def validate_current_heads(

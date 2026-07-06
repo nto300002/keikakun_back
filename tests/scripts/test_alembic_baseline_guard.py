@@ -11,14 +11,21 @@ from scripts.alembic_baseline_guard import (
 
 
 class FakeScript:
-    def __init__(self, chains):
+    def __init__(self, chains, down_revisions=None):
         self.chains = chains
+        self.down_revisions = down_revisions or {}
 
     def iterate_revisions(self, current_revision, baseline_revision):
         chain = self.chains.get((current_revision, baseline_revision))
         if chain is None:
             raise ValueError("unknown revision chain")
-        return [SimpleNamespace(revision=revision) for revision in chain]
+        return [
+            SimpleNamespace(
+                revision=revision,
+                down_revision=self.down_revisions.get(revision),
+            )
+            for revision in chain
+        ]
 
 
 class LazyFailScript:
@@ -53,6 +60,32 @@ def test_validate_current_heads_accepts_revision_after_baseline():
     )
 
     assert validate_current_heads(["future_revision"], script) == ("future_revision",)
+
+
+def test_validate_current_heads_accepts_direct_child_when_iterate_omits_baseline():
+    script = FakeScript(
+        {
+            ("mrg20260703p9q0", BASELINE_REVISION): [
+                "mrg20260703p9q0",
+            ]
+        },
+        down_revisions={"mrg20260703p9q0": BASELINE_REVISION},
+    )
+
+    assert validate_current_heads(["mrg20260703p9q0"], script) == ("mrg20260703p9q0",)
+
+
+def test_validate_current_heads_accepts_merge_child_when_iterate_omits_baseline():
+    script = FakeScript(
+        {
+            ("merge_revision", BASELINE_REVISION): [
+                "merge_revision",
+            ]
+        },
+        down_revisions={"merge_revision": ("other_head", BASELINE_REVISION)},
+    )
+
+    assert validate_current_heads(["merge_revision"], script) == ("merge_revision",)
 
 
 def test_validate_current_heads_rejects_revision_before_baseline():
