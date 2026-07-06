@@ -416,15 +416,15 @@ class EmployeeActionExecutor:
         request_data = request.request_data or {}
 
         logger.info(
-            "Executing support_plan_status action: %s request_keys=%s",
+            "Executing support_plan_status action=%s field_count=%s",
             action_type,
-            sorted(request_data.keys()),
+            len(request_data),
         )
 
         deliverable_id = request_data.get("deliverable_id")
 
         if not deliverable_id:
-            logger.warning("No deliverable_id found in request_data")
+            logger.warning("No deliverable_id found in approval action data")
             return {
                 "success": False,
                 "action": str(action_type),

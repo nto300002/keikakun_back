@@ -239,14 +239,14 @@ def verify_totp(secret: str, token: str, window: int = TOTP_WINDOW) -> bool:
 
     try:
         if not secret or not token:
-            logger.warning("[TOTP VERIFY] Missing secret or token")
+            logger.warning("[TOTP VERIFY] Missing factor material or code")
             return False
 
         # トークンを正規化（空白除去、6桁チェック）
         token = sanitize_totp_code(token)
 
         if not token:
-            logger.warning("[TOTP VERIFY] Token sanitization failed")
+            logger.warning("[TOTP VERIFY] Code normalization failed")
             return False
 
         totp = pyotp.TOTP(secret)

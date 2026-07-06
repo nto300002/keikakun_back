@@ -83,11 +83,13 @@ async def send_push_notification(
         return (True, False)
 
     except WebPushException as e:
-        # Response オブジェクトの bool() は False を返すことがあるため、is not None で確認
-        if e.response is not None and hasattr(e.response, 'status_code') and e.response.status_code in [404, 410]:
+        # WebPushException の HTTP情報は bool() に頼らず is not None で確認
+        http_info = e.response
+        status_code = getattr(http_info, "status_code", None) if http_info is not None else None
+        if status_code in [404, 410]:
             logger.warning(
-                "[PUSH] Subscription expired (HTTP %s) - Marking for deletion from database",
-                e.response.status_code,
+                "[PUSH] Subscription expired status_code=%s - marking for deletion",
+                status_code,
             )
             return (False, True)
         else:

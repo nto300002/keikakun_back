@@ -176,6 +176,41 @@ async def test_get_recipient_by_id(
 
 
 @pytest.mark.asyncio
+async def test_list_recipients_does_not_expose_contact_or_disability_details(
+    async_client: AsyncClient, manager_user_token_headers: dict, db_session: AsyncSession
+):
+    """
+    通常一覧では住所・電話・緊急連絡先・障害詳細を返さない。
+    """
+    create_response = await async_client.post(
+        f"{settings.API_V1_STR}/welfare-recipients/",
+        headers=manager_user_token_headers,
+        json=RECIPIENT_CREATE_DATA
+    )
+    assert create_response.status_code == status.HTTP_201_CREATED
+    recipient_id = create_response.json()["recipient_id"]
+
+    response = await async_client.get(
+        f"{settings.API_V1_STR}/welfare-recipients/",
+        headers=manager_user_token_headers,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    recipient = next(
+        item for item in response.json()["recipients"]
+        if item["id"] == str(recipient_id)
+    )
+    serialized = str(recipient)
+    assert "東京都新宿区西新宿2-8-1" not in serialized
+    assert "090-1234-5678" not in serialized
+    assert "080-9876-5432" not in serialized
+    assert "統合失調症" not in serialized
+    assert "mental_health_handbook" not in serialized
+    assert "detail" not in recipient
+    assert "disability_status" not in recipient
+
+
+@pytest.mark.asyncio
 async def test_get_nonexistent_recipient_not_found(
     async_client: AsyncClient, manager_user_token_headers: dict
 ):

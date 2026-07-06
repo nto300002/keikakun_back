@@ -553,7 +553,7 @@ class StaffProfileService:
         # 有効期限チェック
         logger.debug("Checking email change request expiration")
         if datetime.now(timezone.utc) > email_request.expires_at:
-            logger.warning("Email change token expired")
+            logger.warning("Email change credential expired")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="確認トークンの有効期限が切れています"

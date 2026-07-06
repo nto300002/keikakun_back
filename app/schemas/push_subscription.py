@@ -1,7 +1,7 @@
 """
 Web Push通知購読のスキーマ定義
 """
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 from datetime import datetime
 from uuid import UUID
 from typing import Dict
@@ -36,6 +36,10 @@ class PushSubscriptionResponse(BaseModel):
     staff_id: UUID
     endpoint: str
     created_at: datetime
+
+    @field_serializer("endpoint")
+    def serialize_endpoint(self, endpoint: str) -> str:
+        return "<registered>" if endpoint else "<unregistered>"
 
 
 class PushSubscriptionInfo(BaseModel):

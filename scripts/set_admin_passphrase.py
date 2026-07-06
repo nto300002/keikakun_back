@@ -89,8 +89,8 @@ def validate_passphrase(passphrase: str) -> tuple[bool, str]:
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python scripts/set_admin_passphrase.py <email> <passphrase>")
-        print("Example: python scripts/set_admin_passphrase.py admin@example.com 'my_secret123!'")
+        print("Usage: python scripts/set_admin_passphrase.py <email> <admin_phrase>")
+        print("Example: python scripts/set_admin_passphrase.py admin@example.com '<admin_phrase>'")
         print()
         print("Requirements:")
         print("  - Passphrase must be at least 8 characters")

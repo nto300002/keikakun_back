@@ -13,6 +13,7 @@ from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
 from app.schemas.office import OfficeListItemResponse, OfficeDetailResponse, StaffInOffice
+from app.utils.privacy_utils import REDACTED, mask_email
 
 router = APIRouter()
 
@@ -84,7 +85,7 @@ async def get_office_detail(
         StaffInOffice(
             id=os.staff.id,
             full_name=os.staff.full_name,
-            email=os.staff.email,
+            email=mask_email(os.staff.email),
             role=os.staff.role.value,
             is_mfa_enabled=os.staff.is_mfa_enabled,
             is_email_verified=os.staff.is_email_verified
@@ -98,9 +99,9 @@ async def get_office_detail(
         id=office.id,
         name=office.name,
         type=office.type,  # Pydanticが自動的に.valueを取得
-        address=office.address,
-        phone_number=office.phone_number,
-        email=office.email,
+        address=REDACTED if office.address else None,
+        phone_number=REDACTED if office.phone_number else None,
+        email=REDACTED if office.email else None,
         is_deleted=office.is_deleted,
         created_at=office.created_at,
         updated_at=office.updated_at,

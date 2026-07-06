@@ -106,6 +106,52 @@ class TestAuditLogCreate:
         assert log.actor_role == "app_admin"
         assert log.details["withdrawal_type"] == "office"
 
+    async def test_create_audit_log_sanitizes_sensitive_details_before_storage(
+        self,
+        db_session: AsyncSession,
+        employee_user_factory,
+    ) -> None:
+        """
+        監査ログ保存時にdetails内の機微情報を生値で保存しない。
+        """
+        employee = await employee_user_factory()
+        office = employee.office_associations[0].office
+
+        log = await crud_audit_log.create_log(
+            db=db_session,
+            actor_id=employee.id,
+            action="staff.sensitive_storage_test",
+            target_type="staff",
+            target_id=employee.id,
+            office_id=office.id,
+            details={
+                "email": "sensitive.user@example.com",
+                "full_name": "山田 太郎",
+                "access_token": "raw-access-token-value",
+                "stripe_customer_id": "cus_1234567890abcdef",
+                "changes": {
+                    "address": "東京都新宿区1-2-3",
+                    "phone_number": "090-1234-5678",
+                    "safe_count": 2,
+                },
+            },
+        )
+
+        serialized = str(log.details)
+        assert "sensitive.user@example.com" not in serialized
+        assert "山田 太郎" not in serialized
+        assert "raw-access-token-value" not in serialized
+        assert "cus_1234567890abcdef" not in serialized
+        assert "東京都新宿区1-2-3" not in serialized
+        assert "090-1234-5678" not in serialized
+        assert log.details["email"] == "s***@example.com"
+        assert log.details["full_name"] == "山田 *"
+        assert log.details["access_token"] == "<redacted>"
+        assert log.details["stripe_customer_id"] == "<present>"
+        assert log.details["changes"]["address"] == "<redacted>"
+        assert log.details["changes"]["phone_number"] == "<redacted>"
+        assert log.details["changes"]["safe_count"] == 2
+
 
 class TestAuditLogQuery:
     """監査ログ取得のテスト"""

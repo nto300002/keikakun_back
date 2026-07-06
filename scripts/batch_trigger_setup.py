@@ -68,7 +68,7 @@ async def list_billings():
                 print(f"   Status: {billing.billing_status.value}")
                 print(f"   Trial End: {billing.trial_end_date.strftime('%Y-%m-%d %H:%M:%S') if billing.trial_end_date else 'N/A'} ({trial_status})")
                 print(f"   Cancel At: {billing.scheduled_cancel_at.strftime('%Y-%m-%d %H:%M:%S') if billing.scheduled_cancel_at else 'N/A'} ({cancel_status})")
-                print(f"   Stripe Sub: {'present' if billing.stripe_subscription_id else 'absent'}")
+                print(f"   Stripe subscription_present: {bool(billing.stripe_subscription_id)}")
                 print()
 
             print(f"{'='*80}\n")

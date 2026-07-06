@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base import CRUDBase
 from app.models.staff_profile import AuditLog
+from app.utils.privacy_utils import sanitize_audit_log_details_for_storage
 
 
 # アクション別の保持期間設定（日数）
@@ -114,6 +115,12 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
             - auto_commit=Falseの場合、トランザクション管理は呼び出し側で行う
             - actor_id=Noneの場合、システムによる自動処理として記録される
         """
+        sanitized_details = (
+            sanitize_audit_log_details_for_storage(details, action=action)
+            if details is not None
+            else None
+        )
+
         audit_log = AuditLog(
             staff_id=actor_id,
             actor_role=actor_role or ("system" if actor_id is None else None),
@@ -123,7 +130,7 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
             office_id=office_id,
             ip_address=ip_address,
             user_agent=user_agent,
-            details=details,
+            details=sanitized_details,
             is_test_data=is_test_data
         )
 

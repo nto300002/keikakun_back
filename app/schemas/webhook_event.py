@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.utils.privacy_utils import mask_webhook_payload_for_display
 
 
 class WebhookEventBase(BaseModel):
@@ -42,7 +44,12 @@ class WebhookEventInDBBase(WebhookEventBase):
 
 class WebhookEvent(WebhookEventInDBBase):
     """WebhookEvent レスポンス用スキーマ"""
-    pass
+
+    @field_serializer("payload")
+    def serialize_payload(self, payload: Optional[dict]) -> Optional[dict]:
+        if payload is None:
+            return None
+        return mask_webhook_payload_for_display(payload)
 
 
 class WebhookEventListResponse(BaseModel):

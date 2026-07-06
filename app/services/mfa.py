@@ -36,7 +36,7 @@ class MfaService:
         logger = logging.getLogger(__name__)
 
         if not user.mfa_secret:
-            logger.warning("[MFA VERIFY] No MFA secret")
+            logger.warning("[MFA VERIFY] No MFA factor material")
             return False
 
         logger.info("[MFA VERIFY] Starting verification")
@@ -50,7 +50,7 @@ class MfaService:
             return False
 
         if not secret:
-            logger.warning("[MFA VERIFY] Decryption returned no secret")
+            logger.warning("[MFA VERIFY] Decryption returned no factor material")
             return False
 
         if verify_totp(secret=secret, token=totp_code):
@@ -80,7 +80,7 @@ class MfaService:
         logger = logging.getLogger(__name__)
 
         if not user.mfa_secret:
-            logger.warning("[MFA VERIFY] No MFA secret")
+            logger.warning("[MFA VERIFY] No MFA factor material")
             return False
 
         logger.info("[MFA VERIFY TOTP] Starting verification")
@@ -94,7 +94,7 @@ class MfaService:
             return False
 
         if not secret:
-            logger.warning("[MFA VERIFY TOTP] Decryption returned no secret")
+            logger.warning("[MFA VERIFY TOTP] Decryption returned no factor material")
             return False
 
         # TOTP検証のみ実行（コミットしない）

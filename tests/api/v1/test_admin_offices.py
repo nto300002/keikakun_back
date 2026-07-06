@@ -196,6 +196,9 @@ async def test_app_admin_get_office_detail(
     app_admin.hashed_passphrase = get_password_hash(passphrase)
 
     office = await office_factory(name="詳細テスト事務所")
+    office.address = "東京都新宿区1-2-3"
+    office.phone_number = "03-1234-5678"
+    office.email = "office-detail@example.com"
     owner = await owner_user_factory(office=office)
     await db_session.commit()
 
@@ -217,9 +220,14 @@ async def test_app_admin_get_office_detail(
     data = response.json()
     assert data["id"] == str(office.id)
     assert data["name"] == "詳細テスト事務所"
+    assert data["address"] == "<redacted>"
+    assert data["phone_number"] == "<redacted>"
+    assert data["email"] == "<redacted>"
     assert "staffs" in data  # スタッフ一覧が含まれる
     assert isinstance(data["staffs"], list)
     assert len(data["staffs"]) >= 1  # 少なくともownerがいる
+    assert data["staffs"][0]["email"] != owner.email
+    assert data["staffs"][0]["email"].endswith("@example.com")
 
 
 async def test_app_admin_get_office_detail_with_multiple_staffs(

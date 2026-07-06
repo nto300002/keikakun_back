@@ -286,7 +286,7 @@ async def login_for_access_token(
                 }
             except ValueError:
                 # シークレット復号化失敗 → MFAをリセット
-                logger.error("[LOGIN MFA] Secret decryption failed")
+                logger.error("[LOGIN MFA] Protected factor decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -408,7 +408,7 @@ async def verify_mfa_for_login(
 
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
-        logger.error("[MFA VERIFY] Invalid temporary token")
+        logger.error("[MFA VERIFY] Invalid temporary credential")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
@@ -417,7 +417,7 @@ async def verify_mfa_for_login(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
-    logger.info("[MFA VERIFY] Temporary token validated")
+    logger.info("[MFA VERIFY] Temporary credential validated")
 
     user = await staff_crud.get(db, id=user_id)
     if not user:
@@ -446,13 +446,13 @@ async def verify_mfa_for_login(
                     verification_successful = True
             except ValueError as e:
                 # シークレット復号化失敗 → MFAに問題がある
-                logger.error("[MFA VERIFY] Secret decryption failed")
+                logger.error("[MFA VERIFY] Protected factor decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="MFA設定にエラーがあります。管理者に連絡してください。",
                 )
         else:
-            logger.error("[MFA VERIFY] MFA secret is missing")
+            logger.error("[MFA VERIFY] MFA factor material is missing")
 
     if mfa_data.recovery_code and not verification_successful:
         logger.info(f"[MFA VERIFY] Attempting recovery code verification")
@@ -538,7 +538,7 @@ async def verify_mfa_first_time(
     # 一時トークンを検証
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
-        logger.error(f"[MFA FIRST TIME VERIFY] Invalid temporary token")
+        logger.error("[MFA FIRST TIME VERIFY] Invalid temporary credential")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INVALID_TEMPORARY_TOKEN,
@@ -547,12 +547,12 @@ async def verify_mfa_first_time(
     user_id = token_data["user_id"]
     session_duration = token_data["session_duration"]
     session_type = token_data["session_type"]
-    logger.info(f"[MFA FIRST TIME VERIFY] Token validated, user_id: {user_id}")
+    logger.info("[MFA FIRST TIME VERIFY] Temporary credential validated")
 
     # ユーザーを取得
     user = await staff_crud.get(db, id=user_id)
     if not user:
-        logger.error(f"[MFA FIRST TIME VERIFY] User not found: {user_id}")
+        logger.error("[MFA FIRST TIME VERIFY] User not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_USER_NOT_FOUND,
@@ -560,14 +560,14 @@ async def verify_mfa_first_time(
 
     # MFAが有効で、かつユーザー未検証の状態であることを確認
     if not user.is_mfa_enabled:
-        logger.error(f"[MFA FIRST TIME VERIFY] MFA not enabled for user: {user_id}")
+        logger.error("[MFA FIRST TIME VERIFY] MFA not enabled for user")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ja.AUTH_MFA_NOT_CONFIGURED,
         )
 
     if user.is_mfa_verified_by_user:
-        logger.error(f"[MFA FIRST TIME VERIFY] User already verified: {user_id}")
+        logger.error("[MFA FIRST TIME VERIFY] User already verified")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="MFAは既に検証済みです。通常のログインフローを使用してください。",
@@ -584,7 +584,7 @@ async def verify_mfa_first_time(
         )
 
     if not user.mfa_secret:
-        logger.error(f"[MFA FIRST TIME VERIFY] MFA secret is missing")
+        logger.error("[MFA FIRST TIME VERIFY] MFA factor material is missing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -603,7 +603,7 @@ async def verify_mfa_first_time(
                 detail=ja.AUTH_INVALID_MFA_CODE,
             )
     except ValueError:
-        logger.error("[MFA FIRST TIME VERIFY] Secret decryption failed")
+        logger.error("[MFA FIRST TIME VERIFY] Protected factor decryption failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="MFA設定にエラーがあります。管理者に連絡してください。",
@@ -733,14 +733,14 @@ async def forgot_password(
                 # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error("Failed to send password reset email")
+                logger.error("Failed to send account reset email")
 
         except Exception as e:
             # DB処理失敗時はロールバック
             await db.rollback()
             import logging
             logger = logging.getLogger(__name__)
-            logger.error("Failed to create password reset token")
+            logger.error("Failed to create account reset credential")
             # エラーは飲み込んで、セキュリティのため成功メッセージを返す
             # （メールアドレスの存在を漏らさない）
 
@@ -861,10 +861,7 @@ async def reset_password(
     # Have I Been Pwned APIでパスワード侵害をチェック
     is_breached, breach_count = await check_password_breach(data.new_password)
     if is_breached:
-        logger.warning(
-            f"Attempted password reset with breached password for staff_id={staff_id}. "
-            f"Password found {breach_count} times in breach database."
-        )
+        logger.warning("Attempted account reset with breached credential breach_count=%s", breach_count)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ja.AUTH_PASSWORD_BREACHED,
@@ -906,7 +903,7 @@ async def reset_password(
             )
         except Exception as e:
             # メール送信失敗をログに記録（本番環境では適切なロギング設定が必要）
-            logger.error("Failed to send password changed notification")
+            logger.error("Failed to send account credential change notification")
 
         return schemas.token.PasswordResetResponse(
             message=ja.AUTH_PASSWORD_RESET_SUCCESS

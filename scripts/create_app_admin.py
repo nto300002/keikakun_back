@@ -176,18 +176,18 @@ def validate_passphrase(passphrase: str) -> tuple[bool, str]:
 
 def main():
     if len(sys.argv) != 6:
-        print("Usage: python scripts/create_app_admin.py <first_name> <last_name> <email> <password> <passphrase>")
-        print("Example: python scripts/create_app_admin.py '太郎' '山田' admin@example.com 'MyPassword123!' 'secret123!'")
+        print("Usage: python scripts/create_app_admin.py <first_name> <last_name> <email> <credential> <admin_phrase>")
+        print("Example: python scripts/create_app_admin.py '太郎' '山田' admin@example.com '<credential>' '<admin_phrase>'")
         print()
         print("Requirements:")
         print("  - first_name/last_name: Japanese characters only (Hiragana, Katakana, Kanji)")
         print("  - first_name/last_name: 50 characters or less")
-        print("  - Password must be at least 8 characters")
-        print("  - Password must contain at least one digit")
-        print("  - Password must contain at least one letter")
-        print("  - Passphrase must be at least 8 characters")
-        print("  - Passphrase must contain at least one digit")
-        print("  - Passphrase must contain at least one letter")
+        print("  - login credential must be at least 8 characters")
+        print("  - login credential must contain at least one digit")
+        print("  - login credential must contain at least one letter")
+        print("  - admin phrase must be at least 8 characters")
+        print("  - admin phrase must contain at least one digit")
+        print("  - admin phrase must contain at least one letter")
         sys.exit(1)
 
     first_name = sys.argv[1]
@@ -210,7 +210,7 @@ def main():
     # パスワードのバリデーション
     is_valid, error_msg = validate_password(password)
     if not is_valid:
-        print(f"Error (password): {error_msg}")
+        print(f"Error (login credential): {error_msg}")
         sys.exit(1)
 
     # パスフレーズのバリデーション

@@ -215,6 +215,88 @@ async def test_get_audit_logs_allows_missing_actor_and_office(
     assert target_log["office_name"] is None
 
 
+async def test_get_audit_logs_masks_sensitive_details_for_display(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    app_admin_user_factory,
+    office_factory
+):
+    """正常系: 表示用の監査ログdetailsでは個人情報・秘密情報をマスキングする"""
+    # Arrange
+    app_admin = await app_admin_user_factory()
+    passphrase = "secret123!"
+    from app.core.security import get_password_hash
+    app_admin.hashed_passphrase = get_password_hash(passphrase)
+
+    office = await office_factory(name="Masking Test Office")
+    await db_session.commit()
+
+    log = AuditLog(
+        staff_id=app_admin.id,
+        actor_role="app_admin",
+        action="staff.sensitive_details_test",
+        target_type=AuditLogTargetType.staff.value,
+        target_id=uuid.uuid4(),
+        office_id=office.id,
+        ip_address="203.0.113.10",
+        user_agent="Sensitive Test Agent",
+        details={
+            "email": "sensitive.user@example.com",
+            "full_name": "山田 太郎",
+            "stripe_customer_id": "cus_1234567890abcdef",
+            "access_token": "raw-access-token-value",
+            "changes": {
+                "address": "東京都新宿区1-2-3",
+                "phone_number": "090-1234-5678",
+                "safe_count": 2,
+            },
+        },
+        timestamp=datetime.now(timezone.utc),
+        is_test_data=False
+    )
+    db_session.add(log)
+    await db_session.commit()
+
+    login_response = await async_client.post(
+        "/api/v1/auth/token",
+        data={
+            "username": app_admin.email,
+            "password": "a-very-secure-password",
+            "passphrase": passphrase
+        }
+    )
+    assert login_response.status_code == 200
+
+    # Act
+    response = await async_client.get(
+        "/api/v1/admin/audit-logs",
+        params={"skip": 0, "limit": 50}
+    )
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    target_log = next(
+        item for item in data["logs"]
+        if item["action"] == "staff.sensitive_details_test"
+    )
+
+    serialized_details = str(target_log["details"])
+    assert "sensitive.user@example.com" not in serialized_details
+    assert "山田 太郎" not in serialized_details
+    assert "cus_1234567890abcdef" not in serialized_details
+    assert "raw-access-token-value" not in serialized_details
+    assert "東京都新宿区1-2-3" not in serialized_details
+    assert "090-1234-5678" not in serialized_details
+    assert target_log["details"]["email"] == "s***@example.com"
+    assert target_log["details"]["full_name"] == "山田 *"
+    assert target_log["details"]["stripe_customer_id"] == "<present>"
+    assert target_log["details"]["access_token"] == "<redacted>"
+    assert target_log["details"]["changes"]["address"] == "<redacted>"
+    assert target_log["details"]["changes"]["phone_number"] == "<redacted>"
+    assert target_log["details"]["changes"]["safe_count"] == 2
+
+
 async def test_filter_by_target_type_staff(
     async_client: AsyncClient,
     db_session: AsyncSession,

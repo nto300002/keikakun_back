@@ -72,14 +72,14 @@ async def fix_double_encoded_secrets():
                 try:
                     encrypted_bytes = base64.urlsafe_b64decode(staff.mfa_secret.encode())
                     decrypted = fernet.decrypt(encrypted_bytes)
-                    plain_secret = decrypted.decode()
+                    factor_value = decrypted.decode()
 
                     # 二重エンコードされていた場合
                     print(f"  ⚠️  二重エンコードを検出しました")
-                    print(f"  📝 復号化されたシークレット長: {len(plain_secret)}")
+                    print(f"  📝 復号化されたMFA factor length: {len(factor_value)}")
 
                     # 正しい方法で再暗号化（単一エンコード）
-                    new_encrypted = fernet.encrypt(plain_secret.encode()).decode()
+                    new_encrypted = fernet.encrypt(factor_value.encode()).decode()
 
                     # データベースを更新
                     staff.mfa_secret = new_encrypted

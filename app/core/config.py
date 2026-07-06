@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr, model_validator
 from typing import Optional
 
+from app.core.log_safety import validate_production_log_safety
+
 ENV_FILE = os.getenv("ENV_FILE", ".env")
 
 class Settings(BaseSettings):
@@ -41,6 +43,13 @@ class Settings(BaseSettings):
 
     # --- 環境設定 ---
     ENVIRONMENT: str = "development"  # development, production, test
+    DEBUG: bool = False
+    LOG_LEVEL: str = "WARNING"
+    LOG_REQUEST_BODY: bool = False
+    LOG_RESPONSE_BODY: bool = False
+    LOG_RAW_PAYLOAD: bool = False
+    DEBUG_BODY: bool = False
+    BODY_LOGGING_ENABLED: bool = False
 
     # --- フロントエンド設定 ---
     FRONTEND_URL: str
@@ -77,6 +86,23 @@ class Settings(BaseSettings):
         """VAPID_PRIVATE_KEY_DERをVAPID_PRIVATE_KEYに設定（DER形式Base64をそのまま使用）"""
         if self.VAPID_PRIVATE_KEY_DER and not self.VAPID_PRIVATE_KEY:
             self.VAPID_PRIVATE_KEY = self.VAPID_PRIVATE_KEY_DER
+        return self
+
+    @model_validator(mode='after')
+    def validate_log_safety_flags(self):
+        """本番で危険なdebug/bodyログ設定を拒否する。"""
+        validate_production_log_safety(
+            {
+                "ENVIRONMENT": self.ENVIRONMENT,
+                "DEBUG": self.DEBUG,
+                "LOG_LEVEL": self.LOG_LEVEL,
+                "LOG_REQUEST_BODY": self.LOG_REQUEST_BODY,
+                "LOG_RESPONSE_BODY": self.LOG_RESPONSE_BODY,
+                "LOG_RAW_PAYLOAD": self.LOG_RAW_PAYLOAD,
+                "DEBUG_BODY": self.DEBUG_BODY,
+                "BODY_LOGGING_ENABLED": self.BODY_LOGGING_ENABLED,
+            }
+        )
         return self
 
 
