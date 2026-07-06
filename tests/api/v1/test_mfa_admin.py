@@ -498,7 +498,7 @@ class TestAdminMFABulkOperations:
         期待される結果:
         - ステータスコード: 200
         - 全スタッフのis_mfa_enabledがTrueになる
-        - 各スタッフのQRコード、シークレットキー、リカバリーコードが返される
+        - secret / QR code URI / recovery codes は一括レスポンスに返されない
         """
         # Arrange
         owner = office_with_multiple_staffs["owner"]
@@ -527,20 +527,24 @@ class TestAdminMFABulkOperations:
         data = response.json()
         assert "message" in data
         assert "enabled_count" in data
-        assert "staff_mfa_data" in data
+        assert "enabled_staffs" in data
+        assert "staff_mfa_data" not in data
         assert data["enabled_count"] == 4  # 全員有効化
 
-        # スタッフごとのMFA設定情報が含まれているか確認
-        staff_mfa_data = data["staff_mfa_data"]
-        assert len(staff_mfa_data) == 4
+        serialized = str(data)
+        assert "otpauth://" not in serialized
+        assert "secret_key" not in serialized
+        assert "qr_code_uri" not in serialized
+        assert "recovery_codes" not in serialized
 
-        for staff_data in staff_mfa_data:
+        # スタッフごとの最小情報だけが含まれることを確認
+        enabled_staffs = data["enabled_staffs"]
+        assert len(enabled_staffs) == 4
+
+        for staff_data in enabled_staffs:
             assert "staff_id" in staff_data
             assert "staff_name" in staff_data
-            assert "qr_code_uri" in staff_data
-            assert "secret_key" in staff_data
-            assert "recovery_codes" in staff_data
-            assert len(staff_data["recovery_codes"]) == 10
+            assert staff_data["setup_required"] is True
 
         # Assert: DB検証
         await db_session.refresh(owner)
