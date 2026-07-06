@@ -66,43 +66,42 @@ async def test_webpush_exception():
         print("📋 Exception詳細:")
         print(f"   error_type: {type(e).__name__}")
         print("   e.message: <hidden>")
-        print(f"   hasattr(e, 'response'): {hasattr(e, 'response')}")
-        print(f"   e.response: {e.response}")
+        http_info = getattr(e, "response", None)
+        print(f"   has_http_info: {http_info is not None}")
         print()
 
         print(f"\n📋 Truthiness check:")
-        print(f"   bool(e.response): {bool(e.response)}")
-        print(f"   e.response is None: {e.response is None}")
-        print(f"   e.response is not None: {e.response is not None}")
+        print(f"   bool(http_info): {bool(http_info)}")
+        print(f"   http_info is None: {http_info is None}")
+        print(f"   http_info is not None: {http_info is not None}")
         print()
 
-        if e.response is not None:
-            print("📋 Response詳細:")
-            print(f"   type(e.response): {type(e.response)}")
-            print(f"   hasattr(e.response, 'status_code'): {hasattr(e.response, 'status_code')}")
+        if http_info is not None:
+            print("📋 HTTP詳細:")
+            print(f"   type(http_info): {type(http_info)}")
+            print(f"   has_status_code: {hasattr(http_info, 'status_code')}")
 
-            if hasattr(e.response, 'status_code'):
-                print(f"   e.response.status_code: {e.response.status_code}")
-                print(f"   type(e.response.status_code): {type(e.response.status_code)}")
+            if hasattr(http_info, 'status_code'):
+                print(f"   http_info.status_code: {http_info.status_code}")
+                print(f"   type(http_info.status_code): {type(http_info.status_code)}")
                 print()
 
                 print("📋 条件チェック:")
-                print(f"   e.response.status_code in [404, 410]: {e.response.status_code in [404, 410]}")
-                print(f"   e.response.status_code == 410: {e.response.status_code == 410}")
+                print(f"   http_info.status_code in [404, 410]: {http_info.status_code in [404, 410]}")
+                print(f"   http_info.status_code == 410: {http_info.status_code == 410}")
                 print()
 
-                if e.response.status_code in [404, 410]:
+                if http_info.status_code in [404, 410]:
                     print("✅ 410/404エラーとして認識できました！")
                     print("   → should_delete = True を返すべき")
                 else:
-                    print(f"❌ status_code {e.response.status_code} は 410/404 ではありません")
+                    print(f"❌ status_code {http_info.status_code} は 410/404 ではありません")
             else:
-                print("   ❌ response.status_code属性が存在しません")
+                print("   ❌ status_code属性が存在しません")
 
-                # response の全属性を確認
-                print(f"\n   Response attributes: {dir(e.response)}")
+                print("   HTTP情報の属性出力は安全のため省略")
         else:
-            print("❌ e.response is None")
+            print("❌ http_info is None")
 
         print("\n" + "=" * 70)
 

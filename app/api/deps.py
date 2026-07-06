@@ -42,10 +42,13 @@ async def _get_current_user(
     cookie_token = request.cookies.get("access_token")
     final_token = cookie_token if cookie_token else token
 
-    logger.debug("get_current_user called load_office=%s", load_office)
-    logger.debug("Cookie token: %s", "present" if cookie_token else "absent")
-    logger.debug("Header token: %s", "present" if token else "absent")
-    logger.debug("Using token from: %s", "cookie" if cookie_token else "header" if token else "none")
+    logger.debug(
+        "auth_context load_office=%s cookie_credential_present=%s header_credential_present=%s source=%s",
+        load_office,
+        bool(cookie_token),
+        bool(token),
+        "cookie" if cookie_token else "header" if token else "none",
+    )
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,31 +57,31 @@ async def _get_current_user(
     )
 
     if not final_token:
-        logger.warning("No token provided - raising 401")
+        logger.warning("Missing credential - raising 401")
         raise credentials_exception
 
     payload = decode_access_token(final_token)
-    logger.debug("Decoded token payload")
+    logger.debug("Credential claims decoded")
 
     if payload is None:
-        logger.warning("Payload is None - raising 401")
+        logger.warning("Credential claims missing - raising 401")
         raise credentials_exception
 
     try:
         token_data = TokenData(sub=payload.get("sub"))
-        logger.debug("TokenData created with sub=%s", token_data.sub)
-    except ValidationError as e:
-        logger.warning("TokenData validation error: %s", e)
+        logger.debug("Credential subject parsed")
+    except ValidationError:
+        logger.warning("Credential subject validation failed")
         raise credentials_exception
 
     if token_data.sub is None:
-        logger.warning("token_data.sub is None - raising 401")
+        logger.warning("Credential subject missing - raising 401")
         raise credentials_exception
 
     # IDを元に、crud層を経由してユーザーをデータベースから検索します。
     try:
         user_id = uuid.UUID(token_data.sub)
-        logger.debug("Parsed user_id=%s", user_id)
+        logger.debug("Credential subject UUID parsed")
     except ValueError as e:
         logger.warning("ValueError parsing UUID: %s", e)
         raise credentials_exception
@@ -95,7 +98,7 @@ async def _get_current_user(
     user = result.scalars().first()
 
     if not user:
-        logger.warning("User not found for id: %s", user_id)
+        logger.warning("Credential subject not found")
         raise credentials_exception
 
     # office付き依存の場合だけ、所属事務所の削除済みチェックも実施する。
@@ -104,11 +107,7 @@ async def _get_current_user(
             # いずれかの事務所が削除済みの場合、アクセス拒否
             for office_assoc in user.office_associations:
                 if office_assoc.office and office_assoc.office.is_deleted:
-                    logger.warning(
-                        "User attempted access with deleted office: user_id=%s office_id=%s",
-                        user.id,
-                        office_assoc.office.id,
-                    )
+                    logger.warning("Access rejected because associated office is deleted")
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="所属事務所が退会済みのため、アクセスできません",
@@ -117,7 +116,7 @@ async def _get_current_user(
 
     # 削除済みスタッフチェック（事務所チェックの後に実行）
     if user.is_deleted:
-        logger.warning("Deleted user attempted access: user_id=%s", user.id)
+        logger.warning("Deleted account attempted access")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ja.PERM_ACCOUNT_DELETED,
@@ -136,10 +135,7 @@ async def _get_current_user(
 
             # パスワード変更時刻とトークン発行時刻を比較
             if user.password_changed_at > token_issued_at:
-                logger.warning(
-                    f"Token rejected: issued at {token_issued_at}, "
-                    f"password changed at {user.password_changed_at}"
-                )
+                logger.warning("Credential rejected after account credential rotation")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=ja.AUTH_TOKEN_INVALIDATED_BY_PASSWORD_CHANGE,

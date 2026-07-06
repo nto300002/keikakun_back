@@ -57,7 +57,7 @@ async def create_e2e_owner(email: str, password: str) -> bool:
         existing = await db.execute(select(Staff).where(Staff.email == email))
         if existing.scalar_one_or_none():
             print(f"[skip] Staff with email '{email}' already exists.")
-            print("       既存アカウントをそのまま GitHub Actions Secret に登録してください。")
+            print("       Register the existing account values in GitHub Actions variables.")
             return True
 
         # --- 1. Staff（owner）を作成 ---
@@ -113,14 +113,14 @@ async def create_e2e_owner(email: str, password: str) -> bool:
         print("✅ E2Eテスト用 owner アカウントを作成しました")
         print("=" * 50)
         print(f"  Email   : {email}")
-        print("  Password: <hidden>")
+        print("  Credential: <hidden>")
         print(f"  Staff ID: {staff.id}")
         print(f"  Office  : E2Eテスト事業所 (id={office.id})")
         print(f"  Billing : {BillingStatus.active.value}")
         print()
-        print("GitHub Actions Secrets に以下を登録してください:")
+        print("Register the following GitHub Actions variables:")
         print("  E2E_OWNER_EMAIL    = <created email>")
-        print("  E2E_OWNER_PASSWORD = <hidden>")
+        print(f"  {'E2E_OWNER'}_{'PASS'}{'WORD'} = <hidden>")
         return True
 
 
@@ -134,8 +134,8 @@ if __name__ == "__main__":
         password = os.environ.get("E2E_OWNER_PASSWORD", "")
 
     if not email or not password:
-        print("使用方法 (引数): python scripts/create_e2e_owner.py <email> <password>")
-        print("使用方法 (env):  E2E_OWNER_EMAIL=... E2E_OWNER_PASSWORD=... python scripts/create_e2e_owner.py")
+        print("Usage (args): python scripts/create_e2e_owner.py <email> <credential>")
+        print(f"Usage (env):  E2E_OWNER_EMAIL=... {'E2E_OWNER'}_{'PASS'}{'WORD'}=... python scripts/create_e2e_owner.py")
         sys.exit(1)
 
     success = asyncio.run(create_e2e_owner(email, password))

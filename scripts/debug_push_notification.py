@@ -125,7 +125,7 @@ async def debug_push_notification():
                 for i, office in enumerate(offices, 1):
                     # 期限アラートを取得（最大閾値30日で取得）
                     try:
-                        alert_response = await WelfareRecipientService.get_deadline_alerts(
+                        alert_result = await WelfareRecipientService.get_deadline_alerts(
                             db=db,
                             office_id=office.id,
                             threshold_days=30,
@@ -133,17 +133,17 @@ async def debug_push_notification():
                             offset=0
                         )
 
-                        renewal_count = sum(1 for alert in alert_response.alerts if alert.alert_type == "renewal_deadline")
-                        assessment_count = sum(1 for alert in alert_response.alerts if alert.alert_type == "assessment_incomplete")
-                        total_alerts += alert_response.total
+                        renewal_count = sum(1 for alert in alert_result.alerts if alert.alert_type == "renewal_deadline")
+                        assessment_count = sum(1 for alert in alert_result.alerts if alert.alert_type == "assessment_incomplete")
+                        total_alerts += alert_result.total
 
-                        alert_icon = "🔔" if alert_response.total > 0 else "✅"
+                        alert_icon = "🔔" if alert_result.total > 0 else "✅"
 
                         print(f"   {alert_icon} {i}. {office.name}")
                         print(f"      事業所ID: {office.id}")
                         print(f"      更新期限アラート: {renewal_count}件")
                         print(f"      アセスメント未完了: {assessment_count}件")
-                        print(f"      合計: {alert_response.total}件")
+                        print(f"      合計: {alert_result.total}件")
 
                         # スタッフ数確認
                         staff_count_result = await db.execute(

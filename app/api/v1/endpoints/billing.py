@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.messages import ja
 from app.services import BillingService
 from app.services.billing.status_transition import BillingStatusTransitionService
+from app.utils.privacy_utils import mask_external_id
 
 
 def get_stripe_secret_key() -> str:
@@ -252,11 +253,11 @@ async def create_portal_session(
     except stripe.error.StripeError as e:
         logger.error(
             "Stripe Customer Portal Session creation failed: "
-            "stripe_error_type=%s, billing_id=%s, office_id=%s, stripe_customer_id=%s",
+            "stripe_error_type=%s, billing_id=%s, office_id=%s, stripe_customer_id_present=%s",
             type(e).__name__,
             billing.id,
             office_id,
-            billing.stripe_customer_id,
+            bool(billing.stripe_customer_id),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -320,7 +321,7 @@ async def stripe_webhook(
             settings.STRIPE_WEBHOOK_SECRET.get_secret_value()
         )
     except ValueError:
-        logger.error("Invalid payload")
+        logger.error("Invalid Stripe webhook event")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ja.BILLING_WEBHOOK_INVALID_PAYLOAD)
     except stripe.error.SignatureVerificationError:
         logger.error("Invalid signature")
@@ -342,11 +343,11 @@ async def stripe_webhook(
         "subscription=%s payment_intent=%s invoice=%s status=%s",
         event_id,
         event_type,
-        event_data.get('id'),
-        event_data.get('customer'),
-        event_data.get('subscription'),
-        event_data.get('payment_intent'),
-        event_data.get('invoice'),
+        mask_external_id(event_data.get('id')),
+        mask_external_id(event_data.get('customer')),
+        mask_external_id(event_data.get('subscription')),
+        mask_external_id(event_data.get('payment_intent')),
+        mask_external_id(event_data.get('invoice')),
         event_data.get('status'),
     )
 
@@ -408,11 +409,11 @@ async def stripe_webhook(
                 "subscription=%s payment_intent=%s invoice=%s status=%s",
                 event_id,
                 event_type,
-                event_data.get('id'),
-                event_data.get('customer'),
-                event_data.get('subscription'),
-                event_data.get('payment_intent'),
-                event_data.get('invoice'),
+                mask_external_id(event_data.get('id')),
+                mask_external_id(event_data.get('customer')),
+                mask_external_id(event_data.get('subscription')),
+                mask_external_id(event_data.get('payment_intent')),
+                mask_external_id(event_data.get('invoice')),
                 event_data.get('status'),
             )
 

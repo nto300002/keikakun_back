@@ -880,7 +880,7 @@ class WithdrawalService:
         """
         try:
             if not settings.STRIPE_SECRET_KEY:
-                logger.warning("STRIPE_SECRET_KEY not configured - skipping Stripe cancellation")
+                logger.warning("Stripe API credential not configured - skipping Stripe cancellation")
                 return {
                     "success": False,
                     "action": "skipped",

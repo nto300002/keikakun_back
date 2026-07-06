@@ -4,8 +4,11 @@ Billing API エンドポイントのテスト
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 from uuid import uuid4
+import logging
 import pytest
+import stripe
 from httpx import AsyncClient
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
@@ -470,6 +473,59 @@ async def test_create_portal_session_loads_office_associations_for_cookie_auth(
     assert response.status_code == 200
     assert response.json()["url"] == portal_url
     mock_portal_create.assert_called_once()
+
+
+async def test_create_portal_session_logs_safe_context_on_stripe_error(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    employee_user_factory,
+    mocker: MagicMock,
+    caplog
+) -> None:
+    """Portal Session作成失敗ログにStripe Customer IDの生値を出さない"""
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_SECRET_KEY', 'sk_test_12345')
+
+    unique_id = uuid4().hex
+    customer_id = f"cus_portal_error_{unique_id}"
+
+    mocker.patch(
+        'stripe.billing_portal.Session.create',
+        side_effect=stripe.error.StripeError(f"No such customer: {customer_id}")
+    )
+
+    staff = await employee_user_factory(role=StaffRole.owner)
+    office_id = staff.office_associations[0].office_id
+    access_token = create_access_token(
+        str(staff.id),
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+
+    billing_data = BillingCreate(
+        office_id=office_id,
+        billing_status=BillingStatus.active,
+        stripe_customer_id=customer_id,
+        stripe_subscription_id=f"sub_portal_error_{unique_id}",
+        trial_start_date=datetime.now(timezone.utc) - timedelta(days=190),
+        trial_end_date=datetime.now(timezone.utc) - timedelta(days=10),
+        subscription_start_date=datetime.now(timezone.utc) - timedelta(days=10),
+        next_billing_date=datetime.now(timezone.utc) + timedelta(days=20),
+        current_plan_amount=6000
+    )
+    billing = await crud.billing.create(db=db_session, obj_in=billing_data)
+    await db_session.commit()
+    db_session.expire_all()
+
+    with caplog.at_level(logging.ERROR, logger="app.api.v1.endpoints.billing"):
+        response = await async_client.post(
+            "/api/v1/billing/create-portal-session",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+    assert response.status_code == 500
+    assert f"billing_id={billing.id}" in caplog.text
+    assert f"office_id={office_id}" in caplog.text
+    assert "stripe_customer_id_present=True" in caplog.text
+    assert customer_id not in caplog.text
 
 
 async def test_create_checkout_session_loads_office_associations_for_cookie_auth(
@@ -1010,6 +1066,57 @@ async def test_webhook_customer_subscription_created(
     # 無料期間中にサブスクリプションを作成したため、early_paymentになる
     assert billing.billing_status == BillingStatus.early_payment
     assert billing.subscription_start_date is not None
+
+
+@patch('stripe.Webhook.construct_event')
+async def test_webhook_logs_mask_stripe_object_ids(
+    mock_construct_event: MagicMock,
+    async_client: AsyncClient,
+    mocker: MagicMock,
+    caplog
+) -> None:
+    """Webhook受信ログ・未対応イベントログにStripe object IDの生値を出さない"""
+    mocker.patch('app.api.v1.endpoints.billing.settings.STRIPE_WEBHOOK_SECRET', SecretStr('whsec_test'))
+
+    event_id = "evt_log_mask_test"
+    object_id = "in_log_mask_1234567890abcdef"
+    customer_id = "cus_log_mask_1234567890abcdef"
+    subscription_id = "sub_log_mask_1234567890abcdef"
+    payment_intent_id = "pi_log_mask_1234567890abcdef"
+
+    mock_construct_event.return_value = {
+        "id": event_id,
+        "type": "invoice.finalized",
+        "data": {
+            "object": {
+                "id": object_id,
+                "customer": customer_id,
+                "subscription": subscription_id,
+                "payment_intent": payment_intent_id,
+                "invoice": object_id,
+                "status": "open",
+            }
+        }
+    }
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.endpoints.billing"):
+        response = await async_client.post(
+            "/api/v1/billing/webhook",
+            headers={"Stripe-Signature": "test_signature"},
+            content=b'{"type": "invoice.finalized"}'
+        )
+
+    assert response.status_code == 200
+    assert event_id in caplog.text
+    assert "object_id=<present>" in caplog.text
+    assert "customer=<present>" in caplog.text
+    assert "subscription=<present>" in caplog.text
+    assert "payment_intent=<present>" in caplog.text
+    assert "invoice=<present>" in caplog.text
+    assert object_id not in caplog.text
+    assert customer_id not in caplog.text
+    assert subscription_id not in caplog.text
+    assert payment_intent_id not in caplog.text
 
 
 # ==========================================

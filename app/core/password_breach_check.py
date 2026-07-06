@@ -63,10 +63,11 @@ async def check_password_breach(password: str, timeout: int = 5) -> tuple[bool, 
                 }
             )
 
-            if response.status_code != 200:
+            hibp_status_code = response.status_code
+            if hibp_status_code != 200:
                 logger.warning(
-                    f"HIBP API returned status {response.status_code}. "
-                    "Allowing password (fail-safe)."
+                    "HIBP API returned status_code=%s. Allowing credential (fail-safe).",
+                    hibp_status_code,
                 )
                 return False, None
 
@@ -82,8 +83,8 @@ async def check_password_breach(password: str, timeout: int = 5) -> tuple[bool, 
                 # 侵害されたパスワードが見つかった
                 breach_count = int(count_str.strip())
                 logger.info(
-                    f"Password found in breach database "
-                    f"(count: {breach_count}, prefix: {hash_prefix})"
+                    "Credential found in breach database breach_count=%s",
+                    breach_count,
                 )
                 return True, breach_count
 
@@ -91,11 +92,11 @@ async def check_password_breach(password: str, timeout: int = 5) -> tuple[bool, 
         return False, None
 
     except httpx.TimeoutException:
-        logger.warning("HIBP API timeout. Allowing password (fail-safe).")
+        logger.warning("HIBP API timeout. Allowing credential (fail-safe).")
         return False, None
 
     except Exception as e:
-        logger.error("Error checking password breach: %s. Allowing password (fail-safe).", type(e).__name__)
+        logger.error("Error checking credential breach: %s. Allowing credential (fail-safe).", type(e).__name__)
         return False, None
 
 

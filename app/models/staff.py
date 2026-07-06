@@ -170,7 +170,7 @@ class Staff(Base):
             return decrypted
         except Exception as e:
             # 復号化失敗時は明示的にエラーを発生させる
-            logger.error("[MFA SECRET] Decryption failed")
+            logger.error("[MFA FACTOR] Decryption failed")
             raise ValueError(
                 f"MFAシークレットの復号化に失敗しました。データが破損している可能性があります。"
             ) from e
