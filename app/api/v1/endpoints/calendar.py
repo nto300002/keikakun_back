@@ -1,22 +1,60 @@
 """カレンダー設定APIエンドポイント"""
+from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models
 from app.api import deps
 from app.services.calendar_service import calendar_service
+from app.services.ics_export_service import ics_export_service
 from app.schemas.calendar_account import (
     CalendarSetupRequest,
     CalendarSetupResponse,
     OfficeCalendarAccountResponse
 )
+from app.schemas.calendar_event import CalendarEventResponse
 from app.messages import ja
 
 router = APIRouter()
+
+
+def _get_primary_office_id(current_user: models.Staff) -> UUID:
+    office_associations = getattr(current_user, "office_associations", None)
+    if not office_associations:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.RECIPIENT_MUST_HAVE_OFFICE,
+        )
+
+    primary_association = next(
+        (assoc for assoc in office_associations if assoc.is_primary),
+        office_associations[0],
+    )
+    return primary_association.office_id
+
+
+def _resolve_export_range(from_date: date | None, to_date: date | None) -> tuple[date, date]:
+    today = date.today()
+    resolved_from = from_date or today
+    resolved_to = to_date or (resolved_from + timedelta(days=183))
+
+    if resolved_to < resolved_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="to_date は from_date 以降の日付を指定してください",
+        )
+
+    if (resolved_to - resolved_from).days > 365:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=".ics の出力期間は最大1年までです",
+        )
+
+    return resolved_from, resolved_to
 
 
 @router.post("/setup", response_model=CalendarSetupResponse, status_code=status.HTTP_201_CREATED)
@@ -145,6 +183,62 @@ async def get_calendar_by_office(
         )
 
     return OfficeCalendarAccountResponse.model_validate(account)
+
+
+@router.get("/events", response_model=list[CalendarEventResponse])
+async def get_calendar_events(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    event_type: models.CalendarEventType | None = Query(default=None),
+    recipient_id: UUID | None = Query(default=None),
+) -> Any:
+    """アプリ内期限カレンダーのイベント一覧を取得する。"""
+    office_id = _get_primary_office_id(current_user)
+    events = await calendar_service.get_deadline_events(
+        db=db,
+        office_id=office_id,
+        from_date=from_date,
+        to_date=to_date,
+        event_type=event_type,
+        recipient_id=recipient_id,
+    )
+    return [CalendarEventResponse.model_validate(event) for event in events]
+
+
+@router.get("/export.ics", response_class=Response)
+async def export_calendar_ics(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    event_type: models.CalendarEventType | None = Query(default=None),
+    recipient_id: UUID | None = Query(default=None),
+) -> Response:
+    """支援計画ページ向けに期限イベントを .ics として出力する。"""
+    office_id = _get_primary_office_id(current_user)
+    resolved_from, resolved_to = _resolve_export_range(from_date, to_date)
+
+    events = await calendar_service.get_deadline_events(
+        db=db,
+        office_id=office_id,
+        from_date=resolved_from,
+        to_date=resolved_to,
+        event_type=event_type,
+        recipient_id=recipient_id,
+    )
+    ics_body = ics_export_service.build_calendar(events=events)
+    filename = ics_export_service.build_filename(today=date.today())
+    return Response(
+        content=ics_body,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get("/{account_id}", response_model=OfficeCalendarAccountResponse)
