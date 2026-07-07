@@ -208,7 +208,6 @@ async def require_manager_or_owner(
         )
     return current_staff
 
-
 async def require_owner(
     current_staff: Staff = Depends(get_current_user_minimal)
 ) -> Staff:
@@ -384,42 +383,3 @@ async def require_active_billing(
         )
 
     return current_staff
-
-
-# --- CSRF保護依存関数 ---
-
-async def validate_csrf(
-    request: Request,
-) -> None:
-    """
-    CSRFトークンを検証する依存関数
-
-    Cookie認証を使用している場合のみCSRF検証を行う。
-    Bearer認証（Authorizationヘッダー）の場合は検証をスキップ。
-
-    Args:
-        request: FastAPIリクエストオブジェクト
-
-    Raises:
-        HTTPException: CSRFトークンが無効な場合
-    """
-    from fastapi_csrf_protect import CsrfProtect
-    from fastapi_csrf_protect.exceptions import CsrfProtectError
-
-    # Authorizationヘッダーがある場合（Bearer認証）はCSRF検証をスキップ
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        return
-
-    # Cookie認証を使用している場合、CSRF検証を行う
-    access_token_cookie = request.cookies.get("access_token")
-    if access_token_cookie:
-        csrf_protect = CsrfProtect()
-        try:
-            await csrf_protect.validate_csrf(request)
-        except CsrfProtectError as e:
-            logger.warning("CSRF validation failed: %s", type(e).__name__)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"CSRF token validation failed"
-            )

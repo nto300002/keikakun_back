@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -212,11 +212,9 @@ async def get_all_office_staffs(
 @router.put("/me", response_model=schemas.OfficeResponse)
 async def update_office_info(
     *,
-    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     office_in: schemas.OfficeInfoUpdate,
     current_user: models.Staff = Depends(deps.require_owner),
-    _: None = Depends(deps.validate_csrf),
 ) -> Any:
     """
     事務所情報を更新（オーナーのみ）
