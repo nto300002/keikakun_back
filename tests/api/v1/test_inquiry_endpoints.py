@@ -729,7 +729,7 @@ class TestAdminInquiryReplyEndpoint:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert "メール送信を含む" in data["message"]
+        assert data["message"] == "返信を送信しました（アプリ内通知とメールを連動）"
 
         # delivery_logに記録されていることを確認
         await db_session.refresh(inquiry)
@@ -737,6 +737,129 @@ class TestAdminInquiryReplyEndpoint:
         assert len(inquiry.delivery_log) > 0
         assert inquiry.delivery_log[0]["action"] == "reply_email_queued"
         assert inquiry.delivery_log[0]["recipient"] == "sender@example.com"
+
+    async def test_reply_to_inquiry_sends_email_when_sender_email_exists_even_if_flag_false(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        employee_user_factory,
+        db_session: AsyncSession,
+        csrf_headers,
+        monkeypatch
+    ):
+        """
+        返信はアプリ内通知とメールを連動させる。
+
+        POST /api/v1/admin/inquiries/{inquiry_id}/reply
+        - sender_email がある場合、send_email=false でもメール送信対象
+        - delivery_log にメール送信キュー記録が残る
+        """
+        app_admin = await app_admin_user_factory()
+        sender = await employee_user_factory()
+        from app import crud
+
+        office_id = sender.office_associations[0].office.id if sender.office_associations else None
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=office_id,
+            title="メール連動テスト",
+            content="メール連動テスト内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            sender_name="送信 太郎",
+            sender_email="sender-linked@example.com",
+            is_test_data=True
+        )
+        await db_session.commit()
+
+        sent_emails = []
+
+        async def fake_send_inquiry_reply_email(**kwargs):
+            sent_emails.append(kwargs)
+
+        monkeypatch.setattr(
+            "app.core.mail.send_inquiry_reply_email",
+            fake_send_inquiry_reply_email
+        )
+
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json={"body": "メール連動の返信内容です。", "send_email": False},
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "返信を送信しました（アプリ内通知とメールを連動）"
+        assert sent_emails
+        assert sent_emails[0]["recipient_email"] == "sender-linked@example.com"
+
+        await db_session.refresh(inquiry)
+        assert inquiry.delivery_log is not None
+        assert inquiry.delivery_log[0]["action"] == "reply_email_queued"
+        assert inquiry.delivery_log[0]["recipient"] == "sender-linked@example.com"
+
+    async def test_reply_to_inquiry_succeeds_when_linked_email_sending_fails(
+        self,
+        async_client: AsyncClient,
+        app_admin_user_factory,
+        employee_user_factory,
+        db_session: AsyncSession,
+        csrf_headers,
+        monkeypatch
+    ):
+        """
+        メール送信失敗は返信処理を失敗させない。
+        """
+        app_admin = await app_admin_user_factory()
+        sender = await employee_user_factory()
+        from app import crud
+
+        office_id = sender.office_associations[0].office.id if sender.office_associations else None
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=office_id,
+            title="メール失敗テスト",
+            content="メール失敗テスト内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            sender_email="sender-fail@example.com",
+            is_test_data=True
+        )
+        await db_session.commit()
+
+        async def fail_send_inquiry_reply_email(**kwargs):
+            raise RuntimeError("mail failure")
+
+        monkeypatch.setattr(
+            "app.core.mail.send_inquiry_reply_email",
+            fail_send_inquiry_reply_email
+        )
+
+        access_token = create_access_token(
+            str(app_admin.id),
+            timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json={"body": "メール送信が失敗しても返信は成功します。", "send_email": False},
+            cookies={"access_token": access_token},
+            headers=csrf_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "返信を送信しました（アプリ内通知とメールを連動）"
+
+        await db_session.refresh(inquiry)
+        assert inquiry.status == InquiryStatus.answered
 
     async def test_reply_to_inquiry_not_found(
         self,
