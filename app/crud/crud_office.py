@@ -145,17 +145,20 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         db: AsyncSession,
         *,
         skip: int = 0,
-        limit: int = 100
+        limit: Optional[int] = 100
     ) -> List[Office]:
         """
         アクティブな（論理削除されていない）事務所一覧を取得
         """
-        result = await db.execute(
+        stmt = (
             select(Office)
             .where(Office.is_deleted == False)  # noqa: E712
             .offset(skip)
-            .limit(limit)
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        result = await db.execute(stmt)
         return list(result.scalars().all())
 
     async def get_active_by_id(

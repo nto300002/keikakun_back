@@ -118,7 +118,8 @@ class TestOfficeActiveQuery:
 
         # アクティブな事務所のみ取得
         active_offices = await crud_office.get_active_offices(
-            db=db_session
+            db=db_session,
+            limit=None,
         )
 
         # office1は含まれず、office2は含まれる
