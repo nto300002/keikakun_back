@@ -28,8 +28,18 @@ class SupportPlanCalendarEventService:
         *,
         db: AsyncSession,
         cycle,
+        assessment_status: Optional[object] = None,
         monitoring_status: Optional[object] = None,
     ) -> dict:
+        assessment_event_ids = []
+        if assessment_status:
+            assessment_event_ids = await self.calendar_service.create_assessment_incomplete_event(
+                db=db,
+                office_id=cycle.office_id,
+                welfare_recipient_id=cycle.welfare_recipient_id,
+                status_id=assessment_status.id,
+                cycle_start_date=cycle.plan_cycle_start_date,
+            )
         renewal_event_ids = await self.calendar_service.create_renewal_deadline_events(
             db=db,
             office_id=cycle.office_id,
@@ -47,6 +57,7 @@ class SupportPlanCalendarEventService:
             status_id=monitoring_status.id if monitoring_status else None,
         )
         return {
+            "assessment_event_ids": assessment_event_ids,
             "renewal_event_ids": renewal_event_ids,
             "monitoring_event_ids": monitoring_event_ids,
         }

@@ -40,6 +40,16 @@ from app.models.office import Office, OfficeStaff
 from app.models.enums import StaffRole, OfficeType, GenderType
 
 
+def _to_async_database_url(database_url: str) -> str:
+    if database_url.startswith("postgresql+psycopg://"):
+        return database_url
+    if database_url.startswith("postgresql+asyncpg://"):
+        return database_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
+
+
 # --- データベースクリーンアップ（セッション全体） ---
 
 async def safe_cleanup_test_database(engine: AsyncEngine):
@@ -111,18 +121,22 @@ async def cleanup_database_session():
     DATABASE_URL = TEST_DATABASE_URL_VAR or DATABASE_URL_VAR
 
     if DATABASE_URL:
-        if "?sslmode" in DATABASE_URL:
-            DATABASE_URL = DATABASE_URL.split("?")[0]
+        DATABASE_URL = _to_async_database_url(DATABASE_URL)
 
         # データベース接続情報をログ出力（デバッグ用）
         def get_db_branch_name(url: str) -> str:
             """URLからデータベースブランチ名を抽出"""
+            url_lower = url.lower()
             if "keikakun_dev_test" in url:
                 return "dev_test"
-            elif "keikakun_dev" in url:
-                return "dev"
             elif "keikakun_prod_test" in url:
                 return "prod_test"
+            elif "main_test" in url_lower:
+                return "ci_test"
+            elif "test" in url_lower:
+                return "test"
+            elif "keikakun_dev" in url:
+                return "dev"
             elif "keikakun_prod" in url:
                 return "prod"
             else:
@@ -177,8 +191,7 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
     if not DATABASE_URL:
         raise ValueError("Neither TEST_DATABASE_URL nor DATABASE_URL environment variable is set for tests")
 
-    if "?sslmode" in DATABASE_URL:
-        DATABASE_URL = DATABASE_URL.split("?")[0]
+    DATABASE_URL = _to_async_database_url(DATABASE_URL)
 
     async_engine = create_async_engine(
         DATABASE_URL,

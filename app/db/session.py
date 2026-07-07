@@ -7,6 +7,23 @@ from sqlalchemy.orm import declarative_base
 
 dotenv.load_dotenv()
 
+
+def _to_async_database_url(database_url: str) -> str:
+    if database_url.startswith("postgresql+psycopg://"):
+        return database_url
+    if database_url.startswith("postgresql+asyncpg://"):
+        return database_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
+
+
+def _to_sync_database_url(database_url: str) -> str:
+    if database_url.startswith("postgresql+asyncpg://"):
+        return database_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+    return database_url
+
+
 # For asynchronous operations
 # テスト実行時のみTEST_DATABASE_URLを使用、それ以外はDATABASE_URLを使用
 if os.getenv("TESTING") == "1":
@@ -18,8 +35,10 @@ else:
     if not ASYNC_DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set")
 
+ASYNC_DATABASE_URL = _to_async_database_url(ASYNC_DATABASE_URL)
+
 # For synchronous operations
-SYNC_DATABASE_URL = ASYNC_DATABASE_URL.replace("+psycopg", "").replace("+asyncpg", "")
+SYNC_DATABASE_URL = _to_sync_database_url(ASYNC_DATABASE_URL)
 
 async_engine = create_async_engine(
     ASYNC_DATABASE_URL,

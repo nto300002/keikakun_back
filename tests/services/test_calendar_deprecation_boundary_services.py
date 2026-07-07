@@ -194,7 +194,11 @@ async def test_support_plan_calendar_event_service_hides_calendar_facade_calls()
         status_id=monitoring_status.id,
     )
 
-    assert created == {"renewal_event_ids": ["renewal"], "monitoring_event_ids": ["monitoring"]}
+    assert created == {
+        "assessment_event_ids": [],
+        "renewal_event_ids": ["renewal"],
+        "monitoring_event_ids": ["monitoring"],
+    }
     assert renewal_deleted is True
     assert monitoring_deleted is True
     assert calendar_service.calls[0][0] == "create_renewal_deadline_events"

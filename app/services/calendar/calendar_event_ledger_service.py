@@ -50,14 +50,17 @@ class CalendarEventLedgerService:
             db=db,
             office_id=office_id,
         )
-        if not account:
-            logger.warning("Calendar account not found. Skipping event creation.")
-            return []
-
-        account_calendar_id = account.google_calendar_id
-        if account.connection_status != CalendarConnectionStatus.connected:
-            logger.warning("Calendar account not connected. Skipping event creation.")
-            return []
+        is_google_connected = (
+            account is not None
+            and account.connection_status == CalendarConnectionStatus.connected
+            and account.google_calendar_id
+        )
+        account_calendar_id = account.google_calendar_id if is_google_connected else None
+        sync_status = (
+            CalendarSyncStatus.pending
+            if is_google_connected
+            else CalendarSyncStatus.local_only
+        )
 
         result = await db.execute(
             select(WelfareRecipient).where(WelfareRecipient.id == welfare_recipient_id)
@@ -90,7 +93,7 @@ class CalendarEventLedgerService:
             event_start_datetime=datetime.combine(event_start_date, time(9, 0), tzinfo=jst),
             event_end_datetime=datetime.combine(next_renewal_deadline, time(18, 0), tzinfo=jst),
             created_by_system=True,
-            sync_status=CalendarSyncStatus.pending,
+            sync_status=sync_status,
         )
         db.add(event)
         await db.flush()
@@ -126,14 +129,17 @@ class CalendarEventLedgerService:
             db=db,
             office_id=office_id,
         )
-        if not account:
-            logger.warning("Calendar account not found. Skipping event creation.")
-            return []
-
-        account_calendar_id = account.google_calendar_id
-        if account.connection_status != CalendarConnectionStatus.connected:
-            logger.warning("Calendar account not connected. Skipping event creation.")
-            return []
+        is_google_connected = (
+            account is not None
+            and account.connection_status == CalendarConnectionStatus.connected
+            and account.google_calendar_id
+        )
+        account_calendar_id = account.google_calendar_id if is_google_connected else None
+        sync_status = (
+            CalendarSyncStatus.pending
+            if is_google_connected
+            else CalendarSyncStatus.local_only
+        )
 
         result = await db.execute(
             select(WelfareRecipient).where(WelfareRecipient.id == welfare_recipient_id)
@@ -155,7 +161,67 @@ class CalendarEventLedgerService:
             event_start_datetime=datetime.combine(cycle_start_date, time(9, 0), tzinfo=jst),
             event_end_datetime=datetime.combine(cycle_start_date + timedelta(days=7), time(18, 0), tzinfo=jst),
             created_by_system=True,
-            sync_status=CalendarSyncStatus.pending,
+            sync_status=sync_status,
+        )
+        db.add(event)
+        await db.flush()
+
+        return [event.id]
+
+    async def create_assessment_incomplete_event(
+        self,
+        db: AsyncSession,
+        office_id: UUID,
+        welfare_recipient_id: UUID,
+        status_id: int,
+        cycle_start_date: date,
+    ) -> list[UUID]:
+        existing_event = await self.get_event_by_status(
+            db=db,
+            status_id=status_id,
+            event_type=CalendarEventType.assessment_incomplete,
+        )
+        if existing_event:
+            logger.info("Assessment incomplete event already exists. Skipping creation.")
+            return []
+
+        account = await crud_office_calendar_account.get_by_office_id(
+            db=db,
+            office_id=office_id,
+        )
+        is_google_connected = (
+            account is not None
+            and account.connection_status == CalendarConnectionStatus.connected
+            and account.google_calendar_id
+        )
+        account_calendar_id = account.google_calendar_id if is_google_connected else None
+        sync_status = (
+            CalendarSyncStatus.pending
+            if is_google_connected
+            else CalendarSyncStatus.local_only
+        )
+
+        result = await db.execute(
+            select(WelfareRecipient).where(WelfareRecipient.id == welfare_recipient_id)
+        )
+        recipient = result.scalar_one_or_none()
+        if not recipient:
+            logger.error("Welfare recipient not found")
+            return []
+
+        jst = ZoneInfo("Asia/Tokyo")
+        event = CalendarEvent(
+            office_id=office_id,
+            welfare_recipient_id=welfare_recipient_id,
+            support_plan_status_id=status_id,
+            event_type=CalendarEventType.assessment_incomplete,
+            google_calendar_id=account_calendar_id,
+            event_title=f"{recipient.last_name} {recipient.first_name} アセスメント未完了",
+            event_description="アセスメントが未完了です。",
+            event_start_datetime=datetime.combine(cycle_start_date, time(9, 0), tzinfo=jst),
+            event_end_datetime=datetime.combine(cycle_start_date + timedelta(days=7), time(18, 0), tzinfo=jst),
+            created_by_system=True,
+            sync_status=sync_status,
         )
         db.add(event)
         await db.flush()
@@ -201,6 +267,27 @@ class CalendarEventLedgerService:
             )
         )
         return list(result.scalars().all())
+
+    async def get_deadline_events(
+        self,
+        db: AsyncSession,
+        *,
+        office_id: UUID,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
+        event_type: Optional[CalendarEventType] = None,
+        recipient_id: Optional[UUID] = None,
+    ) -> list[CalendarEvent]:
+        from app.crud.crud_calendar_event import crud_calendar_event
+
+        return await crud_calendar_event.get_deadline_events(
+            db=db,
+            office_id=office_id,
+            from_date=from_date,
+            to_date=to_date,
+            event_type=event_type,
+            recipient_id=recipient_id,
+        )
 
     async def delete_event(self, db: AsyncSession, event: CalendarEvent) -> None:
         await db.delete(event)

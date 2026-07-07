@@ -419,6 +419,43 @@ class CalendarService:
             status_id=status_id,
         )
 
+    async def get_deadline_events(
+        self,
+        db: AsyncSession,
+        *,
+        office_id: UUID,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
+        event_type: Optional[CalendarEventType] = None,
+        recipient_id: Optional[UUID] = None,
+    ) -> list[CalendarEvent]:
+        """アプリ内期限カレンダー用のイベント一覧を取得する。"""
+        return await self.event_ledger_service.get_deadline_events(
+            db=db,
+            office_id=office_id,
+            from_date=from_date,
+            to_date=to_date,
+            event_type=event_type,
+            recipient_id=recipient_id,
+        )
+
+    async def create_assessment_incomplete_event(
+        self,
+        db: AsyncSession,
+        office_id: UUID,
+        welfare_recipient_id: UUID,
+        status_id: int,
+        cycle_start_date: date,
+    ) -> list[UUID]:
+        """アセスメント未完了イベントを作成する。"""
+        return await self.event_ledger_service.create_assessment_incomplete_event(
+            db=db,
+            office_id=office_id,
+            welfare_recipient_id=welfare_recipient_id,
+            status_id=status_id,
+            cycle_start_date=cycle_start_date,
+        )
+
     async def create_next_plan_start_date_event(
         self,
         db: AsyncSession,

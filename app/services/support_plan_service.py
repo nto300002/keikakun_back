@@ -101,6 +101,7 @@ class SupportPlanService:
         logger.info("Created new support plan cycle")
 
         # 3. 新しいサイクル用のステータスを作成 (アセスメントから開始)
+        assessment_status = None
         monitoring_status = None
         for i, step_type in enumerate(CYCLE_STEPS):
             due_date = None
@@ -121,6 +122,8 @@ class SupportPlanService:
             )
             db.add(new_status)
 
+            if step_type == SupportPlanStep.assessment:
+                assessment_status = new_status
             if step_type == SupportPlanStep.monitoring:
                 monitoring_status = new_status
 
@@ -138,9 +141,12 @@ class SupportPlanService:
             event_result = await support_plan_calendar_event_service.create_cycle_events(
                 db=db,
                 cycle=new_cycle,
+                assessment_status=assessment_status,
                 monitoring_status=monitoring_status,
             )
 
+            if event_result["assessment_event_ids"]:
+                logger.info("Created assessment incomplete calendar event")
             if event_result["renewal_event_ids"]:
                 logger.info("Created renewal deadline calendar event")
             if event_result["monitoring_event_ids"]:

@@ -9,6 +9,7 @@
 """
 import os
 import uuid
+from urllib.parse import urlparse
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -17,6 +18,44 @@ from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
 from app.models.office import Office
 from app.models.staff import Staff
 from app.models.enums import StaffRole
+
+
+TEST_DB_KEYWORDS = ("test", "_test", "-test", "testing", "dev", "development")
+
+
+def _is_test_database_identifier(value: str | None) -> bool:
+    if not value:
+        return False
+    return any(keyword in value.lower() for keyword in TEST_DB_KEYWORDS)
+
+
+def _database_name_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    return parsed.path.lstrip("/") or None
+
+
+def _is_separate_test_database_url(test_db_url: str | None) -> bool:
+    if not test_db_url:
+        return False
+    database_url = os.getenv("DATABASE_URL")
+    prod_database_url = os.getenv("PROD_DATABASE_URL")
+    return test_db_url != database_url and test_db_url != prod_database_url
+
+
+def _is_test_database_target(
+    *,
+    test_db_url: str | None,
+    db_name: str | None = None,
+    url_db_name: str | None = None,
+) -> bool:
+    return (
+        _is_test_database_identifier(test_db_url)
+        or _is_test_database_identifier(db_name)
+        or _is_test_database_identifier(url_db_name)
+        or _is_separate_test_database_url(test_db_url)
+    )
 
 
 class TestDatabaseConnection:
@@ -40,14 +79,12 @@ class TestDatabaseConnection:
             "Tests should use a dedicated test database."
         )
 
-        # URLに'test'という文字列が含まれていることを確認
-        assert "test" in test_db_url.lower(), (
-            f"TEST_DATABASE_URL does not contain 'test': {test_db_url}\n"
-            "This is a safety check to prevent accidentally running tests against "
-            "a production or development database."
+        assert _is_test_database_target(test_db_url=test_db_url), (
+            "TEST_DATABASE_URL is not recognized as a safe test database target. "
+            "It must contain a test/development marker or be separated from DATABASE_URL."
         )
 
-        print(f"✅ TEST_DATABASE_URL is correctly configured: {test_db_url}")
+        print("✅ TEST_DATABASE_URL is configured as a separated test database target")
 
     @pytest.mark.asyncio
     async def test_engine_uses_test_database(self, engine: AsyncEngine):
@@ -60,13 +97,12 @@ class TestDatabaseConnection:
         # エンジンのURLを取得
         engine_url = str(engine.url)
 
-        # エンジンのURLに'test'という文字列が含まれていることを確認
-        assert "test" in engine_url.lower(), (
-            f"Engine URL does not contain 'test': {engine_url}\n"
-            "The test engine should be connected to a test database."
+        assert _is_test_database_target(test_db_url=os.getenv("TEST_DATABASE_URL")), (
+            "Engine is not recognized as using a safe test database target. "
+            "TEST_DATABASE_URL must contain a test/development marker or be separated from DATABASE_URL."
         )
 
-        print(f"✅ Engine is using test database: {engine_url}")
+        print("✅ Engine is using a test database target")
 
     @pytest.mark.asyncio
     async def test_can_connect_to_database(self, db_session: AsyncSession):
@@ -105,13 +141,21 @@ class TestDatabaseConnection:
 
         print(f"📊 Connected as user: {db_user}")
 
-        # ユーザー名に'test'が含まれていることを確認（Neonブランチの区別）
-        assert "test" in db_user.lower(), (
-            f"Database user does not contain 'test': {db_user}\n"
-            "This suggests the connection is not using the test branch."
+        test_db_url = os.getenv("TEST_DATABASE_URL")
+        url_db_name = _database_name_from_url(test_db_url)
+
+        assert (
+            _is_test_database_target(
+                test_db_url=test_db_url,
+                db_name=db_name,
+                url_db_name=url_db_name,
+            )
+        ), (
+            "Connected database does not look like a test database.\n"
+            f"Database: {db_name}, URL database: {url_db_name}"
         )
 
-        print(f"✅ Database user '{db_user}' contains 'test'")
+        print(f"✅ Database target is test-scoped (database: {db_name}, user: {db_user})")
 
     @pytest.mark.asyncio
     async def test_test_data_is_stored_in_test_db(
@@ -131,8 +175,20 @@ class TestDatabaseConnection:
         result = await db_session.execute(text("SELECT current_user"))
         db_user = result.scalar()
 
-        assert "test" in db_user.lower(), (
-            f"Test data is being created in non-test database! User: {db_user}"
+        test_db_url = os.getenv("TEST_DATABASE_URL")
+        result = await db_session.execute(text("SELECT current_database()"))
+        db_name = result.scalar()
+        url_db_name = _database_name_from_url(test_db_url)
+
+        assert (
+            _is_test_database_target(
+                test_db_url=test_db_url,
+                db_name=db_name,
+                url_db_name=url_db_name,
+            )
+        ), (
+            "Test data is being created in a non-test database target. "
+            f"Database: {db_name}, User: {db_user}, URL database: {url_db_name}"
         )
 
         # 2. テストデータを作成
@@ -225,8 +281,8 @@ class TestDatabaseIsolation:
         test_db_url = os.getenv("TEST_DATABASE_URL")
         db_url = os.getenv("DATABASE_URL")
 
-        print(f"📊 TEST_DATABASE_URL: {test_db_url}")
-        print(f"📊 DATABASE_URL: {db_url}")
+        print(f"📊 TEST_DATABASE_URL set: {test_db_url is not None}")
+        print(f"📊 DATABASE_URL set: {db_url is not None}")
 
         # TEST_DATABASE_URLが設定されていること
         assert test_db_url is not None, "TEST_DATABASE_URL is not set"

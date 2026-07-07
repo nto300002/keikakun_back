@@ -1,9 +1,13 @@
-from datetime import date
+from datetime import date, datetime
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
-from app.models.enums import CalendarEventType
+from app.models.calendar_events import CalendarEvent
+from app.models.enums import CalendarEventType, CalendarSyncStatus
+from app.models.support_plan_cycle import SupportPlanCycle, SupportPlanStatus
+from app.models.enums import SupportPlanStep
 from app.services.calendar.calendar_event_ledger_service import CalendarEventLedgerService
 from app.services.calendar.google_calendar_sync_service import GoogleCalendarSyncService
 from app.services.calendar_service import CalendarService
@@ -159,3 +163,119 @@ async def test_calendar_service_delegates_google_sync_methods():
         ("delete_event_by_cycle", db, 10, CalendarEventType.renewal_deadline),
         ("delete_event_by_status", db, 20, CalendarEventType.next_plan_start_date),
     ]
+
+
+@pytest.mark.asyncio
+async def test_ledger_creates_local_only_renewal_event_without_google_account(
+    db_session,
+    office_factory,
+    employee_user_factory,
+    welfare_recipient_factory,
+):
+    staff = await employee_user_factory(with_office=False)
+    office = await office_factory(creator=staff)
+    recipient = await welfare_recipient_factory(office_id=office.id)
+    cycle = SupportPlanCycle(
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_number=1,
+        next_renewal_deadline=date(2026, 12, 31),
+    )
+    db_session.add(cycle)
+    await db_session.flush()
+
+    event_ids = await CalendarEventLedgerService().create_renewal_deadline_events(
+        db=db_session,
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_id=cycle.id,
+        next_renewal_deadline=cycle.next_renewal_deadline,
+    )
+
+    assert len(event_ids) == 1
+    event = await db_session.get(CalendarEvent, event_ids[0])
+    assert event.google_calendar_id is None
+    assert event.sync_status == CalendarSyncStatus.local_only
+    assert event.event_type == CalendarEventType.renewal_deadline
+
+
+@pytest.mark.asyncio
+async def test_ledger_creates_local_only_next_plan_event_without_google_account(
+    db_session,
+    office_factory,
+    employee_user_factory,
+    welfare_recipient_factory,
+):
+    staff = await employee_user_factory(with_office=False)
+    office = await office_factory(creator=staff)
+    recipient = await welfare_recipient_factory(office_id=office.id)
+    cycle = SupportPlanCycle(
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_number=2,
+    )
+    db_session.add(cycle)
+    await db_session.flush()
+    status = SupportPlanStatus(
+        plan_cycle_id=cycle.id,
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        step_type=SupportPlanStep.monitoring,
+    )
+    db_session.add(status)
+    await db_session.flush()
+
+    event_ids = await CalendarEventLedgerService().create_next_plan_start_date_events(
+        db=db_session,
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_id=cycle.id,
+        cycle_start_date=date(2026, 8, 1),
+        cycle_number=cycle.cycle_number,
+        status_id=status.id,
+    )
+
+    assert len(event_ids) == 1
+    event = await db_session.get(CalendarEvent, event_ids[0])
+    assert event.google_calendar_id is None
+    assert event.sync_status == CalendarSyncStatus.local_only
+    assert event.event_type == CalendarEventType.next_plan_start_date
+
+
+@pytest.mark.asyncio
+async def test_google_sync_ignores_local_only_events(
+    db_session,
+    office_factory,
+    employee_user_factory,
+    welfare_recipient_factory,
+):
+    staff = await employee_user_factory(with_office=False)
+    office = await office_factory(creator=staff)
+    recipient = await welfare_recipient_factory(office_id=office.id)
+    cycle = SupportPlanCycle(
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        cycle_number=1,
+    )
+    db_session.add(cycle)
+    await db_session.flush()
+    db_session.add(
+        CalendarEvent(
+            office_id=office.id,
+            welfare_recipient_id=recipient.id,
+            support_plan_cycle_id=cycle.id,
+            event_type=CalendarEventType.renewal_deadline,
+            google_calendar_id=None,
+            event_title="ローカル期限",
+            event_start_datetime=datetime.fromisoformat("2026-08-01T09:00:00+09:00"),
+            event_end_datetime=datetime.fromisoformat("2026-08-01T18:00:00+09:00"),
+            sync_status=CalendarSyncStatus.local_only,
+        )
+    )
+    await db_session.flush()
+
+    result = await GoogleCalendarSyncService().sync_pending_events(db=db_session)
+
+    assert result == {"synced": 0, "failed": 0}
+    events = (await db_session.execute(select(CalendarEvent))).scalars().all()
+    assert [event.sync_status for event in events] == [CalendarSyncStatus.local_only]

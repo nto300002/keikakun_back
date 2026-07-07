@@ -1,8 +1,9 @@
 """カレンダー設定APIエンドポイント"""
+from datetime import date
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,9 +15,25 @@ from app.schemas.calendar_account import (
     CalendarSetupResponse,
     OfficeCalendarAccountResponse
 )
+from app.schemas.calendar_event import CalendarEventResponse
 from app.messages import ja
 
 router = APIRouter()
+
+
+def _get_primary_office_id(current_user: models.Staff) -> UUID:
+    office_associations = getattr(current_user, "office_associations", None)
+    if not office_associations:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.RECIPIENT_MUST_HAVE_OFFICE,
+        )
+
+    primary_association = next(
+        (assoc for assoc in office_associations if assoc.is_primary),
+        office_associations[0],
+    )
+    return primary_association.office_id
 
 
 @router.post("/setup", response_model=CalendarSetupResponse, status_code=status.HTTP_201_CREATED)
@@ -145,6 +162,29 @@ async def get_calendar_by_office(
         )
 
     return OfficeCalendarAccountResponse.model_validate(account)
+
+
+@router.get("/events", response_model=list[CalendarEventResponse])
+async def get_calendar_events(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.Staff = Depends(deps.get_current_user),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    event_type: models.CalendarEventType | None = Query(default=None),
+    recipient_id: UUID | None = Query(default=None),
+) -> Any:
+    """アプリ内期限カレンダーのイベント一覧を取得する。"""
+    office_id = _get_primary_office_id(current_user)
+    events = await calendar_service.get_deadline_events(
+        db=db,
+        office_id=office_id,
+        from_date=from_date,
+        to_date=to_date,
+        event_type=event_type,
+        recipient_id=recipient_id,
+    )
+    return [CalendarEventResponse.model_validate(event) for event in events]
 
 
 @router.get("/{account_id}", response_model=OfficeCalendarAccountResponse)

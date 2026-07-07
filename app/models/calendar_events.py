@@ -62,9 +62,9 @@ class CalendarEvent(Base):
     )
 
     # Googleカレンダー情報
-    google_calendar_id: Mapped[str] = mapped_column(
+    google_calendar_id: Mapped[Optional[str]] = mapped_column(
         String(255),
-        nullable=False
+        nullable=True
     )
 
     google_event_id: Mapped[Optional[str]] = mapped_column(
@@ -150,13 +150,13 @@ class CalendarEvent(Base):
             "idx_calendar_events_cycle_type_unique",
             "support_plan_cycle_id", "event_type",
             unique=True,
-            postgresql_where="support_plan_cycle_id IS NOT NULL AND (sync_status = 'pending' OR sync_status = 'synced')"
+            postgresql_where="support_plan_cycle_id IS NOT NULL AND (sync_status = 'pending' OR sync_status = 'synced' OR sync_status = 'local_only')"
         ),
         Index(
             "idx_calendar_events_status_type_unique",
             "support_plan_status_id", "event_type",
             unique=True,
-            postgresql_where="support_plan_status_id IS NOT NULL AND (sync_status = 'pending' OR sync_status = 'synced')"
+            postgresql_where="support_plan_status_id IS NOT NULL AND (sync_status = 'pending' OR sync_status = 'synced' OR sync_status = 'local_only')"
         ),
     )
 

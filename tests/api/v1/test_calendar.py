@@ -7,13 +7,21 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from app.models.calendar_events import CalendarEvent
 from app.models.office import Office, OfficeStaff
 from app.models.staff import Staff
+from app.models.support_plan_cycle import SupportPlanCycle
 from app.models.calendar_account import OfficeCalendarAccount
-from app.models.enums import StaffRole, OfficeType, CalendarConnectionStatus
+from app.models.enums import (
+    StaffRole,
+    OfficeType,
+    CalendarConnectionStatus,
+    CalendarEventType,
+    CalendarSyncStatus,
+)
 from app import crud
 from app.core.security import create_access_token
 
@@ -253,6 +261,117 @@ class TestSetupCalendar:
 
         # Assert
         assert response.status_code == 401
+
+
+class TestGetCalendarEvents:
+    async def test_get_events_returns_only_current_office_events(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        owner_user_factory,
+        office_factory,
+        welfare_recipient_factory,
+    ):
+        owner = await owner_user_factory()
+        office = owner.office_associations[0].office
+        other_owner = await owner_user_factory()
+        other_office = other_owner.office_associations[0].office
+        recipient = await welfare_recipient_factory(office_id=office.id)
+        other_recipient = await welfare_recipient_factory(office_id=other_office.id)
+        cycle = SupportPlanCycle(office_id=office.id, welfare_recipient_id=recipient.id)
+        other_cycle = SupportPlanCycle(office_id=other_office.id, welfare_recipient_id=other_recipient.id)
+        db_session.add_all([cycle, other_cycle])
+        await db_session.flush()
+        db_session.add_all([
+            CalendarEvent(
+                office_id=office.id,
+                welfare_recipient_id=recipient.id,
+                support_plan_cycle_id=cycle.id,
+                event_type=CalendarEventType.renewal_deadline,
+                google_calendar_id="local-calendar",
+                event_title="自事業所イベント",
+                event_start_datetime=datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc),
+                event_end_datetime=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc),
+                sync_status=CalendarSyncStatus.pending,
+            ),
+            CalendarEvent(
+                office_id=other_office.id,
+                welfare_recipient_id=other_recipient.id,
+                support_plan_cycle_id=other_cycle.id,
+                event_type=CalendarEventType.renewal_deadline,
+                google_calendar_id="local-calendar",
+                event_title="他事業所イベント",
+                event_start_datetime=datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc),
+                event_end_datetime=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc),
+                sync_status=CalendarSyncStatus.pending,
+            ),
+        ])
+        await db_session.flush()
+
+        headers = {"Authorization": f"Bearer {create_access_token(str(owner.id), timedelta(minutes=30))}"}
+        response = await async_client.get("/api/v1/calendar/events", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [event["event_title"] for event in data] == ["自事業所イベント"]
+        assert data[0]["welfare_recipient_id"] == str(recipient.id)
+
+    async def test_get_events_filters_by_type_recipient_and_date_range(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        owner_user_factory,
+        welfare_recipient_factory,
+    ):
+        owner = await owner_user_factory()
+        office = owner.office_associations[0].office
+        recipient = await welfare_recipient_factory(office_id=office.id)
+        other_recipient = await welfare_recipient_factory(office_id=office.id)
+        cycle = SupportPlanCycle(office_id=office.id, welfare_recipient_id=recipient.id)
+        other_cycle = SupportPlanCycle(office_id=office.id, welfare_recipient_id=other_recipient.id)
+        db_session.add_all([cycle, other_cycle])
+        await db_session.flush()
+        db_session.add_all([
+            CalendarEvent(
+                office_id=office.id,
+                welfare_recipient_id=recipient.id,
+                support_plan_cycle_id=cycle.id,
+                event_type=CalendarEventType.renewal_deadline,
+                google_calendar_id="local-calendar",
+                event_title="対象イベント",
+                event_start_datetime=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc),
+                event_end_datetime=datetime(2026, 8, 10, 18, 0, tzinfo=timezone.utc),
+                sync_status=CalendarSyncStatus.pending,
+            ),
+            CalendarEvent(
+                office_id=office.id,
+                welfare_recipient_id=other_recipient.id,
+                support_plan_cycle_id=other_cycle.id,
+                event_type=CalendarEventType.next_plan_start_date,
+                google_calendar_id="local-calendar",
+                event_title="対象外イベント",
+                event_start_datetime=datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc),
+                event_end_datetime=datetime(2026, 9, 1, 18, 0, tzinfo=timezone.utc),
+                sync_status=CalendarSyncStatus.pending,
+            ),
+        ])
+        await db_session.flush()
+
+        headers = {"Authorization": f"Bearer {create_access_token(str(owner.id), timedelta(minutes=30))}"}
+        response = await async_client.get(
+            "/api/v1/calendar/events",
+            params={
+                "from_date": "2026-08-01",
+                "to_date": "2026-08-31",
+                "event_type": CalendarEventType.renewal_deadline.value,
+                "recipient_id": str(recipient.id),
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [event["event_title"] for event in data] == ["対象イベント"]
 
 
 # --- カレンダー設定取得API (/api/v1/calendar/office/{office_id}) のテスト ---
