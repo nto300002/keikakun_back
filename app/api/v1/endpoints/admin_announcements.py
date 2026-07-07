@@ -3,12 +3,12 @@ app_admin用お知らせAPIエンドポイント
 
 全スタッフへのお知らせ（MessageType.announcement）を管理
 """
-from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db, require_app_admin, validate_csrf
+from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
 from app.models.message import Message
 from app.models.enums import MessageType
@@ -79,11 +79,9 @@ async def get_announcements(
 @router.post("", response_model=MessageDetailResponse, status_code=status.HTTP_201_CREATED)
 async def send_announcement_to_all(
     *,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
     message_in: MessageAnnouncementCreate,
-    _: None = Depends(validate_csrf)
 ):
     """
     全事務所の全スタッフへお知らせを送信（app_admin専用）
@@ -99,6 +97,7 @@ async def send_announcement_to_all(
             Staff.is_deleted == False,  # noqa: E712
             Staff.id != current_user.id
         )
+        .options(selectinload(Staff.office_associations))
     )
     all_staff_result = await db.execute(all_staff_query)
     all_staff = list(all_staff_result.scalars().all())
@@ -109,10 +108,20 @@ async def send_announcement_to_all(
             detail="送信先のスタッフが存在しません"
         )
 
-    # 事務所IDを取得（最初のスタッフの事務所、またはNone）
-    office_id = None
-    if all_staff and all_staff[0].office_associations:
-        office_id = all_staff[0].office_associations[0].office_id
+    # messages.office_id は必須のため、送信対象の中から所属事務所を持つスタッフを探す
+    office_id = next(
+        (
+            staff.office_associations[0].office_id
+            for staff in all_staff
+            if staff.office_associations
+        ),
+        None,
+    )
+    if office_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="送信先の事務所が見つかりません"
+        )
 
     recipient_ids = [staff.id for staff in all_staff]
 

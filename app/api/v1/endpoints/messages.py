@@ -3,7 +3,7 @@
 
 個別メッセージ、一斉通知、受信箱、統計などのAPI
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from uuid import UUID
@@ -35,11 +35,9 @@ router = APIRouter()
 @router.post("/personal", response_model=MessageDetailResponse, status_code=status.HTTP_201_CREATED)
 async def send_personal_message(
     *,
-    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
     message_in: MessagePersonalCreate,
-    _: None = Depends(deps.validate_csrf)
 ):
     """
     個別メッセージを送信
@@ -110,11 +108,9 @@ async def send_personal_message(
 @router.post("/announcement", response_model=MessageDetailResponse, status_code=status.HTTP_201_CREATED)
 async def send_announcement(
     *,
-    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
     message_in: MessageAnnouncementCreate,
-    _: None = Depends(deps.validate_csrf)
 ):
     """
     一斉通知を送信（事務所内の全スタッフへ）
@@ -253,11 +249,9 @@ async def get_inbox_messages(
 @router.post("/{message_id}/read", response_model=MessageRecipientResponse)
 async def mark_message_as_read(
     *,
-    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
     message_id: UUID,
-    _: None = Depends(deps.validate_csrf)
 ):
     """
     メッセージを既読にする
@@ -342,10 +336,8 @@ async def get_unread_count(
 @router.post("/mark-all-read")
 async def mark_all_as_read(
     *,
-    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.get_current_user),
-    _: None = Depends(deps.validate_csrf)
 ):
     """
     全未読メッセージを既読にする
