@@ -3,18 +3,18 @@ app_admin用お知らせAPIエンドポイント
 
 全スタッフへのお知らせ（MessageType.announcement）を管理
 """
-from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, require_app_admin, validate_csrf
+from app.models.office import OfficeStaff
 from app.models.staff import Staff
 from app.models.message import Message
 from app.models.enums import MessageType
 from app.schemas.message import MessageResponse, MessageAnnouncementCreate, MessageDetailResponse
 from app.crud.crud_message import crud_message
-from app import crud
 
 router = APIRouter()
 
@@ -79,7 +79,6 @@ async def get_announcements(
 @router.post("", response_model=MessageDetailResponse, status_code=status.HTTP_201_CREATED)
 async def send_announcement_to_all(
     *,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
     message_in: MessageAnnouncementCreate,
@@ -92,34 +91,43 @@ async def send_announcement_to_all(
     - 全事務所の全スタッフに一斉送信
     - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
-    # 全スタッフを取得（app_admin自身を除く）
-    all_staff_query = (
-        select(Staff)
+    # 全スタッフIDを取得（app_admin自身を除く）
+    recipient_ids_query = (
+        select(Staff.id)
         .where(
             Staff.is_deleted == False,  # noqa: E712
             Staff.id != current_user.id
         )
     )
-    all_staff_result = await db.execute(all_staff_query)
-    all_staff = list(all_staff_result.scalars().all())
+    recipient_ids_result = await db.execute(recipient_ids_query)
+    recipient_ids = list(recipient_ids_result.scalars().all())
 
-    if not all_staff:
+    if not recipient_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="送信先のスタッフが存在しません"
         )
 
-    # 事務所IDを取得（最初のスタッフの事務所、またはNone）
-    office_id = None
-    if all_staff and all_staff[0].office_associations:
-        office_id = all_staff[0].office_associations[0].office_id
+    # Message.office_id は現行DBで必須のため、対象スタッフの所属事務所をSQLで取得する。
+    office_id_query = (
+        select(OfficeStaff.office_id)
+        .where(OfficeStaff.staff_id.in_(recipient_ids))
+        .order_by(OfficeStaff.is_primary.desc(), OfficeStaff.created_at.asc())
+        .limit(1)
+    )
+    office_id_result = await db.execute(office_id_query)
+    office_id = office_id_result.scalar_one_or_none()
 
-    recipient_ids = [staff.id for staff in all_staff]
+    if office_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="送信先スタッフの所属事務所が存在しません"
+        )
 
     # お知らせを作成
     message_data = {
         "sender_staff_id": current_user.id,
-        "office_id": office_id,  # app_adminの場合はNULLでも良い
+        "office_id": office_id,
         "recipient_ids": recipient_ids,
         "message_type": MessageType.announcement,
         "priority": message_in.priority,

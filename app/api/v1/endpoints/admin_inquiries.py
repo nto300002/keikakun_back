@@ -225,27 +225,26 @@ async def reply_to_inquiry(
         - メール送信フラグがTrueの場合は実際にメールを送信
     """
     try:
-        # メール送信用にcommit前に問い合わせ情報を取得
+        # 返信はアプリ内通知とメールを連動させる。
+        # sender_email が存在する場合は、リクエストの send_email 値にかかわらずメール送信対象にする。
         email_data = None
-        if reply_in.send_email:
-            inquiry = await crud_inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
-            if inquiry and inquiry.sender_email:
-                # メール送信に必要な情報を事前に取得
-                original_message = inquiry.message
-                email_data = {
-                    "recipient_email": inquiry.sender_email,
-                    "recipient_name": inquiry.sender_name,
-                    "inquiry_title": original_message.title if original_message else "問い合わせ",
-                    "inquiry_created_at": inquiry.created_at.isoformat() if inquiry.created_at else "",
-                    "reply_content": reply_in.body,
-                }
+        inquiry = await crud_inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
+        if inquiry and inquiry.sender_email:
+            original_message = inquiry.message
+            email_data = {
+                "recipient_email": inquiry.sender_email,
+                "recipient_name": inquiry.sender_name,
+                "inquiry_title": original_message.title if original_message else "問い合わせ",
+                "inquiry_created_at": inquiry.created_at.isoformat() if inquiry.created_at else "",
+                "reply_content": reply_in.body,
+            }
 
         reply_message = await crud_inquiry.create_reply(
             db=db,
             inquiry_id=inquiry_id,
             reply_staff_id=current_user.id,
             reply_content=reply_in.body,
-            send_email=reply_in.send_email
+            send_email=email_data is not None
         )
 
         # コミット前に必要な値を取得（重要！）
@@ -271,10 +270,10 @@ async def reply_to_inquiry(
                 logger.error("問い合わせ返信メール送信に失敗: %s", type(email_error).__name__)
 
         # メッセージ内容を決定
-        if reply_in.send_email:
-            message_text = "返信を送信しました（メール送信を含む）"
+        if email_data:
+            message_text = "返信を送信しました（アプリ内通知とメールを連動）"
         else:
-            message_text = "返信を送信しました（内部通知のみ）"
+            message_text = "返信を送信しました（アプリ内通知のみ）"
 
         return InquiryReplyResponse(
             id=reply_message_id,
