@@ -241,6 +241,28 @@ class TestCSRFProtection:
         assert response.json()["detail"] == "所属事務所が退会済みのため、ログインできません"
 
     @pytest.mark.asyncio
+    async def test_logout_is_not_blocked_by_csrf_with_cookie_auth(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        owner_user_factory,
+    ):
+        """
+        logoutは401後の後始末でも使うため、Cookie認証でもCSRF exemptにする。
+        """
+        owner = await owner_user_factory()
+        access_token = create_access_token(str(owner.id), timedelta(minutes=30))
+
+        response = await async_client.post(
+            "/api/v1/auth/logout",
+            cookies={"access_token": access_token},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "ログアウトしました"
+        assert "access_token=" in response.headers.get("set-cookie", "")
+
+    @pytest.mark.asyncio
     async def test_get_requests_do_not_require_csrf(
         self,
         async_client: AsyncClient,
