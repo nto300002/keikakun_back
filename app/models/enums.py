@@ -161,6 +161,7 @@ class CalendarEventType(str, enum.Enum):
     """カレンダーイベントタイプ"""
     renewal_deadline = "renewal_deadline"       # 更新期限
     next_plan_start_date = "next_plan_start_date" # 次回計画開始期限
+    assessment_incomplete = "assessment_incomplete" # アセスメント未完了
     custom = "custom"                           # カスタムイベント
 
 class CalendarSyncStatus(str, enum.Enum):
@@ -169,6 +170,7 @@ class CalendarSyncStatus(str, enum.Enum):
     synced = "synced"       # 同期済み
     failed = "failed"       # 同期失敗
     cancelled = "cancelled" # キャンセル済み
+    local_only = "local_only" # アプリ内のみ
 
 class ReminderPatternType(str, enum.Enum):
     """リマインダーパターンタイプ"""

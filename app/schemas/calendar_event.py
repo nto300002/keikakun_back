@@ -11,7 +11,7 @@ from app.models.enums import CalendarEventType, CalendarSyncStatus
 class CalendarEventBase(BaseModel):
     """カレンダーイベントのベーススキーマ"""
     event_type: CalendarEventType
-    google_calendar_id: str
+    google_calendar_id: Optional[str] = None
     event_title: str
     event_description: Optional[str] = None
     event_start_datetime: datetime

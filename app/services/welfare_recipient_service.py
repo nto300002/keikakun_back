@@ -146,6 +146,7 @@ class WelfareRecipientService:
         db.add(cycle)
         await db.flush()  # cycle.id を取得するため
 
+        assessment_status = None
         for i, step in enumerate(CYCLE_STEPS):
             status = SupportPlanStatus(
                 plan_cycle_id=cycle.id,
@@ -156,6 +157,8 @@ class WelfareRecipientService:
                 is_latest_status=(i == 0)  # 最初のステップを最新にする
             )
             db.add(status)
+            if step == SupportPlanStep.assessment:
+                assessment_status = status
 
         await db.flush()
 
@@ -167,6 +170,7 @@ class WelfareRecipientService:
                 await support_plan_calendar_event_service.create_cycle_events(
                     db=db,
                     cycle=cycle,
+                    assessment_status=assessment_status,
                 )
             except SQLAlchemyIntegrityError:
                 logger.warning("[DEBUG] Calendar deadline event already exists")

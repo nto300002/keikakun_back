@@ -31,16 +31,29 @@ steps:
   args:
     - 'scripts/alembic_baseline_guard.py'
 
-# 4. Cloud Runに反映する前に、本番DBへAlembic migrationを適用する
+# 4. 本番TEST DBがbaseline以降としてAlembic管理されていることを確認する
 - name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$SHORT_SHA'
-  entrypoint: alembic
+  entrypoint: python
   env:
-    - 'DATABASE_URL=${_PROD_DATABASE_URL}'
+    - 'DATABASE_URL=${_PROD_TEST_DATABASE_URL}'
+    - 'ALEMBIC_BASELINE_REVISION=baseline_20260701'
   args:
+    - 'scripts/alembic_baseline_guard.py'
+
+# 5. Cloud Runに反映する前に、本番DBと本番TEST DBへAlembic migrationを適用する
+- name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$SHORT_SHA'
+  entrypoint: python
+  env:
+    - 'PROD_DATABASE_URL=${_PROD_DATABASE_URL}'
+    - 'PROD_TEST_DATABASE_URL=${_PROD_TEST_DATABASE_URL}'
+  args:
+    - 'scripts/run_alembic_for_pair.py'
+    - '--env'
+    - 'prod'
     - 'upgrade'
     - 'head'
 
-# 5. プッシュしたイメージを使ってCloud Runにデプロイするステップ（commit hashタグで明示的にバージョン管理）
+# 6. プッシュしたイメージを使ってCloud Runにデプロイするステップ（commit hashタグで明示的にバージョン管理）
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: gcloud
   args:

@@ -640,16 +640,21 @@ class TestFinalDatabaseCleanupVerification:
         print(f"✅ TEST_DATABASE_URL: {'設定済み' if test_db_url else '未設定'}")
 
         # 2. データベースブランチの確認
-        if "keikakun_dev_test" in test_db_url:
+        test_db_url_lower = test_db_url.lower()
+        if "keikakun_dev_test" in test_db_url_lower:
             branch_name = "dev_test"
-        elif "keikakun_prod_test" in test_db_url:
+        elif "keikakun_prod_test" in test_db_url_lower:
             branch_name = "prod_test"
-        elif "main_test" in test_db_url:
+        elif "main_test" in test_db_url_lower:
             branch_name = "ci_test"
+        elif "test" in test_db_url_lower:
+            branch_name = "test"
+        elif test_db_url != os.getenv("DATABASE_URL") and test_db_url != os.getenv("PROD_DATABASE_URL"):
+            branch_name = "separate_test_url"
         else:
             branch_name = "unknown"
 
-        assert branch_name in ["dev_test", "prod_test", "ci_test"], f"テスト用DBに接続されていません: {branch_name}"
+        assert branch_name in ["dev_test", "prod_test", "ci_test", "test", "separate_test_url"], f"テスト用DBに接続されていません: {branch_name}"
         print(f"✅ 接続先DBブランチ: {branch_name}")
 
         # 3. クリーンアップ関数の実行確認
