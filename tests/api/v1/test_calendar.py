@@ -374,6 +374,95 @@ class TestGetCalendarEvents:
         assert [event["event_title"] for event in data] == ["対象イベント"]
 
 
+class TestExportCalendarIcs:
+    async def test_export_ics_returns_recipient_events_without_google_setup(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        owner_user_factory,
+        office_factory,
+        welfare_recipient_factory,
+    ):
+        owner = await owner_user_factory()
+        office = owner.office_associations[0].office
+        other_owner = await owner_user_factory()
+        other_office = other_owner.office_associations[0].office
+        recipient = await welfare_recipient_factory(office_id=office.id)
+        other_recipient = await welfare_recipient_factory(office_id=other_office.id)
+        cycle = SupportPlanCycle(office_id=office.id, welfare_recipient_id=recipient.id)
+        other_cycle = SupportPlanCycle(office_id=other_office.id, welfare_recipient_id=other_recipient.id)
+        db_session.add_all([cycle, other_cycle])
+        await db_session.flush()
+        db_session.add_all([
+            CalendarEvent(
+                office_id=office.id,
+                welfare_recipient_id=recipient.id,
+                support_plan_cycle_id=cycle.id,
+                event_type=CalendarEventType.renewal_deadline,
+                google_calendar_id="local-calendar",
+                event_title="更新期限,確認",
+                event_description="1行目\n2行目;注意\\確認",
+                event_start_datetime=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc),
+                event_end_datetime=datetime(2026, 8, 10, 18, 0, tzinfo=timezone.utc),
+                sync_status=CalendarSyncStatus.pending,
+            ),
+            CalendarEvent(
+                office_id=other_office.id,
+                welfare_recipient_id=other_recipient.id,
+                support_plan_cycle_id=other_cycle.id,
+                event_type=CalendarEventType.renewal_deadline,
+                google_calendar_id="local-calendar",
+                event_title="他事業所イベント",
+                event_start_datetime=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc),
+                event_end_datetime=datetime(2026, 8, 10, 18, 0, tzinfo=timezone.utc),
+                sync_status=CalendarSyncStatus.pending,
+            ),
+        ])
+        await db_session.flush()
+
+        headers = {"Authorization": f"Bearer {create_access_token(str(owner.id), timedelta(minutes=30))}"}
+        response = await async_client.get(
+            "/api/v1/calendar/export.ics",
+            params={
+                "from_date": "2026-08-01",
+                "to_date": "2026-08-31",
+                "recipient_id": str(recipient.id),
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/calendar")
+        assert "attachment; filename=\"keikakun-calendar-" in response.headers["content-disposition"]
+        body = response.text
+        assert "BEGIN:VCALENDAR" in body
+        assert "VERSION:2.0" in body
+        assert "METHOD:PUBLISH" in body
+        assert f"UID:{recipient.id}" not in body
+        assert "SUMMARY:更新期限\\,確認" in body
+        assert "DESCRIPTION:1行目\\n2行目\\;注意\\\\確認" in body
+        assert "DTSTART:20260810T090000Z" in body
+        assert "DTEND:20260810T180000Z" in body
+        assert "他事業所イベント" not in body
+
+    async def test_export_ics_rejects_more_than_one_year_range(
+        self,
+        async_client: AsyncClient,
+        owner_user_factory,
+    ):
+        owner = await owner_user_factory()
+        headers = {"Authorization": f"Bearer {create_access_token(str(owner.id), timedelta(minutes=30))}"}
+
+        response = await async_client.get(
+            "/api/v1/calendar/export.ics",
+            params={"from_date": "2026-01-01", "to_date": "2027-01-02"},
+            headers=headers,
+        )
+
+        assert response.status_code == 400
+        assert "1年" in response.json()["detail"]
+
+
 # --- カレンダー設定取得API (/api/v1/calendar/office/{office_id}) のテスト ---
 
 class TestGetCalendarByOffice:
