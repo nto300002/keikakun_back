@@ -179,6 +179,7 @@ async def get_inbox_messages(
     current_user: Staff = Depends(deps.get_current_user),
     is_read: Optional[bool] = Query(None, description="既読フィルタ"),
     message_type: Optional[MessageType] = Query(None, description="メッセージタイプフィルタ"),
+    message_types: Optional[List[MessageType]] = Query(None, description="複数メッセージタイプフィルタ"),
     skip: int = Query(0, ge=0, description="スキップ数"),
     limit: int = Query(20, ge=1, le=100, description="取得数上限")
 ):
@@ -195,6 +196,7 @@ async def get_inbox_messages(
         db=db,
         recipient_staff_id=current_user.id,
         message_type=message_type,
+        message_types=message_types,
         is_read=is_read,
         skip=skip,
         limit=limit

@@ -105,6 +105,7 @@ async def get_inquiries(
             priority=inquiry.priority,
             sender_name=inquiry.sender_name,
             sender_email=inquiry.sender_email,
+            sender_staff_id=inquiry.message.sender_staff_id if inquiry.message else None,
             assigned_staff_id=inquiry.assigned_staff_id,
             assigned_staff=assigned_staff_info,
             created_at=inquiry.created_at,

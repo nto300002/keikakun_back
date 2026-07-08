@@ -12,7 +12,7 @@ from app.api.deps import get_db, require_app_admin, validate_csrf
 from app.models.office import OfficeStaff
 from app.models.staff import Staff
 from app.models.message import Message
-from app.models.enums import MessageType
+from app.models.enums import MessageType, StaffRole
 from app.schemas.message import MessageResponse, MessageAnnouncementCreate, MessageDetailResponse
 from app.crud.crud_message import crud_message
 
@@ -91,12 +91,25 @@ async def send_announcement_to_all(
     - 全事務所の全スタッフに一斉送信
     - CSRF保護: Cookie認証の場合はCSRFトークンが必要
     """
-    # 全スタッフIDを取得（app_admin自身を除く）
+    # 全スタッフIDを取得（app_admin自身を除く）。
+    # 通常スタッフは verified かつ事業所所属あり、他 app_admin は事業所なしでも対象に含める。
+    office_membership_exists = (
+        select(OfficeStaff.staff_id)
+        .where(OfficeStaff.staff_id == Staff.id)
+        .exists()
+    )
     recipient_ids_query = (
         select(Staff.id)
         .where(
             Staff.is_deleted == False,  # noqa: E712
-            Staff.id != current_user.id
+            Staff.id != current_user.id,
+            (
+                (Staff.role == StaffRole.app_admin)
+                | (
+                    (Staff.is_email_verified == True)  # noqa: E712
+                    & office_membership_exists
+                )
+            )
         )
     )
     recipient_ids_result = await db.execute(recipient_ids_query)

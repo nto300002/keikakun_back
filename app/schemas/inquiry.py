@@ -201,6 +201,7 @@ class InquiryListItem(BaseModel):
     priority: InquiryPriority
     sender_name: Optional[str] = None
     sender_email: Optional[str] = None
+    sender_staff_id: Optional[uuid.UUID] = None
     assigned_staff_id: Optional[uuid.UUID] = None
     assigned_staff: Optional[StaffInfo] = None
     created_at: datetime
