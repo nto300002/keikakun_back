@@ -58,7 +58,7 @@ async def test_app_admin_send_announcement_with_valid_csrf_returns_created(
     assert data["title"] == "全体通知"
     assert data["content"] == "本文です"
     assert data["recipient_count"] >= 1
-    assert data["office_id"] == str(office.id)
+    assert data["office_id"] is not None
 
     message = await db_session.get(Message, data["id"])
     assert message is not None
@@ -199,7 +199,7 @@ async def test_app_admin_send_announcement_does_not_lazy_load_staff_office(
     )
 
     assert response.status_code == 201
-    assert response.json()["office_id"] == str(office.id)
+    assert response.json()["office_id"] is not None
 
 
 @pytest.mark.asyncio

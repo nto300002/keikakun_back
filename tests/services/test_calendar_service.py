@@ -453,7 +453,8 @@ class TestCalendarService:
         from datetime import date, timedelta
         from app.models.support_plan_cycle import SupportPlanCycle
         from app.models.welfare_recipient import WelfareRecipient
-        from app.models.enums import GenderType
+        from app.models.enums import GenderType, CalendarEventType, CalendarSyncStatus
+        from app import crud
 
         staff, office, staff_id, office_id = setup_staff_and_office
 
@@ -482,7 +483,7 @@ class TestCalendarService:
         db_session.add(cycle)
         await db_session.flush()
 
-        # イベント作成（カレンダー設定がないので空リスト）
+        # イベント作成（カレンダー設定がない場合はローカル台帳イベントを作成）
         event_ids = await calendar_service.create_renewal_deadline_events(
             db=db_session,
             office_id=office_id,
@@ -492,7 +493,14 @@ class TestCalendarService:
         )
 
         # アサーション
-        assert event_ids == []
+        assert len(event_ids) == 1
+        event = await crud.calendar_event.get(db=db_session, id=event_ids[0])
+        assert event is not None
+        assert event.event_type == CalendarEventType.renewal_deadline
+        assert event.welfare_recipient_id == recipient.id
+        assert event.support_plan_cycle_id == cycle.id
+        assert event.google_calendar_id is None
+        assert event.sync_status == CalendarSyncStatus.local_only
 
     async def test_sync_pending_events_success(
         self,
