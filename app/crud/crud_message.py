@@ -4,7 +4,7 @@
 個別メッセージ、一斉通知、受信箱、統計などの操作を提供
 トランザクション管理とバルクインサートを適切に実装
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Sequence
 from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -226,6 +226,7 @@ class CRUDMessage(CRUDBase[Message, Dict[str, Any], Dict[str, Any]]):
         *,
         recipient_staff_id: UUID,
         message_type: Optional[MessageType] = None,
+        message_types: Optional[Sequence[MessageType]] = None,
         is_read: Optional[bool] = None,
         skip: int = 0,
         limit: int = 100
@@ -254,7 +255,9 @@ class CRUDMessage(CRUDBase[Message, Dict[str, Any], Dict[str, Any]]):
         )
 
         # フィルタを適用
-        if message_type is not None:
+        if message_types:
+            stmt = stmt.where(Message.message_type.in_(message_types))
+        elif message_type is not None:
             stmt = stmt.where(Message.message_type == message_type)
 
         if is_read is not None:
