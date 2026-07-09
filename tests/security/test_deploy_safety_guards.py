@@ -75,6 +75,12 @@ def test_jwt_and_mfa_encryption_do_not_use_known_production_fallbacks():
     assert "get_mfa_encryption_key_source()" in security_source
 
 
+def test_cloud_run_deploy_sets_mfa_encryption_key():
+    cloudbuild_source = read_app_source("cloudbuild.yml")
+
+    assert "ENCRYPTION_KEY=${_ENCRYPTION_KEY}" in cloudbuild_source
+
+
 def test_app_adds_security_headers_in_frontend_and_backend():
     backend_source = read_app_source("app/main.py")
 
