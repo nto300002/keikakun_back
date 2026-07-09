@@ -29,9 +29,20 @@ PDF_READ_CHUNK_BYTES = 1024 * 1024
 
 def sanitize_pdf_filename(filename: str | None) -> str:
     """S3 object名に含める元ファイル名を最小限サニタイズする。"""
-    safe_name = (filename or "unknown.pdf").split("/")[-1].split("\\")[-1]
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", safe_name).strip("._")
+    original_name = (filename or "unknown.pdf").split("/")[-1].split("\\")[-1]
+    name_part, dot, extension = original_name.rpartition(".")
+    if dot and extension.lower() == "pdf":
+        safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", name_part).strip("._")
+        return f"{safe_stem or 'file'}.pdf"
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", original_name).strip("._")
     return safe_name or "unknown.pdf"
+
+
+def get_original_pdf_filename(filename: str | None) -> str:
+    """画面表示用の元ファイル名からパス要素だけを除去する。"""
+    original_name = (filename or "unknown.pdf").split("/")[-1].split("\\")[-1]
+    return original_name or "unknown.pdf"
 
 
 def validate_pdf_upload(file_content: bytes, filename: str | None, content_type: str | None) -> None:
@@ -251,6 +262,7 @@ async def upload_plan_deliverable(
 
     # 5. ファイル名の衝突を避けるためにUUIDを付与
     safe_filename = sanitize_pdf_filename(file.filename)
+    original_filename = get_original_pdf_filename(file.filename)
     unique_filename = f"{uuid_lib.uuid4()}_{safe_filename}"
     object_name = f"plan-deliverables/{plan_cycle_id}/{deliverable_type}/{unique_filename}"
 
@@ -269,7 +281,7 @@ async def upload_plan_deliverable(
         plan_cycle_id=plan_cycle_id,
         deliverable_type=DeliverableType(deliverable_type),
         file_path=s3_url,
-        original_filename=safe_filename
+        original_filename=original_filename
     )
 
     deliverable = await support_plan_service.handle_deliverable_upload(
@@ -377,6 +389,7 @@ async def update_plan_deliverable(
 
     # 6. ファイル名の衝突を避けるためにUUIDを付与
     safe_filename = sanitize_pdf_filename(file.filename)
+    original_filename = get_original_pdf_filename(file.filename)
     unique_filename = f"{uuid_lib.uuid4()}_{safe_filename}"
     object_name = f"plan-deliverables/{deliverable.plan_cycle_id}/{deliverable.deliverable_type.value}/{unique_filename}"
 
@@ -395,7 +408,7 @@ async def update_plan_deliverable(
         db=db,
         deliverable_id=deliverable_id,
         new_file_path=s3_url,
-        new_filename=safe_filename
+        new_filename=original_filename
     )
 
     return updated_deliverable

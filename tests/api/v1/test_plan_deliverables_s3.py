@@ -154,7 +154,7 @@ async def test_upload_pdf_with_s3_integration(
     # 3. PDFファイルのアップロード
     pdf_content = b"%PDF-1.4 mock content for S3 test"
     files = {
-        "file": ("assessment.pdf", io.BytesIO(pdf_content), "application/pdf")
+        "file": ("画面遷移要件.pdf", io.BytesIO(pdf_content), "application/pdf")
     }
     data = {
         "plan_cycle_id": cycle.id,
@@ -178,10 +178,13 @@ async def test_upload_pdf_with_s3_integration(
     # file_pathがS3 URLの形式であることを確認
     assert deliverable.file_path.startswith("s3://")
     assert settings.S3_BUCKET_NAME in deliverable.file_path
+    assert deliverable.original_filename == "画面遷移要件.pdf"
 
     # 6. S3に実際にファイルがアップロードされたことを確認
     # file_pathから object_name を抽出 (s3://bucket-name/object-name)
     object_name = deliverable.file_path.replace(f"s3://{settings.S3_BUCKET_NAME}/", "")
+    assert object_name.endswith("_file.pdf")
+    assert "画面遷移要件" not in object_name
 
     s3_response = s3_mock.get_object(Bucket=settings.S3_BUCKET_NAME, Key=object_name)
     s3_data = s3_response["Body"].read()
