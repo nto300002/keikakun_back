@@ -2,7 +2,6 @@ from datetime import date, datetime
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
 
 from app.models.calendar_events import CalendarEvent
 from app.models.enums import CalendarEventType, CalendarSyncStatus
@@ -259,23 +258,22 @@ async def test_google_sync_ignores_local_only_events(
     )
     db_session.add(cycle)
     await db_session.flush()
-    db_session.add(
-        CalendarEvent(
-            office_id=office.id,
-            welfare_recipient_id=recipient.id,
-            support_plan_cycle_id=cycle.id,
-            event_type=CalendarEventType.renewal_deadline,
-            google_calendar_id=None,
-            event_title="ローカル期限",
-            event_start_datetime=datetime.fromisoformat("2026-08-01T09:00:00+09:00"),
-            event_end_datetime=datetime.fromisoformat("2026-08-01T18:00:00+09:00"),
-            sync_status=CalendarSyncStatus.local_only,
-        )
+    event = CalendarEvent(
+        office_id=office.id,
+        welfare_recipient_id=recipient.id,
+        support_plan_cycle_id=cycle.id,
+        event_type=CalendarEventType.renewal_deadline,
+        google_calendar_id=None,
+        event_title="ローカル期限",
+        event_start_datetime=datetime.fromisoformat("2026-08-01T09:00:00+09:00"),
+        event_end_datetime=datetime.fromisoformat("2026-08-01T18:00:00+09:00"),
+        sync_status=CalendarSyncStatus.local_only,
     )
+    db_session.add(event)
     await db_session.flush()
 
     result = await GoogleCalendarSyncService().sync_pending_events(db=db_session)
 
     assert result == {"synced": 0, "failed": 0}
-    events = (await db_session.execute(select(CalendarEvent))).scalars().all()
-    assert [event.sync_status for event in events] == [CalendarSyncStatus.local_only]
+    await db_session.refresh(event)
+    assert event.sync_status == CalendarSyncStatus.local_only
