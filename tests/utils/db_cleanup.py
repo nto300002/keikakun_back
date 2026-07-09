@@ -137,14 +137,19 @@ class DatabaseCleanup:
                     )
 
                 # 0-1. office_staffsを削除
+                # offices削除と同じ条件のsubqueryで消し、取得済みID配列との差異で
+                # 外部キー参照が残らないようにする。
                 delete_office_staffs = text("""
                     DELETE FROM office_staffs
-                    WHERE office_id = ANY(:office_ids)
+                    WHERE office_id IN (
+                        SELECT id FROM offices
+                        WHERE is_test_data = TRUE
+                           OR name LIKE '%テスト%'
+                           OR name LIKE '%test%'
+                           OR name LIKE '%Test%'
+                    )
                 """)
-                os_result = await db.execute(
-                    delete_office_staffs,
-                    {"office_ids": list(test_office_ids)}
-                )
+                os_result = await db.execute(delete_office_staffs)
                 if os_result.rowcount > 0:
                     result["office_staffs"] = os_result.rowcount
                     logger.info(f"Deleted {os_result.rowcount} office_staffs")
