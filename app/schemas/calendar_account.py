@@ -184,14 +184,14 @@ class CalendarSetupRequest(BaseModel):
     @field_validator('service_account_json')
     @classmethod
     def validate_service_account_json(cls, v: str) -> str:
-        """サービスアカウントJSONのバリデーション"""
+        """設定ファイルのバリデーション"""
         if len(v.encode("utf-8")) > MAX_SERVICE_ACCOUNT_JSON_BYTES:
-            raise ValueError("サービスアカウントJSONのサイズが大きすぎます")
+            raise ValueError("設定ファイルのサイズが大きすぎます")
 
         try:
             parsed = json.loads(v)
             if not isinstance(parsed, dict):
-                raise ValueError("無効なサービスアカウントJSONです")
+                raise ValueError("設定ファイルの内容が正しくありません")
 
             # 必須フィールドの確認
             required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
@@ -205,15 +205,15 @@ class CalendarSetupRequest(BaseModel):
 
             private_key = parsed.get('private_key')
             if not isinstance(private_key, str) or not SERVICE_ACCOUNT_PRIVATE_KEY_PATTERN.match(private_key):
-                raise ValueError("無効なサービスアカウントJSONです: private_key形式が不正です")
+                raise ValueError("設定ファイルの秘密鍵形式が正しくありません")
 
             client_email = parsed.get('client_email')
             if not isinstance(client_email, str) or not SERVICE_ACCOUNT_EMAIL_PATTERN.match(client_email):
-                raise ValueError("無効なサービスアカウントJSONです: client_email形式が不正です")
+                raise ValueError("設定ファイルのメールアドレス形式が正しくありません")
 
             return v
         except json.JSONDecodeError:
-            raise ValueError("無効なJSON形式です")
+            raise ValueError("設定ファイルの形式が正しくありません")
 
 
 class CalendarSetupResponse(BaseModel):

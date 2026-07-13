@@ -421,5 +421,5 @@ async def validate_csrf(
             logger.warning("CSRF validation failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"CSRF token validation failed"
+                detail=ja.SECURITY_REQUEST_EXPIRED
             )

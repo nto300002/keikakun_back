@@ -20,6 +20,7 @@ from app.scheduler.calendar_sync_scheduler import calendar_sync_scheduler
 from app.scheduler.cleanup_scheduler import cleanup_scheduler
 from app.scheduler import billing_scheduler
 from app.scheduler import deadline_notification_scheduler
+from app.messages import ja
 
 # ログ設定（環境に応じてレベルを変更）
 # 全環境でWARNINGレベルに統一（デバッグ出力を抑制）
@@ -110,7 +111,7 @@ async def csrf_cookie_auth_middleware(request: Request, call_next):
             except CsrfProtectError:
                 return JSONResponse(
                     status_code=403,
-                    content={"detail": "CSRF token validation failed"},
+                    content={"detail": ja.SECURITY_REQUEST_EXPIRED},
                 )
 
     return await call_next(request)
@@ -121,7 +122,7 @@ async def csrf_protect_exception_handler(request: Request, exc: CsrfProtectError
     """CSRF保護のエラーハンドラー"""
     return JSONResponse(
         status_code=403,
-        content={"detail": "CSRF token validation failed"}
+        content={"detail": ja.SECURITY_REQUEST_EXPIRED}
     )
 
 
@@ -256,7 +257,7 @@ app.add_middleware(
 
 @app.get("/")
 async def read_root():
-    return {"message": "Welcome to the Keikakun API!"}
+    return {"message": "ケイカくんAPIは稼働中です"}
 
 
 app.include_router(api_router, prefix="/api/v1")

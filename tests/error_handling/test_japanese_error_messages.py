@@ -3,6 +3,8 @@
 フロントエンドに返されるエラーメッセージが正しく日本語化されていることを確認するテスト。
 優先度の高い認証、MFA、共通例外のメッセージを検証します。
 """
+from pathlib import Path
+
 import pytest
 from fastapi import status
 from app.messages import ja
@@ -84,7 +86,7 @@ class TestExceptionClassJapaneseMessages:
         exc = BadRequestException()
         assert exc.status_code == status.HTTP_400_BAD_REQUEST
         assert exc.detail == ja.EXC_BAD_REQUEST
-        assert "不正" in exc.detail or "リクエスト" in exc.detail
+        assert exc.detail == "申請内容が正しくありません"
 
     def test_bad_request_exception_custom_message(self):
         """BadRequestExceptionのカスタムメッセージ"""
@@ -170,13 +172,13 @@ class TestMFAErrorMessages:
     def test_mfa_already_enabled_message(self):
         """MFA既に有効エラーメッセージ"""
         msg = ja.MFA_ALREADY_ENABLED
-        assert "多要素認証" in msg or "認証" in msg
+        assert "2段階認証" in msg
         assert "有効" in msg
 
     def test_mfa_not_enrolled_message(self):
         """MFA未登録エラーメッセージ"""
         msg = ja.MFA_NOT_ENROLLED
-        assert "多要素認証" in msg or "認証" in msg
+        assert "2段階認証" in msg
         assert "登録" in msg
 
     def test_mfa_invalid_code_message(self):
@@ -188,13 +190,13 @@ class TestMFAErrorMessages:
     def test_mfa_verification_success_message(self):
         """MFA検証成功メッセージ"""
         msg = ja.MFA_VERIFICATION_SUCCESS
-        assert "多要素認証" in msg or "認証" in msg
+        assert "2段階認証" in msg
         assert "成功" in msg
 
     def test_mfa_disabled_success_message(self):
         """MFA無効化成功メッセージ"""
         msg = ja.MFA_DISABLED_SUCCESS
-        assert "多要素認証" in msg or "認証" in msg
+        assert "2段階認証" in msg
         assert "無効" in msg
 
 
@@ -331,6 +333,151 @@ class TestMessageConsistency:
         for msg in required_messages:
             # 「必要」という言葉を含む
             assert "必要" in msg, f"Required message does not contain '必要': {msg}"
+
+    def test_issue_186_source_messages_do_not_use_technical_terms(self):
+        """Issue 186受け入れ要件チェックリスト: API表示文言に専門用語を残さない"""
+        app_root = Path(__file__).resolve().parents[2] / "app"
+        checks = {
+            "api/v1/endpoints/mfa.py": [
+                "MFA登録開始",
+                "MFA検証と有効化",
+                "MFA無効化",
+                "管理者によるMFA有効化",
+                "管理者によるMFA無効化",
+                "事務所全スタッフのMFA一括無効化",
+                "事務所全スタッフのMFA一括有効化",
+                "提供されたTOTPコード",
+                "MFA一括有効化中にエラーが発生しました",
+                "MFAを有効化しました",
+                "MFA一括無効化中にエラーが発生しました",
+                "MFAを無効化しました",
+            ],
+            "api/v1/endpoints/auths.py": [
+                "MFA設定にエラーがあります",
+                "管理者がMFAを設定しました",
+                "MFA初回検証",
+                "通常のMFA検証フロー",
+                "MFAは既に検証済みです",
+                "一時トークン",
+                "TOTPアプリ",
+                "TOTPコードが必要です",
+                "TOTPコードを検証",
+                "MFAの初回検証が完了しました",
+            ],
+            "api/deps.py": [
+                "CSRF token validation failed",
+            ],
+            "main.py": [
+                "CSRF token validation failed",
+            ],
+            "core/csrf.py": [
+                "CSRF token validation failed",
+            ],
+            "services/staff_profile_service.py": [
+                "無効な確認トークンです",
+                "確認トークンの有効期限が切れています",
+                "この変更リクエストは既に処理されています",
+            ],
+            "services/withdrawal_service.py": [
+                "このスタッフに対する退会リクエストは既に承認待ちです",
+                "事務所の退会リクエストはオーナーのみが作成できます",
+                "この事務所に対する退会リクエストは既に承認待ちです",
+                "退会リクエストの承認はアプリ管理者のみが行えます",
+                "このリクエストは退会リクエストではありません",
+                "退会リクエストの却下はアプリ管理者のみが行えます",
+            ],
+            "api/v1/endpoints/withdrawal_requests.py": [
+                "この事務所に対する退会リクエストは既に承認待ちです",
+            ],
+            "messages/ja.py": [
+                "不正なリクエストです",
+                "このリクエストは既に{status}です",
+                "退会リクエスト",
+                "managerまたはowner",
+                "Employee権限",
+                "Manager/Owner権限",
+                "サービスアカウントJSON",
+                "サービスアカウントキー",
+                "typeは'service_account'",
+                "Stripe Customer ID",
+                "Checkout Session",
+                "Customer Portal Session",
+                "Stripe Webhook Secret",
+                "Invalid payload",
+                "Invalid signature",
+                "Webhook処理",
+            ],
+            "crud/crud_office.py": [
+                "Office not found",
+                "Office is already deleted",
+            ],
+            "services/google_calendar_client.py": [
+                "Invalid JSON format",
+                "Authentication failed",
+                "Failed to create event",
+                "Failed to update event",
+                "Failed to delete event",
+                "Failed to get event",
+            ],
+            "services/calendar/google_calendar_account_service.py": [
+                "Calendar account not connected",
+            ],
+            "services/calendar/google_calendar_sync_service.py": [
+                "Authentication failed",
+            ],
+            "services/withdrawal_service.py": [
+                "Office not found",
+            ],
+            "api/v1/endpoints/employee_action_requests.py": [
+                "リクエスト内容が不正です",
+                "リクエストの承認に失敗しました",
+                "リクエストの却下に失敗しました",
+            ],
+            "api/v1/endpoints/role_change_requests.py": [
+                "リクエスト内容が不正です",
+                "リクエストの承認に失敗しました",
+                "リクエストの却下に失敗しました",
+            ],
+            "api/v1/endpoints/dashboard.py": [
+                "5ステータス",
+            ],
+            "api/v1/endpoints/admin_inquiries.py": [
+                'description="ステータスフィルタ"',
+                "問い合わせステータス",
+            ],
+            "api/v1/endpoints/archived_staffs.py": [
+                "指定されたアーカイブが見つかりません",
+            ],
+            "schemas/archived_staff.py": [
+                "アーカイブ理由",
+                "アーカイブID",
+                "アーカイブ作成日時",
+                "アーカイブリスト",
+            ],
+            "schemas/message.py": [
+                "アーカイブリクエストスキーマ",
+                "アーカイブ状態",
+            ],
+            "schemas/webhook_event.py": [
+                "WebhookEvent スキーマ",
+                "Webhook送信元",
+                "Webhookペイロード",
+                "処理ステータス",
+            ],
+            "schemas/inquiry.py": [
+                'description="ステータス"',
+                'description="ステータスフィルタ"',
+            ],
+        }
+
+        violations = []
+        for relative_path, banned_terms in checks.items():
+            source = (app_root / relative_path).read_text(encoding="utf-8")
+            for term in banned_terms:
+                if term in source:
+                    violations.append(f"{relative_path}: {term}")
+
+        assert violations == []
 
 
 # 統合テスト: 実際のAPIレスポンスでメッセージを確認

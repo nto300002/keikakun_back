@@ -1,5 +1,5 @@
 """
-退会リクエストスキーマ
+退会申請スキーマ
 
 事務所退会申請のためのPydanticスキーマ
 """
@@ -12,18 +12,18 @@ from app.models.enums import RequestStatus
 
 
 class WithdrawalRequestBase(BaseModel):
-    """退会リクエスト基本スキーマ"""
+    """退会申請基本スキーマ"""
     title: str = Field(..., min_length=1, max_length=100, description="退会申請のタイトル")
     reason: str = Field(..., min_length=1, max_length=2000, description="退会理由")
 
 
 class WithdrawalRequestCreate(WithdrawalRequestBase):
-    """退会リクエスト作成スキーマ"""
+    """退会申請作成スキーマ"""
     pass
 
 
 class WithdrawalRequestRead(BaseModel):
-    """退会リクエスト読み取りスキーマ"""
+    """退会申請読み取りスキーマ"""
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -44,17 +44,17 @@ class WithdrawalRequestRead(BaseModel):
 
 
 class WithdrawalRequestApprove(BaseModel):
-    """退会リクエスト承認スキーマ"""
+    """退会申請承認スキーマ"""
     reviewer_notes: Optional[str] = Field(None, max_length=500, description="承認者のメモ")
 
 
 class WithdrawalRequestReject(BaseModel):
-    """退会リクエスト却下スキーマ"""
+    """退会申請却下スキーマ"""
     reviewer_notes: Optional[str] = Field(None, max_length=500, description="却下理由")
 
 
 class WithdrawalRequestListResponse(BaseModel):
-    """退会リクエスト一覧レスポンス"""
+    """退会申請一覧レスポンス"""
     items: list[WithdrawalRequestRead]
     total: int
     skip: int

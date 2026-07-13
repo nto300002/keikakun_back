@@ -35,7 +35,7 @@ class GoogleCalendarAccountService:
     ) -> str:
         account = await self.get_connected_account(db=db, office_id=office_id)
         if not account:
-            raise ValueError("Calendar account not connected")
+            raise ValueError("カレンダー連携が設定されていません")
 
         service_account_json = account.decrypt_service_account_key()
         if not service_account_json:

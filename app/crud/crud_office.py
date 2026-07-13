@@ -90,7 +90,7 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         # 既存の事務所を取得
         office = await db.get(Office, office_id)
         if not office:
-            raise HTTPException(status_code=404, detail="Office not found")
+            raise HTTPException(status_code=404, detail="事業所が見つかりません")
 
         # 更新データを適用
         for key, value in update_data.items():
@@ -126,10 +126,10 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         """
         office = await db.get(Office, office_id)
         if not office:
-            raise HTTPException(status_code=404, detail="Office not found")
+            raise HTTPException(status_code=404, detail="事業所が見つかりません")
 
         if office.is_deleted:
-            raise HTTPException(status_code=409, detail="Office is already deleted")
+            raise HTTPException(status_code=409, detail="事業所は既に削除されています")
 
         office.is_deleted = True
         office.deleted_at = datetime.datetime.now(datetime.timezone.utc)

@@ -62,9 +62,9 @@ class GoogleCalendarClient:
             self.service = build('calendar', 'v3', credentials=credentials)
 
         except json.JSONDecodeError as e:
-            raise GoogleCalendarAuthenticationError(f"Invalid JSON format: {str(e)}")
+            raise GoogleCalendarAuthenticationError(f"カレンダー連携の設定ファイルの形式が正しくありません。")
         except Exception as e:
-            raise GoogleCalendarAuthenticationError(f"Authentication failed: {str(e)}")
+            raise GoogleCalendarAuthenticationError(f"カレンダー連携の認証に失敗しました。設定ファイルを確認してください。")
 
     def create_event(
         self,
@@ -94,7 +94,7 @@ class GoogleCalendarClient:
             GoogleCalendarAPIError: API呼び出しに失敗した場合
         """
         if not self.service:
-            raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
+            raise GoogleCalendarAPIError("カレンダー連携の認証が完了していません。設定を確認してください。")
 
         logger.info(
             "GoogleCalendarClient.create_event called calendar_id_present=%s title_present=%s",
@@ -142,9 +142,9 @@ class GoogleCalendarClient:
             return event['id']
 
         except HttpError as e:
-            raise GoogleCalendarAPIError(f"Failed to create event: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー予定の登録に失敗しました。時間をおいて再度お試しください。")
         except Exception as e:
-            raise GoogleCalendarAPIError(f"Unexpected error: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー連携で予期しないエラーが発生しました。時間をおいて再度お試しください。")
 
     def update_event(
         self,
@@ -174,7 +174,7 @@ class GoogleCalendarClient:
             GoogleCalendarAPIError: API呼び出しに失敗した場合
         """
         if not self.service:
-            raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
+            raise GoogleCalendarAPIError("カレンダー連携の認証が完了していません。設定を確認してください。")
 
         try:
             # 既存のイベントを取得
@@ -211,9 +211,9 @@ class GoogleCalendarClient:
             return updated_event
 
         except HttpError as e:
-            raise GoogleCalendarAPIError(f"Failed to update event: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー予定の更新に失敗しました。時間をおいて再度お試しください。")
         except Exception as e:
-            raise GoogleCalendarAPIError(f"Unexpected error: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー連携で予期しないエラーが発生しました。時間をおいて再度お試しください。")
 
     def delete_event(self, calendar_id: str, event_id: str) -> None:
         """カレンダーイベントを削除する
@@ -226,7 +226,7 @@ class GoogleCalendarClient:
             GoogleCalendarAPIError: API呼び出しに失敗した場合
         """
         if not self.service:
-            raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
+            raise GoogleCalendarAPIError("カレンダー連携の認証が完了していません。設定を確認してください。")
 
         try:
             self.service.events().delete(
@@ -235,9 +235,9 @@ class GoogleCalendarClient:
             ).execute()
 
         except HttpError as e:
-            raise GoogleCalendarAPIError(f"Failed to delete event: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー予定の削除に失敗しました。時間をおいて再度お試しください。")
         except Exception as e:
-            raise GoogleCalendarAPIError(f"Unexpected error: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー連携で予期しないエラーが発生しました。時間をおいて再度お試しください。")
 
     def get_event(self, calendar_id: str, event_id: str) -> Dict[str, Any]:
         """カレンダーイベントを取得する
@@ -253,7 +253,7 @@ class GoogleCalendarClient:
             GoogleCalendarAPIError: API呼び出しに失敗した場合
         """
         if not self.service:
-            raise GoogleCalendarAPIError("Not authenticated. Call authenticate() first.")
+            raise GoogleCalendarAPIError("カレンダー連携の認証が完了していません。設定を確認してください。")
 
         try:
             event = self.service.events().get(
@@ -264,6 +264,6 @@ class GoogleCalendarClient:
             return event
 
         except HttpError as e:
-            raise GoogleCalendarAPIError(f"Failed to get event: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー予定の取得に失敗しました。時間をおいて再度お試しください。")
         except Exception as e:
-            raise GoogleCalendarAPIError(f"Unexpected error: {str(e)}")
+            raise GoogleCalendarAPIError(f"カレンダー連携で予期しないエラーが発生しました。時間をおいて再度お試しください。")

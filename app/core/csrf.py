@@ -14,6 +14,8 @@ from fastapi_csrf_protect import CsrfProtect
 from fastapi_csrf_protect.exceptions import CsrfProtectError
 from pydantic import BaseModel, Field
 
+from app.messages import ja
+
 
 class CsrfSettings(BaseModel):
     """CSRF保護の設定"""
@@ -63,5 +65,5 @@ async def validate_csrf_token(
         except CsrfProtectError:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="CSRF token validation failed"
+                detail=ja.SECURITY_REQUEST_EXPIRED
             )

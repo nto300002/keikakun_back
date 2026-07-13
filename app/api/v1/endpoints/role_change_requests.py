@@ -72,7 +72,7 @@ async def create_role_change_request(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="リクエスト内容が不正です"
+            detail="申請内容が正しくありません"
         )
 
 
@@ -170,7 +170,7 @@ async def approve_role_change_request(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="リクエストの承認に失敗しました"
+            detail="申請の承認に失敗しました"
         )
 
 
@@ -222,7 +222,7 @@ async def reject_role_change_request(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="リクエストの却下に失敗しました"
+            detail="申請の却下に失敗しました"
         )
 
 

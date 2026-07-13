@@ -90,7 +90,7 @@ class GoogleCalendarSyncService:
             failed_count += await self.sync_result_service.mark_many_failed(
                 db=db,
                 events=events,
-                message=f"Authentication failed: {type(exc).__name__}",
+                message=f"カレンダー連携の認証に失敗しました: {type(exc).__name__}",
             )
             return {"synced": synced_count, "failed": failed_count}
 

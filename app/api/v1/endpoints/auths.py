@@ -279,7 +279,7 @@ async def login_for_access_token(
                     "temporary_token": temporary_token,
                     "qr_code_uri": qr_code_uri,
                     "secret_key": decrypted_secret,
-                    "message": "管理者がMFAを設定しました。以下の情報でTOTPアプリに登録してください。",
+                    "message": "管理者が2段階認証を設定しました。以下の情報で認証アプリに登録してください。",
                     "token_type": "bearer",
                     "session_duration": session_duration,
                     "session_type": session_type,
@@ -289,10 +289,10 @@ async def login_for_access_token(
                 logger.error("[LOGIN MFA] Protected factor decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="MFA設定にエラーがあります。管理者に連絡してください。",
+                    detail="2段階認証の設定にエラーがあります。管理者に連絡してください。",
                 )
 
-        # 通常のMFA検証フロー
+        # 通常の2段階認証確認フロー
         return {
             "requires_mfa_verification": True,
             "temporary_token": temporary_token,
@@ -449,7 +449,7 @@ async def verify_mfa_for_login(
                 logger.error("[MFA VERIFY] Protected factor decryption failed")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="MFA設定にエラーがあります。管理者に連絡してください。",
+                    detail="2段階認証の設定にエラーがあります。管理者に連絡してください。",
                 )
         else:
             logger.error("[MFA VERIFY] MFA factor material is missing")
@@ -514,8 +514,8 @@ async def verify_mfa_for_login(
     "/mfa/first-time-verify",
     response_model=schemas.TokenWithCookie,
     status_code=status.HTTP_200_OK,
-    summary="MFA初回検証（管理者設定後）",
-    description="管理者が設定したMFAの初回検証を行います。検証成功後、ユーザーのis_mfa_verified_by_userフラグをTrueに設定します。",
+    summary="2段階認証の初回確認（管理者設定後）",
+    description="管理者が設定した2段階認証の初回確認を行います。確認成功後、ログインできる状態にします。",
 )
 async def verify_mfa_first_time(
     *,
@@ -525,17 +525,17 @@ async def verify_mfa_first_time(
     staff_crud=Depends(get_staff_crud),
 ):
     """
-    管理者が設定したMFAの初回検証を行います。
+    管理者が設定した2段階認証の初回確認を行います。
 
-    - **temporary_token**: ログイン時に発行された一時トークン
-    - **totp_code**: TOTPアプリから取得した6桁のコード
+    - **temporary_token**: ログイン時に発行された一時認証情報
+    - **totp_code**: 認証アプリから取得した6桁のコード
 
     検証成功後、is_mfa_verified_by_userフラグをTrueに設定し、
-    以降は通常のMFAフローを使用できるようになります。
+    以降は通常の2段階認証フローを使用できるようになります。
     """
     logger.info(f"[MFA FIRST TIME VERIFY] Starting first-time MFA verification")
 
-    # 一時トークンを検証
+    # 一時認証情報を確認
     token_data = verify_temporary_token_with_session(mfa_data.temporary_token, expected_type="mfa_verify")
     if not token_data:
         logger.error("[MFA FIRST TIME VERIFY] Invalid temporary credential")
@@ -558,7 +558,7 @@ async def verify_mfa_first_time(
             detail=ja.AUTH_USER_NOT_FOUND,
         )
 
-    # MFAが有効で、かつユーザー未検証の状態であることを確認
+    # 2段階認証が有効で、かつユーザー未確認の状態であることを確認
     if not user.is_mfa_enabled:
         logger.error("[MFA FIRST TIME VERIFY] MFA not enabled for user")
         raise HTTPException(
@@ -570,27 +570,27 @@ async def verify_mfa_first_time(
         logger.error("[MFA FIRST TIME VERIFY] User already verified")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFAは既に検証済みです。通常のログインフローを使用してください。",
+            detail="2段階認証は既に確認済みです。通常のログイン手順を使用してください。",
         )
 
     logger.info(f"[MFA FIRST TIME VERIFY] User found, MFA enabled but not verified by user")
 
-    # TOTPコードを検証
+    # 認証アプリの6桁コードを確認
     if not mfa_data.totp_code:
         logger.error(f"[MFA FIRST TIME VERIFY] TOTP code is required")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="TOTPコードが必要です。",
+            detail="認証アプリの6桁コードが必要です。",
         )
 
     if not user.mfa_secret:
         logger.error("[MFA FIRST TIME VERIFY] MFA factor material is missing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA設定にエラーがあります。管理者に連絡してください。",
+            detail="2段階認証の設定にエラーがあります。管理者に連絡してください。",
         )
 
-    # シークレットを復号化してTOTPコードを検証
+    # シークレットを復号化して認証アプリの6桁コードを確認
     try:
         decrypted_secret = user.get_mfa_secret()
 
@@ -606,7 +606,7 @@ async def verify_mfa_first_time(
         logger.error("[MFA FIRST TIME VERIFY] Protected factor decryption failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA設定にエラーがあります。管理者に連絡してください。",
+            detail="2段階認証の設定にエラーがあります。管理者に連絡してください。",
         )
 
     # 検証成功: is_mfa_verified_by_user フラグを True に設定
@@ -637,7 +637,7 @@ async def verify_mfa_first_time(
         "token_type": "bearer",
         "session_duration": session_duration,
         "session_type": session_type,
-        "message": "MFAの初回検証が完了しました。ログインに成功しました。"
+        "message": "2段階認証の初回確認が完了しました。ログインに成功しました。"
     }
 
 

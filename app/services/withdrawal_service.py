@@ -79,7 +79,7 @@ class WithdrawalService:
         if has_pending:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="このスタッフに対する退会リクエストは既に承認待ちです"
+                detail="このスタッフに対する退会申請は既に承認待ちです"
             )
 
         # リクエスト作成
@@ -148,7 +148,7 @@ class WithdrawalService:
         if not requester or requester.role != StaffRole.owner:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="事務所の退会リクエストはオーナーのみが作成できます"
+                detail="事務所の退会申請は事業所管理者のみが作成できます"
             )
 
         # 既存の承認待ちリクエストがないか確認
@@ -160,7 +160,7 @@ class WithdrawalService:
         if has_pending:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="この事務所に対する退会リクエストは既に承認待ちです"
+                detail="この事務所に対する退会申請は既に承認待ちです"
             )
 
         # 影響を受けるスタッフIDを取得
@@ -236,7 +236,7 @@ class WithdrawalService:
         if not reviewer or reviewer.role != StaffRole.app_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="退会リクエストの承認はアプリ管理者のみが行えます"
+                detail="退会申請の承認はアプリ管理者のみが行えます"
             )
 
         # リクエスト取得
@@ -250,7 +250,7 @@ class WithdrawalService:
         if request.resource_type != ApprovalResourceType.withdrawal:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="このリクエストは退会リクエストではありません"
+                detail="この申請は退会申請ではありません"
             )
 
         # 承認処理
@@ -333,7 +333,7 @@ class WithdrawalService:
         if not reviewer or reviewer.role != StaffRole.app_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="退会リクエストの却下はアプリ管理者のみが行えます"
+                detail="退会申請の却下はアプリ管理者のみが行えます"
             )
 
         # リクエスト取得
@@ -347,7 +347,7 @@ class WithdrawalService:
         if request.resource_type != ApprovalResourceType.withdrawal:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="このリクエストは退会リクエストではありません"
+                detail="この申請は退会申請ではありません"
             )
 
         # 却下処理
@@ -567,7 +567,7 @@ class WithdrawalService:
         if not office:
             return {
                 "success": False,
-                "error": "Office not found"
+                "error": "事業所が見つかりません"
             }
 
         # 削除前に事務所情報を保存（監査ログ用）

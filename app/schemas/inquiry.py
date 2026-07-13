@@ -232,7 +232,7 @@ class InquiryListResponse(BaseModel):
 
 class InquiryUpdate(BaseModel):
     """問い合わせ更新スキーマ（管理者専用）"""
-    status: Optional[InquiryStatus] = Field(None, description="ステータス")
+    status: Optional[InquiryStatus] = Field(None, description="状態")
     assigned_staff_id: Optional[uuid.UUID] = Field(None, description="担当者ID")
     priority: Optional[InquiryPriority] = Field(None, description="優先度")
     admin_notes: Optional[str] = Field(None, description="管理者メモ")
@@ -283,7 +283,7 @@ class InquiryReplyResponse(BaseModel):
 
 class InquiryQueryParams(BaseModel):
     """問い合わせ一覧取得クエリパラメータ"""
-    status: Optional[InquiryStatus] = Field(None, description="ステータスフィルタ")
+    status: Optional[InquiryStatus] = Field(None, description="状態フィルタ")
     assigned: Optional[uuid.UUID] = Field(None, description="担当者IDフィルタ")
     priority: Optional[InquiryPriority] = Field(None, description="優先度フィルタ")
     search: Optional[str] = Field(None, max_length=200, description="キーワード検索（件名・本文）")
