@@ -546,7 +546,7 @@ class StaffProfileService:
             logger.warning("Email change request not found")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="無効な確認トークンです"
+                detail="確認リンクが正しくありません"
             )
 
         logger.debug("Found email change request")
@@ -557,7 +557,7 @@ class StaffProfileService:
             logger.warning("Email change credential expired")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="確認トークンの有効期限が切れています"
+                detail="確認リンクの有効期限が切れています"
             )
 
         # ステータスチェック
@@ -566,7 +566,7 @@ class StaffProfileService:
             logger.warning("Email change request status is not pending")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="この変更リクエストは既に処理されています"
+                detail="この変更申請は既に処理されています"
             )
 
         # スタッフ情報取得

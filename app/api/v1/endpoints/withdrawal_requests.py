@@ -1,7 +1,7 @@
 """
-退会リクエストAPIエンドポイント
+退会申請APIエンドポイント
 
-オーナーが事務所の退会リクエストを作成し、app_adminが承認/却下するためのAPI
+事業所管理者が事務所の退会申請を作成し、app_adminが承認/却下するためのAPI
 
 CRUD層とサービス層との連携:
 - crud_approval_request: リクエストの作成・取得・更新
@@ -70,7 +70,7 @@ async def create_withdrawal_request(
     current_user: Staff = Depends(deps.get_current_user)
 ) -> WithdrawalRequestRead:
     """
-    退会リクエストを作成
+    退会申請を作成
 
     - ownerのみ作成可能
     - 403: リクエストを行う権限がありません
@@ -101,7 +101,7 @@ async def create_withdrawal_request(
     if has_pending:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="この事務所に対する退会リクエストは既に承認待ちです"
+            detail="この事務所に対する退会申請は既に承認待ちです"
         )
 
     # CRUD層を使用してリクエスト作成
@@ -162,7 +162,7 @@ async def get_withdrawal_requests(
     limit: int = Query(30, ge=1, le=100)
 ):
     """
-    退会リクエスト一覧を取得
+    退会申請一覧を取得
 
     - app_admin: 全件取得可能
     - owner: 自事務所のリクエストのみ取得可能
@@ -244,7 +244,7 @@ async def approve_withdrawal_request(
     current_user: Staff = Depends(deps.get_current_user)
 ) -> WithdrawalRequestRead:
     """
-    退会リクエストを承認
+    退会申請を承認
 
     - app_adminのみ承認可能
     - 403: リクエストを承認する権限がありません
@@ -323,7 +323,7 @@ async def reject_withdrawal_request(
     current_user: Staff = Depends(deps.get_current_user)
 ) -> WithdrawalRequestRead:
     """
-    退会リクエストを却下
+    退会申請を却下
 
     - app_adminのみ却下可能
     - 403: リクエストを却下する権限がありません

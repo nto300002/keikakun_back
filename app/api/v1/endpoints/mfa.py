@@ -30,8 +30,8 @@ router = APIRouter()
     "/mfa/enroll",
     response_model=schemas.MfaEnrollmentResponse,
     status_code=status.HTTP_200_OK,
-    summary="MFA登録開始",
-    description="ユーザーのMFA登録を開始し、QRコード生成用の情報とMFAシークレットを返します。",
+    summary="2段階認証の設定開始",
+    description="ユーザーの2段階認証の設定を開始し、QRコード生成用の情報を返します。",
 )
 async def enroll_mfa(
     *,
@@ -39,12 +39,12 @@ async def enroll_mfa(
     current_user: models.Staff = Depends(deps.get_current_user),
 ) -> schemas.MfaEnrollmentResponse:
     """
-    MFA（多要素認証）の登録を開始します。
+    2段階認証の設定を開始します。
 
     - **current_user**: 認証された有効なスタッフユーザー。
 
-    ユーザーがMFAを既に有効にしている場合は、400 Bad Requestエラーを返します。
-    成功した場合、TOTP URIとMFAシークレットを含むレスポンスを返します。
+    ユーザーが2段階認証を既に有効にしている場合は、400エラーを返します。
+    成功した場合、認証アプリ登録用の情報を含むレスポンスを返します。
     """
     if current_user.is_mfa_enabled:
         raise HTTPException(
@@ -67,8 +67,8 @@ async def enroll_mfa(
 @router.post(
     "/mfa/verify",
     status_code=status.HTTP_200_OK,
-    summary="MFA検証と有効化",
-    description="提供されたTOTPコードを検証し、検証が成功した場合にユーザーのMFAを有効化します。",
+    summary="2段階認証の確認と有効化",
+    description="認証アプリの6桁コードを確認し、成功した場合にユーザーの2段階認証を有効化します。",
 )
 async def verify_mfa(
     *,
@@ -77,14 +77,14 @@ async def verify_mfa(
     code_data: MFACode,
 ) -> dict[str, str]:
     """
-    TOTPコードを検証し、MFAを有効化します。
+    認証アプリの6桁コードを確認し、2段階認証を有効化します。
 
     - **current_user**: 認証された有効なスタッフユーザー。
-    - **code_data**: 検証に使用するTOTPコードを含むデータ。
+    - **code_data**: 確認に使用する6桁コードを含むデータ。
 
-    ユーザーがMFAを登録していない、または既に有効化している場合はエラーを返します。
-    TOTPコードが無効な場合もエラーを返します。
-    成功した場合、MFAが有効化されたことを示すメッセージを返します。
+    ユーザーが2段階認証を設定していない、または既に有効化している場合はエラーを返します。
+    6桁コードが無効な場合もエラーを返します。
+    成功した場合、2段階認証が有効化されたことを示すメッセージを返します。
     """
     if not current_user.mfa_secret:
         raise HTTPException(
@@ -111,7 +111,7 @@ async def verify_mfa(
             status_code=status.HTTP_400_BAD_REQUEST, detail=ja.MFA_INVALID_CODE
         )
 
-    # 検証成功後、エンドポイント層でMFAを有効化してコミット
+    # 検証成功後、エンドポイント層で2段階認証を有効化してコミット
     current_user.is_mfa_enabled = True
     current_user.is_mfa_verified_by_user = True  # ← 追加: ユーザー自身が検証完了
     await db.commit()
@@ -122,8 +122,8 @@ async def verify_mfa(
 @router.post(
     "/mfa/disable",
     status_code=status.HTTP_200_OK,
-    summary="MFA無効化",
-    description="ユーザーのMFAを無効化します。パスワード確認が必要です。",
+    summary="2段階認証の無効化",
+    description="ユーザーの2段階認証を無効化します。パスワード確認が必要です。",
 )
 async def disable_mfa(
     *,
@@ -132,14 +132,14 @@ async def disable_mfa(
     disable_data: MFADisableRequest,
 ) -> dict[str, str]:
     """
-    ユーザーのMFAを無効化します。
+    ユーザーの2段階認証を無効化します。
 
     - **current_user**: 認証された有効なスタッフユーザー。
     - **disable_data**: パスワード確認のためのデータ。
 
-    ユーザーがMFAを有効化していない場合はエラーを返します。
+    ユーザーが2段階認証を有効化していない場合はエラーを返します。
     パスワードが正しくない場合もエラーを返します。
-    成功した場合、MFAが無効化されたことを示すメッセージを返します。
+    成功した場合、2段階認証が無効化されたことを示すメッセージを返します。
     """
     if not current_user.is_mfa_enabled:
         raise HTTPException(
@@ -154,7 +154,7 @@ async def disable_mfa(
             detail=ja.MFA_INCORRECT_PASSWORD,
         )
 
-    # MFAを無効化
+    # 2段階認証を無効化
     await current_user.disable_mfa(db)
     await db.commit()
 
@@ -162,15 +162,15 @@ async def disable_mfa(
 
 
 # ==========================================
-# 管理者によるMFA管理エンドポイント
+# 管理者による2段階認証管理エンドポイント
 # ==========================================
 
 @router.post(
     "/admin/staff/{staff_id}/mfa/enable",
     response_model=schemas.AdminMfaEnableResponse,
     status_code=status.HTTP_200_OK,
-    summary="管理者によるMFA有効化",
-    description="管理者が指定したスタッフのMFAを有効化します。",
+    summary="管理者による2段階認証の有効化",
+    description="管理者が指定したスタッフの2段階認証を有効化します。",
 )
 async def admin_enable_staff_mfa(
     *,
@@ -179,14 +179,14 @@ async def admin_enable_staff_mfa(
     current_admin: models.Staff = Depends(deps.require_owner),
 ) -> schemas.AdminMfaEnableResponse:
     """
-    管理者が指定したスタッフのMFAを有効化します。
+    管理者が指定したスタッフの2段階認証を有効化します。
 
     - **staff_id**: 対象スタッフのID
     - **current_admin**: 管理者権限（owner）を持つ認証されたスタッフ
 
     スタッフが見つからない場合は404エラーを返します。
-    既にMFAが有効な場合は400エラーを返します。
-    成功した場合、MFAが有効化されたことを示すメッセージを返します。
+    既に2段階認証が有効な場合は400エラーを返します。
+    成功した場合、2段階認証が有効化されたことを示すメッセージを返します。
     """
     # 対象スタッフを取得
     target_staff = await crud.staff.get(db, id=staff_id)
@@ -196,14 +196,14 @@ async def admin_enable_staff_mfa(
             detail=ja.STAFF_NOT_FOUND,
         )
 
-    # 既にMFAが有効かチェック
+    # 既に2段階認証が有効かチェック
     if target_staff.is_mfa_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ja.MFA_ALREADY_ENABLED,
         )
 
-    # MFAシークレットとリカバリーコードを生成
+    # 認証アプリ用の秘密情報と復旧コードを生成
     secret = generate_totp_secret()
     recovery_codes = generate_recovery_codes(count=10)
 
@@ -212,7 +212,7 @@ async def admin_enable_staff_mfa(
     staff_full_name = target_staff.full_name
     staff_id = target_staff.id
 
-    # MFAを有効化（暗号化とリカバリーコード保存を含む）
+    # 2段階認証を有効化（暗号化とリカバリーコード保存を含む）
     await target_staff.enable_mfa(db, secret, recovery_codes)
 
     # 管理者による有効化なので、ユーザー検証は未完了
@@ -221,7 +221,7 @@ async def admin_enable_staff_mfa(
     db.add(target_staff)
     await db.commit()
 
-    # QRコードURIを生成（スタッフがTOTPアプリに登録するため）
+    # QRコードURIを生成（スタッフが認証アプリに登録するため）
     qr_code_uri = generate_totp_uri(staff_email, secret)
 
     return {
@@ -237,8 +237,8 @@ async def admin_enable_staff_mfa(
 @router.post(
     "/admin/staff/{staff_id}/mfa/disable",
     status_code=status.HTTP_200_OK,
-    summary="管理者によるMFA無効化",
-    description="管理者が指定したスタッフのMFAを無効化します。",
+    summary="管理者による2段階認証の無効化",
+    description="管理者が指定したスタッフの2段階認証を無効化します。",
 )
 async def admin_disable_staff_mfa(
     *,
@@ -247,14 +247,14 @@ async def admin_disable_staff_mfa(
     current_admin: models.Staff = Depends(deps.require_owner),
 ) -> dict[str, str]:
     """
-    管理者が指定したスタッフのMFAを無効化します。
+    管理者が指定したスタッフの2段階認証を無効化します。
 
     - **staff_id**: 対象スタッフのID
     - **current_admin**: 管理者権限（owner）を持つ認証されたスタッフ
 
     スタッフが見つからない場合は404エラーを返します。
-    既にMFAが無効な場合は400エラーを返します。
-    成功した場合、MFAが無効化されたことを示すメッセージを返します。
+    既に2段階認証が無効な場合は400エラーを返します。
+    成功した場合、2段階認証が無効化されたことを示すメッセージを返します。
     """
     # 対象スタッフを取得
     target_staff = await crud.staff.get(db, id=staff_id)
@@ -264,14 +264,14 @@ async def admin_disable_staff_mfa(
             detail=ja.STAFF_NOT_FOUND,
         )
 
-    # 既にMFAが無効かチェック
+    # 既に2段階認証が無効かチェック
     if not target_staff.is_mfa_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ja.MFA_NOT_ENABLED,
         )
 
-    # MFAを無効化
+    # 2段階認証を無効化
     await target_staff.disable_mfa(db)
     await db.commit()
 
@@ -281,8 +281,8 @@ async def admin_disable_staff_mfa(
 @router.post(
     "/admin/office/mfa/disable-all",
     status_code=status.HTTP_200_OK,
-    summary="事務所全スタッフのMFA一括無効化",
-    description="管理者が所属事務所の全スタッフのMFAを一括無効化します。"
+    summary="事務所全スタッフの2段階認証一括無効化",
+    description="管理者が所属事務所の全スタッフの2段階認証を一括無効化します。"
 )
 async def disable_all_office_mfa(
     *,
@@ -290,7 +290,7 @@ async def disable_all_office_mfa(
     current_user: models.Staff = Depends(deps.require_manager_or_owner),
 ):
     """
-    管理者が所属事務所の全スタッフのMFAを一括無効化
+    管理者が所属事務所の全スタッフの2段階認証を一括無効化
 
     - **current_user**: Manager または Owner ロールの認証済みユーザー
     - **権限**: Manager または Owner のみ実行可能
@@ -337,7 +337,7 @@ async def disable_all_office_mfa(
     result_staffs = await db.execute(stmt_staffs)
     all_staffs = result_staffs.scalars().all()
 
-    # MFAが有効なスタッフのみ無効化
+    # 2段階認証が有効なスタッフのみ無効化
     disabled_count = 0
     try:
         for staff in all_staffs:
@@ -354,11 +354,11 @@ async def disable_all_office_mfa(
         logger.error("[DISABLE ALL MFA] Failed to disable MFA for office %s: %s", office.id, type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA一括無効化中にエラーが発生しました。管理者に連絡してください。"
+            detail="2段階認証の一括解除中にエラーが発生しました。管理者に連絡してください。"
         )
 
     return {
-        "message": f"{disabled_count}名のスタッフのMFAを無効化しました。",
+        "message": f"{disabled_count}名のスタッフの2段階認証を無効化しました。",
         "disabled_count": disabled_count
     }
 
@@ -366,8 +366,8 @@ async def disable_all_office_mfa(
 @router.post(
     "/admin/office/mfa/enable-all",
     status_code=status.HTTP_200_OK,
-    summary="事務所全スタッフのMFA一括有効化",
-    description="管理者が所属事務所の全スタッフのMFAを一括有効化します。"
+    summary="事務所全スタッフの2段階認証一括有効化",
+    description="管理者が所属事務所の全スタッフの2段階認証を一括有効化します。"
 )
 async def enable_all_office_mfa(
     *,
@@ -375,7 +375,7 @@ async def enable_all_office_mfa(
     current_user: models.Staff = Depends(deps.require_manager_or_owner),
 ):
     """
-    管理者が所属事務所の全スタッフのMFAを一括有効化
+    管理者が所属事務所の全スタッフの2段階認証を一括有効化
 
     - **current_user**: Manager または Owner ロールの認証済みユーザー
     - **権限**: Manager または Owner のみ実行可能
@@ -384,7 +384,7 @@ async def enable_all_office_mfa(
     Returns:
         - message: 成功メッセージ
         - enabled_count: 有効化されたスタッフ数
-        - staff_mfa_data: 各スタッフのMFA設定情報（QRコード、シークレットキー、リカバリーコード）
+        - staff_mfa_data: 各スタッフの2段階認証設定情報（QRコード、秘密情報、復旧コード）
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
@@ -423,26 +423,26 @@ async def enable_all_office_mfa(
     result_staffs = await db.execute(stmt_staffs)
     all_staffs = result_staffs.scalars().all()
 
-    # MFAが無効なスタッフのみ有効化し、設定情報を収集
+    # 2段階認証が無効なスタッフのみ有効化し、設定情報を収集
     staff_mfa_data = []
     enabled_count = 0
 
     try:
         for staff in all_staffs:
             if not staff.is_mfa_enabled:
-                # MFAシークレットとリカバリーコードを生成
+                # 認証アプリ用の秘密情報と復旧コードを生成
                 secret = generate_totp_secret()
                 totp_uri = generate_totp_uri(staff.email, secret)
                 recovery_codes = generate_recovery_codes()
 
-                # MFAを有効化（暗号化して保存）
+                # 2段階認証を有効化（暗号化して保存）
                 await staff.enable_mfa(db, secret, recovery_codes)
 
                 # 管理者による有効化なので、ユーザー検証は未完了
                 staff.is_mfa_verified_by_user = False
                 enabled_count += 1
 
-                # スタッフごとのMFA設定情報を収集
+                # スタッフごとの2段階認証設定情報を収集
                 staff_mfa_data.append({
                     "staff_id": str(staff.id),
                     "staff_name": staff.full_name,
@@ -460,11 +460,11 @@ async def enable_all_office_mfa(
         logger.error("[ENABLE ALL MFA] Failed to enable MFA for office %s: %s", office.id, type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA一括有効化中にエラーが発生しました。管理者に連絡してください。"
+            detail="2段階認証の一括設定中にエラーが発生しました。管理者に連絡してください。"
         )
 
     return {
-        "message": f"{enabled_count}名のスタッフのMFAを有効化しました。",
+        "message": f"{enabled_count}名のスタッフの2段階認証を有効化しました。",
         "enabled_count": enabled_count,
         "staff_mfa_data": staff_mfa_data
     }

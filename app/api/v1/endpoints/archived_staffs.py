@@ -1,7 +1,7 @@
 """
-アーカイブスタッフのAPIエンドポイント（app_admin専用）
+保管済みスタッフのAPIエンドポイント（app_admin専用）
 
-法定保存義務に基づくスタッフアーカイブの閲覧機能。
+法定保存義務に基づく保管済みスタッフ情報の閲覧機能。
 - 労働基準法第109条：労働者名簿を退職後5年間保存
 - 障害者総合支援法：サービス提供記録を5年間保存
 """
@@ -30,7 +30,7 @@ async def list_archived_staffs(
     archive_reason: Optional[str] = None
 ):
     """
-    アーカイブスタッフリスト取得（app_adminのみ）
+    保管済みスタッフリスト取得（app_adminのみ）
 
     Args:
         db: データベースセッション
@@ -38,10 +38,10 @@ async def list_archived_staffs(
         skip: スキップ件数（ページネーション）
         limit: 取得件数（最大100件）
         office_id: 事務所IDでフィルタリング（オプション）
-        archive_reason: アーカイブ理由でフィルタリング（オプション）
+        archive_reason: 保管理由でフィルタリング（オプション）
 
     Returns:
-        アーカイブスタッフリスト（ページネーション対応）
+        保管済みスタッフリスト（ページネーション対応）
 
     権限: app_admin のみアクセス可能
     """
@@ -49,7 +49,7 @@ async def list_archived_staffs(
     if limit > 100:
         limit = 100
 
-    # アーカイブリスト取得
+    # 保管済みスタッフリスト取得
     archives, total = await archived_staff.get_multi(
         db,
         skip=skip,
@@ -79,28 +79,28 @@ async def get_archived_staff(
     archive_id: UUID
 ):
     """
-    アーカイブスタッフ詳細取得（app_adminのみ）
+    保管済みスタッフ詳細取得（app_adminのみ）
 
     Args:
         db: データベースセッション
         current_user: 認証済みapp_adminユーザー
-        archive_id: アーカイブID
+        archive_id: 保管情報ID
 
     Returns:
-        アーカイブスタッフ詳細
+        保管済みスタッフ詳細
 
     Raises:
-        HTTPException: 404 - アーカイブが存在しない
+        HTTPException: 404 - 保管済みスタッフ情報が存在しない
 
     権限: app_admin のみアクセス可能
     """
-    # アーカイブ取得
+    # 保管済みスタッフ情報取得
     archive = await archived_staff.get(db, archive_id=archive_id)
 
     if not archive:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="指定されたアーカイブが見つかりません"
+            detail="指定された保管済みスタッフ情報が見つかりません"
         )
 
     return schemas.archived_staff.ArchivedStaffRead.model_validate(archive)

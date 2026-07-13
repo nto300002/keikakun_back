@@ -207,8 +207,8 @@ class MessageMarkAsReadRequest(BaseModel):
 
 
 class MessageArchiveRequest(BaseModel):
-    """アーカイブリクエストスキーマ"""
-    is_archived: bool = Field(..., description="アーカイブ状態")
+    """保管設定の更新スキーマ"""
+    is_archived: bool = Field(..., description="保管状態")
 
 
 # ========================================

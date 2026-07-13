@@ -34,7 +34,7 @@ async def get_inquiries(
     *,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
-    status: Optional[InquiryStatus] = Query(None, description="ステータスフィルタ"),
+    status: Optional[InquiryStatus] = Query(None, description="状態フィルタ"),
     assigned: Optional[UUID] = Query(None, description="担当者IDフィルタ"),
     priority: Optional[InquiryPriority] = Query(None, description="優先度フィルタ"),
     search: Optional[str] = Query(None, max_length=200, description="キーワード検索（件名・本文）"),
@@ -47,7 +47,7 @@ async def get_inquiries(
     """
     問い合わせ一覧を取得（app_admin専用）
 
-    - **status**: ステータスフィルタ (new, open, in_progress, answered, closed, spam)
+    - **status**: 状態フィルタ (new, open, in_progress, answered, closed, spam)
     - **assigned**: 担当者IDフィルタ
     - **priority**: 優先度フィルタ (low, normal, high)
     - **search**: 検索キーワード（件名・本文を対象）
@@ -171,7 +171,7 @@ async def update_inquiry(
     問い合わせを更新（app_admin専用）
 
     - **inquiry_id**: 問い合わせID
-    - **status**: ステータス
+    - **status**: 状態
     - **assigned_staff_id**: 担当者ID
     - **priority**: 優先度
     - **admin_notes**: 管理者メモ
@@ -222,7 +222,7 @@ async def reply_to_inquiry(
     Note:
         - 返信用のMessageを作成
         - 送信者がログイン済みの場合はMessageRecipientを作成（内部通知）
-        - 問い合わせステータスを「answered」に更新
+        - 問い合わせ状態を「answered」に更新
         - メール送信フラグがTrueの場合は実際にメールを送信
     """
     try:

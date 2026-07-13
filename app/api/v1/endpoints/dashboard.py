@@ -35,7 +35,7 @@ async def get_dashboard(
     is_upcoming: Optional[bool] = None,
     has_assessment_due: Annotated[
         Optional[bool],
-        Query(description="アセスメント開始期限が設定されている利用者のみ（5ステータス: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング）")
+        Query(description="アセスメント開始期限が設定されている利用者のみ（5段階: アセスメント → 原案 → 担当者会議 → 本案 → モニタリング）")
     ] = None,
     status: Optional[str] = None,
     cycle_number: Optional[int] = None,
