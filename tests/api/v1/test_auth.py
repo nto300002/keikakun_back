@@ -410,7 +410,7 @@ async def test_refresh_token_success(async_client: AsyncClient, service_admin_us
     data = response.json()
     assert "access_token" not in data  # Cookieに設定されるため、ボディには含まれない
     assert data["token_type"] == "bearer"
-    assert data["message"] == "トークンを更新しました"
+    assert data["message"] == "認証情報を更新しました"
 
 
 async def test_refresh_token_failure_invalid_token(async_client: AsyncClient):
@@ -738,7 +738,7 @@ class TestCookieAuthentication:
         assert "access_token" not in mfa_data  # Cookieに設定されるため、ボディには含まれない
         assert "refresh_token" in mfa_data
         assert mfa_data["token_type"] == "bearer"
-        assert mfa_data["message"] == "多要素認証に成功しました"
+        assert mfa_data["message"] == "2段階認証に成功しました"
 
     @pytest.mark.asyncio
     async def test_refresh_token_updates_cookie(

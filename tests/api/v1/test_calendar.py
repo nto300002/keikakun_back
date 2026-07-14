@@ -239,7 +239,7 @@ class TestSetupCalendar:
         assert "detail" in data
         # エラーメッセージに必須フィールドの欠落が含まれていることを確認
         error_str = str(data)
-        assert "private_key_id" in error_str or "client_email" in error_str
+        assert "設定ファイルに必要な項目がありません" in error_str
 
     async def test_setup_calendar_unauthorized(
         self,

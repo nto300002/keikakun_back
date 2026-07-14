@@ -717,7 +717,7 @@ async def test_verify_email_change_invalid_token(
     )
 
     assert response.status_code == 400
-    assert "無効な確認トークンです" in response.text
+    assert "確認リンクが正しくありません" in response.text
 
 
 async def test_verify_email_change_expired_token(

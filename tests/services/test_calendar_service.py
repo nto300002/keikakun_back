@@ -171,7 +171,7 @@ class TestCalendarService:
 
         # 不完全なJSONでリクエスト作成を試みる（Pydanticバリデーションで失敗するはず）
         from pydantic import ValidationError
-        with pytest.raises(ValidationError, match="必須フィールドがありません"):
+        with pytest.raises(ValidationError, match="設定ファイルに必要な項目がありません"):
             setup_request = CalendarSetupRequest(
                 office_id=office_id,
                 google_calendar_id="test-calendar@group.calendar.google.com",
@@ -192,7 +192,7 @@ class TestCalendarService:
         with pytest.raises(HTTPException) as exc_info:
             calendar_service._extract_service_account_email(invalid_json)
         assert exc_info.value.status_code == 400
-        assert "client_emailが見つかりません" in str(exc_info.value.detail)
+        assert "設定ファイルにメールアドレス情報が見つかりません" in str(exc_info.value.detail)
 
     async def test_update_office_calendar_success(
         self,

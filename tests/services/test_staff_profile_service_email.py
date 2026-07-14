@@ -290,7 +290,7 @@ class TestEmailChangeVerification:
                 verification_token="invalid-token"
             )
         assert exc_info.value.status_code == 400
-        assert "無効な確認トークンです" in exc_info.value.detail
+        assert "確認リンクが正しくありません" in exc_info.value.detail
 
     async def test_verify_email_change_expired_token(self, staff_profile_service, mock_staff):
         """異常系: 有効期限切れのトークンはエラーになる"""
@@ -314,7 +314,7 @@ class TestEmailChangeVerification:
                 verification_token="expired-token"
             )
         assert exc_info.value.status_code == 400
-        assert "確認トークンの有効期限が切れています" in exc_info.value.detail
+        assert "確認リンクの有効期限が切れています" in exc_info.value.detail
 
     async def test_verify_email_change_already_completed(self, staff_profile_service, mock_staff):
         """異常系: 既に使用済みのトークンは再利用できない"""
@@ -339,7 +339,7 @@ class TestEmailChangeVerification:
                 verification_token="used-token"
             )
         assert exc_info.value.status_code == 400
-        assert "この変更リクエストは既に処理されています" in exc_info.value.detail
+        assert "この変更申請は既に処理されています" in exc_info.value.detail
 
     async def test_verify_email_change_with_timezone_aware_datetime(self, staff_profile_service, mock_staff):
         """

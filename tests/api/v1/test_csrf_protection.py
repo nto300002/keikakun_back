@@ -68,7 +68,7 @@ class TestCSRFProtection:
 
         # CSRFトークンがないため失敗するはず
         assert response.status_code == 403
-        assert "CSRF" in response.json().get("detail", "").upper()
+        assert "画面の有効期限" in response.json().get("detail", "")
 
     @pytest.mark.asyncio
     async def test_protected_endpoint_with_valid_csrf_token(
@@ -140,7 +140,7 @@ class TestCSRFProtection:
 
         # 失敗するはず
         assert response.status_code == 403
-        assert "CSRF" in response.json().get("detail", "").upper()
+        assert "画面の有効期限" in response.json().get("detail", "")
 
     @pytest.mark.asyncio
     async def test_bearer_token_does_not_require_csrf(
@@ -207,7 +207,7 @@ class TestCSRFProtection:
 
         # CSRFトークンがないため失敗するはず
         assert response.status_code == 403
-        assert "CSRF" in response.json().get("detail", "").upper()
+        assert "画面の有効期限" in response.json().get("detail", "")
 
     @pytest.mark.asyncio
     async def test_login_is_not_blocked_by_csrf_when_stale_access_cookie_exists(

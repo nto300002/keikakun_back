@@ -226,4 +226,4 @@ async def test_invalid_webhook_signature_rejected(
 
     # 400エラーが返されることを確認
     assert response.status_code == 400
-    assert "Invalid signature" in response.json()["detail"]
+    assert "決済通知の確認に失敗しました" in response.json()["detail"]
