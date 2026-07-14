@@ -62,7 +62,7 @@ class TestAdminMFAToggle:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert "message" in data
-        assert "多要素認証を有効にしました" in data["message"]
+        assert "2段階認証を有効にしました" in data["message"]
 
         # Assert: DBの状態を検証
         await db_session.refresh(target_staff)
@@ -108,7 +108,7 @@ class TestAdminMFAToggle:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert "message" in data
-        assert "多要素認証を無効にしました" in data["message"]
+        assert "2段階認証を無効にしました" in data["message"]
 
         # Assert: DBの状態を検証
         await db_session.refresh(target_staff)
