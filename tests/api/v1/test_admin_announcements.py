@@ -248,4 +248,4 @@ async def test_app_admin_send_announcement_requires_csrf_for_cookie_auth(
     )
 
     assert response.status_code == 403
-    assert "CSRF" in response.json()["detail"].upper()
+    assert "画面の有効期限" in response.json()["detail"]

@@ -62,7 +62,7 @@ class TestMFAEnrollment:
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        assert "多要素認証" in detail and "有効" in detail
+        assert "2段階認証" in detail and "有効" in detail
         
     @pytest.mark.asyncio
     async def test_mfa_enroll_unauthorized(self, async_client: AsyncClient):
@@ -99,7 +99,7 @@ class TestMFAVerification:
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["message"] == "多要素認証の検証に成功しました"
+        assert data["message"] == "2段階認証の確認に成功しました"
         
         # DBでMFAが有効化されていることを確認
         await db_session.refresh(staff)
@@ -151,7 +151,7 @@ class TestMFAVerification:
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        assert "多要素認証" in detail and "登録" in detail
+        assert "2段階認証" in detail and "登録" in detail
 
 
 class TestMFALogin:
@@ -225,7 +225,7 @@ class TestMFALogin:
         # レスポンスボディの検証
         assert "refresh_token" in verify_data
         assert verify_data["token_type"] == "bearer"
-        assert verify_data["message"] == "多要素認証に成功しました"
+        assert verify_data["message"] == "2段階認証に成功しました"
         
     @pytest.mark.asyncio
     async def test_login_mfa_enabled_invalid_totp(self, async_client: AsyncClient, db_session: AsyncSession):
@@ -383,7 +383,7 @@ class TestMFADisable:
         
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["message"] == "多要素認証を無効にしました"
+        assert data["message"] == "2段階認証を無効にしました"
         
         # DBでMFAが無効化されていることを確認
         await db_session.refresh(staff)

@@ -145,7 +145,7 @@ async def test_employee_upload_plan_deliverable_forbidden(
     assert response.status_code == 403  # Forbidden
     response_data = response.json()
     assert "detail" in response_data
-    assert "Employee権限では個別支援計画のPDFをアップロードできません" in response_data["detail"]
+    assert "一般スタッフは個別支援計画のPDFを登録できません" in response_data["detail"]
 
     # PlanDeliverable は作成されていないことを確認
     result = await db_session.execute(

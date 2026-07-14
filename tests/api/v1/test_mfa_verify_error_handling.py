@@ -102,7 +102,7 @@ class TestMFAVerifyErrorHandling:
         # 成功すること
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["message"] == "多要素認証の検証に成功しました"
+        assert data["message"] == "2段階認証の確認に成功しました"
 
         # MFAが有効化されていること
         await db_session.refresh(staff)
@@ -139,7 +139,7 @@ class TestMFAVerifyErrorHandling:
         # 400エラーを返すこと
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        assert "多要素認証" in detail and "有効" in detail
+        assert "2段階認証" in detail and "有効" in detail
 
     @pytest.mark.asyncio
     async def test_verify_transaction_rollback_on_error(
@@ -358,7 +358,7 @@ class TestMFALoginVerifyErrorHandling:
         # access_tokenはCookieに設定されるため、レスポンスボディには含まれない
         assert "refresh_token" in data
         assert data["token_type"] == "bearer"
-        assert data["message"] == "多要素認証に成功しました"
+        assert data["message"] == "2段階認証に成功しました"
         # Cookieにaccess_tokenが設定されていることを確認
         assert "access_token" in response.cookies
 

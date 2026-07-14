@@ -59,7 +59,7 @@ class TestGoogleCalendarClientAuthentication:
         with pytest.raises(GoogleCalendarAuthenticationError) as exc_info:
             client.authenticate()
 
-        assert "Invalid JSON format" in str(exc_info.value)
+        assert "カレンダー連携の設定ファイルの形式が正しくありません" in str(exc_info.value)
 
 
 class TestGoogleCalendarClientCreateEvent:
@@ -155,7 +155,7 @@ class TestGoogleCalendarClientCreateEvent:
                 end_datetime=datetime.now() + timedelta(hours=1)
             )
 
-        assert "Not authenticated" in str(exc_info.value)
+        assert "カレンダー連携の認証が完了していません" in str(exc_info.value)
 
 
 class TestGoogleCalendarClientUpdateEvent:

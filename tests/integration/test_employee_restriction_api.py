@@ -314,7 +314,7 @@ async def test_employee_cannot_approve_request_via_api_403_forbidden(
         response_data = response.json()
 
         assert "detail" in response_data
-        assert "manager" in response_data["detail"].lower() or "owner" in response_data["detail"].lower()
+        assert "管理者または事業所管理者" in response_data["detail"]
 
         print(f"\n✅ Employee2 が承認を試みる: 403 Forbidden")
         print(f"   Error Message: {response_data['detail']}")
