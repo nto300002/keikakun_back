@@ -473,6 +473,11 @@ async def verify_mfa_for_login(
             if verify_recovery_code(mfa_data.recovery_code, backup_code.code_hash):
                 # マッチした場合、使用済みとしてマーク
                 backup_code.mark_as_used()
+                db.add(models.MFAAuditLog(
+                    staff_id=user.id,
+                    action="backup_used",
+                    details="login",
+                ))
                 await db.commit()
                 verification_successful = True
                 logger.info(f"[MFA VERIFY] Recovery code verified successfully")

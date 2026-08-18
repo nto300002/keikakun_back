@@ -6,10 +6,13 @@ TDD形式でapp_admin用の合言葉（セカンドパスワード）認証を�
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import StaffRole
-from app.core.security import get_password_hash
+from app.models.mfa import MFAAuditLog
+from app.core.security import create_access_token, get_password_hash
+from unittest.mock import patch
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,6 +49,71 @@ async def test_app_admin_login_with_valid_passphrase(
     assert response.status_code == 200
     data = response.json()
     assert "refresh_token" in data or "requires_mfa_verification" in data
+
+
+async def test_app_admin_can_enroll_verify_and_require_mfa_on_login(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    app_admin_user_factory,
+):
+    """app_adminも本人用のMFAを設定し、次回ログインでMFA確認を要求される。"""
+    passphrase = "secret123!"
+    app_admin = await app_admin_user_factory()
+    app_admin.hashed_passphrase = get_password_hash(passphrase)
+    await db_session.commit()
+
+    access_token = create_access_token(subject=str(app_admin.id))
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    enroll_response = await async_client.post(
+        "/api/v1/auth/mfa/enroll",
+        headers=headers,
+    )
+
+    assert enroll_response.status_code == 200
+    assert enroll_response.json()["qr_code_uri"].startswith("otpauth://totp/")
+
+    with patch("app.services.mfa.verify_totp", return_value=True):
+        verify_response = await async_client.post(
+            "/api/v1/auth/mfa/verify",
+            headers=headers,
+            json={"totp_code": "123456"},
+        )
+
+    assert verify_response.status_code == 200
+    await db_session.refresh(app_admin)
+    assert app_admin.is_mfa_enabled is True
+    assert app_admin.is_mfa_verified_by_user is True
+
+    login_response = await async_client.post(
+        "/api/v1/auth/token",
+        data={
+            "username": app_admin.email,
+            "password": "a-very-secure-password",
+            "passphrase": passphrase,
+        },
+    )
+
+    assert login_response.status_code == 200
+    assert login_response.json()["requires_mfa_verification"] is True
+
+    disable_response = await async_client.post(
+        "/api/v1/auth/mfa/disable",
+        headers=headers,
+        json={"password": "a-very-secure-password"},
+    )
+
+    assert disable_response.status_code == 200
+    await db_session.refresh(app_admin)
+    assert app_admin.is_mfa_enabled is False
+
+    audit_logs = (await db_session.execute(
+        select(MFAAuditLog).where(MFAAuditLog.staff_id == app_admin.id)
+    )).scalars().all()
+    assert [(log.action, log.details) for log in audit_logs] == [
+        ("enabled", "self_service"),
+        ("disabled", "self_service"),
+    ]
 
 
 async def test_app_admin_login_without_passphrase(

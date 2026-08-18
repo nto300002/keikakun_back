@@ -5,11 +5,13 @@ from unittest.mock import patch, MagicMock
 
 from fastapi import status
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
 from app.models.staff import Staff
 from app.models.enums import StaffRole
+from app.models.mfa import MFAAuditLog
 from app.core.security import create_access_token, verify_totp, generate_totp_secret, get_password_hash
 from tests.utils import (
     random_email,
@@ -319,6 +321,13 @@ class TestMFARecoveryCode:
         assert "access_token" in verify_response.cookies
         assert "access_token" not in data  # レスポンスボディには含まれない
         assert "refresh_token" in data
+
+        audit_logs = (await db_session.execute(
+            select(MFAAuditLog).where(MFAAuditLog.staff_id == staff.id)
+        )).scalars().all()
+        assert [(log.action, log.details) for log in audit_logs] == [
+            ("backup_used", "login"),
+        ]
         
     @pytest.mark.asyncio
     async def test_mfa_recovery_code_invalid(self, async_client: AsyncClient, db_session: AsyncSession):
