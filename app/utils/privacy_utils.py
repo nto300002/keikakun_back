@@ -49,6 +49,7 @@ REDACT_DETAIL_KEYS = {
     "response_body",
 }
 AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
+    "inquiry.replied": {"send_email_requested", "email_queued"},
     "billing.status_changed": {
         "old_status",
         "new_status",

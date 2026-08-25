@@ -275,6 +275,10 @@ class InquiryReplyResponse(BaseModel):
     """問い合わせ返信レスポンススキーマ"""
     id: uuid.UUID
     message: str = Field(..., description="処理結果メッセージ")
+    email_sent: Optional[bool] = Field(
+        default=None,
+        description="メール送信処理の結果。受信者メールボックスへの到達は保証しない。メール対象外の場合はnull",
+    )
 
 
 # ========================================
