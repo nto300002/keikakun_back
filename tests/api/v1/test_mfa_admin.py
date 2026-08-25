@@ -116,6 +116,53 @@ class TestAdminMFAToggle:
         assert target_staff.mfa_secret is None
 
     @pytest.mark.asyncio
+    async def test_owner_cannot_enable_mfa_for_app_admin(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        app_admin_user_factory,
+    ):
+        """app_adminのMFAは本人のみが有効化できる。"""
+        owner = await create_admin_staff(db_session, is_mfa_enabled=False)
+        app_admin = await app_admin_user_factory(is_mfa_enabled=False)
+        await db_session.commit()
+
+        owner_token = create_access_token(subject=str(owner.id))
+        response = await async_client.post(
+            f"/api/v1/auth/admin/staff/{app_admin.id}/mfa/enable",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "アプリ管理者の2段階認証は本人のみ操作できます"
+        await db_session.refresh(app_admin)
+        assert app_admin.is_mfa_enabled is False
+
+    @pytest.mark.asyncio
+    async def test_owner_cannot_disable_mfa_for_app_admin(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        app_admin_user_factory,
+    ):
+        """app_adminのMFAは本人のみが無効化できる。"""
+        owner = await create_admin_staff(db_session, is_mfa_enabled=False)
+        app_admin = await app_admin_user_factory(is_mfa_enabled=True)
+        app_admin.set_mfa_secret(generate_totp_secret())
+        await db_session.commit()
+
+        owner_token = create_access_token(subject=str(owner.id))
+        response = await async_client.post(
+            f"/api/v1/auth/admin/staff/{app_admin.id}/mfa/disable",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "アプリ管理者の2段階認証は本人のみ操作できます"
+        await db_session.refresh(app_admin)
+        assert app_admin.is_mfa_enabled is True
+
+    @pytest.mark.asyncio
     async def test_admin_enable_mfa_non_admin_forbidden(self, async_client: AsyncClient, db_session: AsyncSession):
         """
         異常系: 管理者権限がないユーザーがMFA切り替えを試みた場合はエラー

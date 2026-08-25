@@ -3,6 +3,7 @@ app_admin用問い合わせAPIエンドポイント
 
 InquiryDetailとMessageを使った問い合わせ管理機能
 """
+import logging
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -12,6 +13,7 @@ from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
 from app.models.enums import InquiryStatus, InquiryPriority
 from app.crud.crud_inquiry import crud_inquiry
+from app.services.inquiry_reply_service import InquiryReplyEmail, inquiry_reply_service
 from app.schemas.inquiry import (
     InquiryListResponse,
     InquiryListItem,
@@ -27,6 +29,25 @@ from app.schemas.inquiry import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+async def _send_reply_email(email: InquiryReplyEmail) -> bool:
+    """返信メールを送信し、送信処理の成否だけを返す。"""
+    try:
+        from app.core.mail import send_inquiry_reply_email
+
+        await send_inquiry_reply_email(
+            recipient_email=email.recipient_email,
+            recipient_name=email.recipient_name,
+            inquiry_title=email.inquiry_title,
+            inquiry_created_at=email.inquiry_created_at,
+            reply_content=email.reply_content,
+        )
+        return True
+    except Exception as error:
+        logger.error("問い合わせ返信メール送信に失敗: %s", type(error).__name__)
+        return False
 
 
 @router.get("", response_model=InquiryListResponse)
@@ -226,68 +247,36 @@ async def reply_to_inquiry(
         - メール送信フラグがTrueの場合は実際にメールを送信
     """
     try:
-        # 返信はアプリ内通知とメールを連動させる。
-        # sender_email が存在する場合は、リクエストの send_email 値にかかわらずメール送信対象にする。
-        email_data = None
-        inquiry = await crud_inquiry.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
-        if inquiry and inquiry.sender_email:
-            original_message = inquiry.message
-            email_data = {
-                "recipient_email": inquiry.sender_email,
-                "recipient_name": inquiry.sender_name,
-                "inquiry_title": original_message.title if original_message else "問い合わせ",
-                "inquiry_created_at": inquiry.created_at.isoformat() if inquiry.created_at else "",
-                "reply_content": reply_in.body,
-            }
-
-        reply_message = await crud_inquiry.create_reply(
+        result = await inquiry_reply_service.reply_to_inquiry(
             db=db,
             inquiry_id=inquiry_id,
-            reply_staff_id=current_user.id,
+            current_user=current_user,
             reply_content=reply_in.body,
-            send_email=email_data is not None
+            send_email=reply_in.send_email,
         )
 
-        # コミット前に必要な値を取得（重要！）
-        reply_message_id = reply_message.id
-
-        await db.commit()
-
         # メール送信処理（commit後、ベストエフォート）
-        if email_data:
-            try:
-                from app.core.mail import send_inquiry_reply_email
-                await send_inquiry_reply_email(
-                    recipient_email=email_data["recipient_email"],
-                    recipient_name=email_data["recipient_name"],
-                    inquiry_title=email_data["inquiry_title"],
-                    inquiry_created_at=email_data["inquiry_created_at"],
-                    reply_content=email_data["reply_content"],
-                )
-            except Exception as email_error:
-                # メール送信失敗してもエラーにしない（ログのみ）
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error("問い合わせ返信メール送信に失敗: %s", type(email_error).__name__)
+        email_sent = await _send_reply_email(result.email) if result.email else None
 
         # メッセージ内容を決定
-        if email_data:
+        if email_sent is True:
             message_text = "返信を送信しました（アプリ内通知とメールを連動）"
+        elif email_sent is False:
+            message_text = "返信は保存しましたが、メール送信に失敗しました"
         else:
             message_text = "返信を送信しました（アプリ内通知のみ）"
 
         return InquiryReplyResponse(
-            id=reply_message_id,
-            message=message_text
+            id=result.reply_message_id,
+            message=message_text,
+            email_sent=email_sent,
         )
     except ValueError:
-        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="問い合わせが見つかりません"
         )
     except Exception:
-        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="返信の送信に失敗しました"

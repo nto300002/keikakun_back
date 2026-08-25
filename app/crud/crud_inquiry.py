@@ -345,7 +345,8 @@ class CRUDInquiry(CRUDBase[InquiryDetail, dict, dict]):
         inquiry_id: UUID,
         reply_staff_id: UUID,
         reply_content: str,
-        send_email: bool = False
+        send_email: bool = False,
+        inquiry: Optional[InquiryDetail] = None,
     ) -> Message:
         """
         問い合わせに返信
@@ -356,6 +357,7 @@ class CRUDInquiry(CRUDBase[InquiryDetail, dict, dict]):
             reply_staff_id: 返信者スタッフID
             reply_content: 返信内容
             send_email: メール送信するか
+            inquiry: 事前取得済みの問い合わせ（指定時は再取得しない）
 
         Returns:
             作成された返信Message
@@ -370,7 +372,10 @@ class CRUDInquiry(CRUDBase[InquiryDetail, dict, dict]):
             - メール送信フラグがTrueの場合はdelivery_logに記録（実際の送信は呼び出し側で実施）
         """
         # 問い合わせを取得（リレーションシップを事前ロード）
-        inquiry = await self.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
+        if inquiry is not None and inquiry.id != inquiry_id:
+            raise ValueError("問い合わせが見つかりません")
+
+        inquiry = inquiry or await self.get_inquiry_by_id(db=db, inquiry_id=inquiry_id)
         if not inquiry:
             raise ValueError("問い合わせが見つかりません")
 
@@ -422,10 +427,7 @@ class CRUDInquiry(CRUDBase[InquiryDetail, dict, dict]):
         if send_email and sender_email:
             log_entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "action": "reply_email_queued",
-                "recipient": sender_email,
-                "message_id": str(reply_message.id),
-                "staff_id": str(reply_staff_id)
+                "action": "reply_email_requested",
             }
 
             # delivery_logを直接更新（既存のinquiryオブジェクトを使用）

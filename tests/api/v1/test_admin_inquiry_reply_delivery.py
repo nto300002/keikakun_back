@@ -39,7 +39,7 @@ async def test_reply_to_logged_in_inquiry_creates_app_notification_and_sends_ema
 
     response = await async_client.post(
         f"/api/v1/admin/inquiries/{inquiry.id}/reply",
-        json={"body": "返信本文", "send_email": False},
+        json={"body": "返信本文", "send_email": True},
         headers=_auth_headers(access_token),
     )
 
@@ -88,7 +88,7 @@ async def test_reply_to_external_inquiry_sends_email_without_app_recipient(
 
     response = await async_client.post(
         f"/api/v1/admin/inquiries/{inquiry.id}/reply",
-        json={"body": "外部返信", "send_email": False},
+        json={"body": "外部返信", "send_email": True},
         headers=_auth_headers(access_token),
     )
 

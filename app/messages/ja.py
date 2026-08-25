@@ -96,6 +96,7 @@ MFA_NOT_ENABLED = "2段階認証は有効になっていません"
 MFA_INCORRECT_PASSWORD = "パスワードが正しくありません"
 MFA_DISABLED_SUCCESS = "2段階認証を無効にしました"
 MFA_ENABLED_SUCCESS = "2段階認証を有効にしました"
+MFA_APP_ADMIN_SELF_SERVICE_ONLY = "アプリ管理者の2段階認証は本人のみ操作できます"
 
 # ==========================================
 # 福祉受給者関連 (welfare_recipients.py)

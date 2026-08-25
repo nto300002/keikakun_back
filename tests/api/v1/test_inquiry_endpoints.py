@@ -10,6 +10,7 @@
 """
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import timedelta
 from uuid import uuid4
@@ -735,10 +736,13 @@ class TestAdminInquiryReplyEndpoint:
         await db_session.refresh(inquiry)
         assert inquiry.delivery_log is not None
         assert len(inquiry.delivery_log) > 0
-        assert inquiry.delivery_log[0]["action"] == "reply_email_queued"
-        assert inquiry.delivery_log[0]["recipient"] == "sender@example.com"
+        assert inquiry.delivery_log[0]["action"] == "reply_email_requested"
+        assert "timestamp" in inquiry.delivery_log[0]
+        assert "recipient" not in inquiry.delivery_log[0]
+        assert "message_id" not in inquiry.delivery_log[0]
+        assert "staff_id" not in inquiry.delivery_log[0]
 
-    async def test_reply_to_inquiry_sends_email_when_sender_email_exists_even_if_flag_false(
+    async def test_reply_to_inquiry_does_not_send_email_when_flag_is_false(
         self,
         async_client: AsyncClient,
         app_admin_user_factory,
@@ -748,11 +752,11 @@ class TestAdminInquiryReplyEndpoint:
         monkeypatch
     ):
         """
-        返信はアプリ内通知とメールを連動させる。
+        メール送信フラグがオフなら内部通知のみ送信する。
 
         POST /api/v1/admin/inquiries/{inquiry_id}/reply
-        - sender_email がある場合、send_email=false でもメール送信対象
-        - delivery_log にメール送信キュー記録が残る
+        - sender_email があっても send_email=false ならメール送信しない
+        - delivery_log にメール送信キュー記録を残さない
         """
         app_admin = await app_admin_user_factory()
         sender = await employee_user_factory()
@@ -796,14 +800,12 @@ class TestAdminInquiryReplyEndpoint:
         )
 
         assert response.status_code == 200
-        assert response.json()["message"] == "返信を送信しました（アプリ内通知とメールを連動）"
-        assert sent_emails
-        assert sent_emails[0]["recipient_email"] == "sender-linked@example.com"
+        assert response.json()["email_sent"] is None
+        assert response.json()["message"] == "返信を送信しました（アプリ内通知のみ）"
+        assert not sent_emails
 
         await db_session.refresh(inquiry)
-        assert inquiry.delivery_log is not None
-        assert inquiry.delivery_log[0]["action"] == "reply_email_queued"
-        assert inquiry.delivery_log[0]["recipient"] == "sender-linked@example.com"
+        assert inquiry.delivery_log is None
 
     async def test_reply_to_inquiry_succeeds_when_linked_email_sending_fails(
         self,
@@ -850,16 +852,53 @@ class TestAdminInquiryReplyEndpoint:
 
         response = await async_client.post(
             f"/api/v1/admin/inquiries/{inquiry.id}/reply",
-            json={"body": "メール送信が失敗しても返信は成功します。", "send_email": False},
+            json={"body": "メール送信が失敗しても返信は成功します。", "send_email": True},
             cookies={"access_token": access_token},
             headers=csrf_headers,
         )
 
         assert response.status_code == 200
-        assert response.json()["message"] == "返信を送信しました（アプリ内通知とメールを連動）"
+        assert response.json()["email_sent"] is False
+        assert response.json()["message"] == "返信は保存しましたが、メール送信に失敗しました"
 
         await db_session.refresh(inquiry)
         assert inquiry.status == InquiryStatus.answered
+
+    async def test_reply_to_inquiry_creates_audit_log(
+        self, async_client, app_admin_user_factory, employee_user_factory, db_session, csrf_headers
+    ):
+        """返信保存時に監査ログも同じ transaction で作成する。"""
+        app_admin = await app_admin_user_factory()
+        sender = await employee_user_factory()
+        from app import crud
+        from app.models.staff_profile import AuditLog
+
+        inquiry = await crud.inquiry.create_inquiry(
+            db=db_session,
+            sender_staff_id=sender.id,
+            office_id=sender.office_associations[0].office.id,
+            title="監査ログテスト",
+            content="内容",
+            priority=InquiryPriority.normal,
+            admin_recipient_ids=[app_admin.id],
+            is_test_data=True,
+        )
+        await db_session.commit()
+        token = create_access_token(str(app_admin.id), timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+
+        response = await async_client.post(
+            f"/api/v1/admin/inquiries/{inquiry.id}/reply",
+            json={"body": "返信", "send_email": False},
+            cookies={"access_token": token}, headers=csrf_headers,
+        )
+
+        assert response.status_code == 200
+        result = await db_session.execute(select(AuditLog).where(
+            AuditLog.staff_id == app_admin.id,
+            AuditLog.action == "inquiry.replied",
+            AuditLog.target_id == inquiry.id,
+        ))
+        assert result.scalar_one_or_none() is not None
 
     async def test_reply_to_inquiry_not_found(
         self,

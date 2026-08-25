@@ -26,6 +26,15 @@ class MFADisableRequest(BaseModel):
 router = APIRouter()
 
 
+def validate_mfa_target(target_staff: models.Staff) -> None:
+    """アプリ管理者のMFAは本人による操作だけを許可する。"""
+    if target_staff.role == models.StaffRole.app_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ja.MFA_APP_ADMIN_SELF_SERVICE_ONLY,
+        )
+
+
 @router.post(
     "/mfa/enroll",
     response_model=schemas.MfaEnrollmentResponse,
@@ -114,6 +123,11 @@ async def verify_mfa(
     # 検証成功後、エンドポイント層で2段階認証を有効化してコミット
     current_user.is_mfa_enabled = True
     current_user.is_mfa_verified_by_user = True  # ← 追加: ユーザー自身が検証完了
+    db.add(models.MFAAuditLog(
+        staff_id=current_user.id,
+        action="enabled",
+        details="self_service",
+    ))
     await db.commit()
 
     return {"message": ja.MFA_VERIFICATION_SUCCESS}
@@ -156,6 +170,11 @@ async def disable_mfa(
 
     # 2段階認証を無効化
     await current_user.disable_mfa(db)
+    db.add(models.MFAAuditLog(
+        staff_id=current_user.id,
+        action="disabled",
+        details="self_service",
+    ))
     await db.commit()
 
     return {"message": ja.MFA_DISABLED_SUCCESS}
@@ -195,6 +214,7 @@ async def admin_enable_staff_mfa(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ja.STAFF_NOT_FOUND,
         )
+    validate_mfa_target(target_staff)
 
     # 既に2段階認証が有効かチェック
     if target_staff.is_mfa_enabled:
@@ -263,6 +283,7 @@ async def admin_disable_staff_mfa(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ja.STAFF_NOT_FOUND,
         )
+    validate_mfa_target(target_staff)
 
     # 既に2段階認証が無効かチェック
     if not target_staff.is_mfa_enabled:
@@ -468,5 +489,3 @@ async def enable_all_office_mfa(
         "enabled_count": enabled_count,
         "staff_mfa_data": staff_mfa_data
     }
-
-
