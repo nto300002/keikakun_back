@@ -291,7 +291,8 @@ class WithdrawalService:
             details={
                 "withdrawal_type": withdrawal_type,
                 "execution_result": execution_result
-            }
+            },
+            auto_commit=False,
         )
 
         logger.info(
@@ -562,8 +563,9 @@ class WithdrawalService:
         """
         office_id = request.office_id
 
-        # 事務所を取得
-        office = await crud_office.get(db, id=office_id)
+        # 監査ログの外部キー検査より先に事務所行をロックし、
+        # クリーンアップ・削除処理とのロック順序を統一する。
+        office = await crud_office.get_for_update(db, office_id=office_id)
         if not office:
             return {
                 "success": False,
@@ -607,7 +609,8 @@ class WithdrawalService:
                 "deleted_staff_count": len(staff_ids),
                 "deleted_staff": deleted_staff_info,
                 "withdrawal_request_id": str(request.id)
-            }
+            },
+            auto_commit=False,
         )
 
         # ====================================
@@ -664,7 +667,8 @@ class WithdrawalService:
                     "withdrawal_request_id": str(request.id),
                     "deletion_type": "soft_delete",
                     "note": "30日後に物理削除される予定、法定保存データは5年間保持"
-                }
+                },
+                auto_commit=False,
             )
 
             # 3. スタッフを論理削除

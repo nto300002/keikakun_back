@@ -63,6 +63,18 @@ class CRUDOffice(CRUDBase[Office, OfficeCreate, OfficeUpdate]):
         result = await db.execute(select(Office).filter(Office.name == name))
         return result.scalars().first()
 
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        *,
+        office_id: UUID,
+    ) -> Optional[Office]:
+        """事務所行をロックして取得する。複数テーブルを更新する操作で使用する。"""
+        result = await db.execute(
+            select(Office).where(Office.id == office_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def get_recipients_by_office_id(self, db: AsyncSession, *, office_id: UUID) -> List[WelfareRecipient]:
         """
         事業所IDに基づいて、その事業所に所属するすべての利用者を取得します。

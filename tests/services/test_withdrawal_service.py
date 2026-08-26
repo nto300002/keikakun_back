@@ -845,6 +845,57 @@ class TestWithdrawalExecution:
 class TestOfficeWithdrawalBillingCancellation:
     """事務所退会時の課金キャンセル処理のテスト"""
 
+    async def test_office_withdrawal_locks_office_before_creating_office_audit_log(
+        self,
+        db: AsyncSession,
+        setup_office_with_staff: Tuple[UUID, UUID, UUID, UUID],
+        setup_app_admin: UUID,
+        monkeypatch,
+    ):
+        """事務所削除ログより先に事務所行をロックしてロック順序を固定する。"""
+        from app.crud.crud_audit_log import audit_log as crud_audit_log
+
+        office_id, owner_id, _, _ = setup_office_with_staff
+        app_admin_id = setup_app_admin
+        office_locked = False
+
+        async def get_office_for_update(db: AsyncSession, *, office_id: UUID):
+            nonlocal office_locked
+            office_locked = True
+            return await crud_office.get(db, id=office_id)
+
+        original_create_log = crud_audit_log.create_log
+
+        async def create_log_after_office_lock(*args, **kwargs):
+            if kwargs.get("action") in {"office.deleted", "staff.soft_deleted"}:
+                assert office_locked
+                assert kwargs.get("auto_commit") is False
+            return await original_create_log(*args, **kwargs)
+
+        monkeypatch.setattr(
+            crud_office,
+            "get_for_update",
+            get_office_for_update,
+            raising=False,
+        )
+        monkeypatch.setattr(crud_audit_log, "create_log", create_log_after_office_lock)
+
+        request = await withdrawal_service.create_office_withdrawal_request(
+            db=db,
+            requester_staff_id=owner_id,
+            office_id=office_id,
+            reason="事業終了のため",
+        )
+
+        await withdrawal_service.approve_withdrawal(
+            db=db,
+            request_id=request.id,
+            reviewer_staff_id=app_admin_id,
+            reviewer_notes="承認",
+        )
+
+        assert office_locked
+
     @pytest.mark.asyncio
     async def test_office_withdrawal_cancels_billing_without_subscription(
         self,
