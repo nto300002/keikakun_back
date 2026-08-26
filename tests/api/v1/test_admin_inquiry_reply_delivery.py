@@ -52,7 +52,7 @@ async def test_reply_to_logged_in_inquiry_creates_app_notification_and_sends_ema
     await db_session.refresh(inquiry)
     assert inquiry.status == InquiryStatus.answered
     assert inquiry.delivery_log
-    assert inquiry.delivery_log[-1]["action"] == "reply_email_queued"
+    assert inquiry.delivery_log[-1]["action"] == "reply_email_requested"
 
     recipients = await db_session.execute(
         select(MessageRecipient)
