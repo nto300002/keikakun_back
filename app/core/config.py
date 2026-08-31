@@ -1,6 +1,8 @@
 import os
+from urllib.parse import urlsplit
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from typing import Optional
 
 from app.core.log_safety import validate_production_log_safety
@@ -54,6 +56,12 @@ class Settings(BaseSettings):
     # --- フロントエンド設定 ---
     FRONTEND_URL: str
 
+    # --- WebAuthn設定 ---
+    # originはCloud Runへ文字列で渡し、アプリ側で厳密にURLとして検証する。
+    WEBAUTHN_RP_ID: Optional[str] = None
+    WEBAUTHN_RP_NAME: Optional[str] = None
+    WEBAUTHN_ALLOWED_ORIGINS: Optional[str] = None
+
     # --- S3 Storage Settings ---
     S3_ENDPOINT_URL: Optional[str] = None
     S3_ACCESS_KEY: Optional[str] = None
@@ -88,6 +96,37 @@ class Settings(BaseSettings):
             self.VAPID_PRIVATE_KEY = self.VAPID_PRIVATE_KEY_DER
         return self
 
+    @field_validator("WEBAUTHN_ALLOWED_ORIGINS")
+    @classmethod
+    def validate_webauthn_allowed_origins(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+
+        origins = tuple(origin.strip() for origin in value.split(",") if origin.strip())
+        if not origins:
+            raise ValueError("WEBAUTHN_ALLOWED_ORIGINSにはoriginを指定してください")
+
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme != "https"
+                or not parsed.netloc
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+            ):
+                raise ValueError("WebAuthn originはパスを含まないHTTPS originで指定してください")
+        return ",".join(origins)
+
+    @property
+    def webauthn_allowed_origins(self) -> tuple[str, ...]:
+        """検証済みのWebAuthn origin allowlistを返す。"""
+        if not self.WEBAUTHN_ALLOWED_ORIGINS:
+            return ()
+        return tuple(self.WEBAUTHN_ALLOWED_ORIGINS.split(","))
+
     @model_validator(mode='after')
     def validate_log_safety_flags(self):
         """本番で危険なdebug/bodyログ設定を拒否する。"""
@@ -103,6 +142,35 @@ class Settings(BaseSettings):
                 "BODY_LOGGING_ENABLED": self.BODY_LOGGING_ENABLED,
             }
         )
+        return self
+
+    @model_validator(mode='after')
+    def validate_webauthn_production_configuration(self):
+        if self.ENVIRONMENT != "production":
+            return self
+
+        required_settings = {
+            "WEBAUTHN_RP_ID": self.WEBAUTHN_RP_ID,
+            "WEBAUTHN_RP_NAME": self.WEBAUTHN_RP_NAME,
+            "WEBAUTHN_ALLOWED_ORIGINS": self.WEBAUTHN_ALLOWED_ORIGINS,
+        }
+        missing = [name for name, value in required_settings.items() if not value]
+        if missing:
+            raise ValueError(
+                "productionではWebAuthn設定が必須です: " + ", ".join(missing)
+            )
+
+        rp_id = self.WEBAUTHN_RP_ID.lower()
+        if "://" in rp_id or "/" in rp_id or not rp_id:
+            raise ValueError("WEBAUTHN_RP_IDはschemeやpathを含まないホスト名で指定してください")
+
+        for origin in self.webauthn_allowed_origins:
+            origin_host = urlsplit(origin).hostname
+            if origin_host is None or (
+                origin_host.lower() != rp_id
+                and not origin_host.lower().endswith(f".{rp_id}")
+            ):
+                raise ValueError("WebAuthn originはWEBAUTHN_RP_IDに属する必要があります")
         return self
 
 
