@@ -34,6 +34,9 @@ from app.core.password_breach_check import check_password_breach
 from app.core.mail import send_verification_email
 from pydantic import BaseModel
 from app.models.office import OfficeStaff
+from app.models.enums import StaffRole
+from app.crud.crud_webauthn import crud_webauthn
+from app.services.webauthn_authentication import webauthn_authentication_service
 
 class MFAVerifyRequest(BaseModel):
     temporary_token: str
@@ -186,8 +189,6 @@ async def login_for_access_token(
 
     app_adminの場合は追加で合言葉（passphrase）の検証が必要
     """
-    from app.models.enums import StaffRole
-
     user = await staff_crud.get_by_email(db, email=username)
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
@@ -259,6 +260,18 @@ async def login_for_access_token(
     # セッション期間を常に1時間に固定
     session_duration = 3600  # 1時間（秒）
     session_type = "standard"
+
+    if user.role == StaffRole.app_admin:
+        credentials = await crud_webauthn.get_active_credentials(db, staff_id=user.id)
+        if credentials:
+            pending_token = await webauthn_authentication_service.begin_pending_login(db, staff=user)
+            return {
+                "requires_webauthn_verification": True,
+                "webauthn_pending_token": pending_token,
+                "token_type": "bearer",
+                "session_duration": session_duration,
+                "session_type": session_type,
+            }
 
     if user.is_mfa_enabled:
         temporary_token = create_temporary_token(

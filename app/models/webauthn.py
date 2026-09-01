@@ -71,6 +71,25 @@ class WebAuthnCredential(Base):
     staff: Mapped["Staff"] = relationship(back_populates="webauthn_credentials")
 
 
+class WebAuthnAuthenticationSession(Base):
+    """パスワード検証後、assertion完了までだけ有効なサーバー側保留状態。"""
+
+    __tablename__ = "webauthn_authentication_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
+    staff_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("staffs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    staff: Mapped["Staff"] = relationship(back_populates="webauthn_authentication_sessions")
+
+
 class WebAuthnChallenge(Base):
     """ceremony・利用者・短命sessionに束縛するchallenge hash。"""
 

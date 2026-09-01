@@ -12,7 +12,11 @@ from app.models.staff import Staff
 from app.models.office import Office, OfficeStaff
 from app.models.archived_staff import ArchivedStaff
 from app.models.push_subscription import PushSubscription
-from app.models.webauthn import WebAuthnChallenge, WebAuthnCredential
+from app.models.webauthn import (
+    WebAuthnAuthenticationSession,
+    WebAuthnChallenge,
+    WebAuthnCredential,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

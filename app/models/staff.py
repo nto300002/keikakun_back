@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.models.office import Office, OfficeStaff
     from app.models.terms_agreement import TermsAgreement
     from app.models.push_subscription import PushSubscription
-    from app.models.webauthn import WebAuthnChallenge, WebAuthnCredential
+    from app.models.webauthn import WebAuthnAuthenticationSession, WebAuthnChallenge, WebAuthnCredential
 
 class Staff(Base):
     """スタッフ"""
@@ -112,6 +112,10 @@ class Staff(Base):
         cascade="all, delete-orphan",
     )
     webauthn_challenges: Mapped[List["WebAuthnChallenge"]] = relationship(
+        back_populates="staff",
+        cascade="all, delete-orphan",
+    )
+    webauthn_authentication_sessions: Mapped[List["WebAuthnAuthenticationSession"]] = relationship(
         back_populates="staff",
         cascade="all, delete-orphan",
     )

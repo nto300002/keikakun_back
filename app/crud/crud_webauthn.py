@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.webauthn import hash_challenge
 from app.models.webauthn import (
+    WebAuthnAuthenticationSession,
     WebAuthnCeremony,
     WebAuthnChallenge,
     WebAuthnCredential,
@@ -41,6 +42,41 @@ class CRUDWebAuthn:
         )
         db.add(record)
         return record
+
+    async def create_authentication_session(
+        self, db: AsyncSession, *, staff_id: uuid.UUID, token: bytes
+    ) -> WebAuthnAuthenticationSession:
+        record = WebAuthnAuthenticationSession(
+            staff_id=staff_id,
+            token_hash=hash_challenge(token),
+            expires_at=datetime.datetime.now(datetime.timezone.utc) + MAX_CHALLENGE_TTL,
+        )
+        db.add(record)
+        return record
+
+    async def get_authentication_session(
+        self, db: AsyncSession, *, token: bytes
+    ) -> WebAuthnAuthenticationSession | None:
+        result = await db.execute(
+            select(WebAuthnAuthenticationSession)
+            .where(WebAuthnAuthenticationSession.token_hash == hash_challenge(token))
+            .where(WebAuthnAuthenticationSession.used_at.is_(None))
+            .where(WebAuthnAuthenticationSession.expires_at > func.now())
+        )
+        return result.scalar_one_or_none()
+
+    async def consume_authentication_session(
+        self, db: AsyncSession, *, token: bytes
+    ) -> WebAuthnAuthenticationSession | None:
+        result = await db.execute(
+            update(WebAuthnAuthenticationSession)
+            .where(WebAuthnAuthenticationSession.token_hash == hash_challenge(token))
+            .where(WebAuthnAuthenticationSession.used_at.is_(None))
+            .where(WebAuthnAuthenticationSession.expires_at > func.now())
+            .values(used_at=func.now())
+            .returning(WebAuthnAuthenticationSession)
+        )
+        return result.scalar_one_or_none()
 
     async def consume_challenge(
         self,
@@ -78,6 +114,40 @@ class CRUDWebAuthn:
             .order_by(WebAuthnCredential.created_at.asc())
         )
         return list(result.scalars().all())
+
+    async def get_active_credential_by_credential_id(
+        self, db: AsyncSession, *, credential_id: bytes
+    ) -> WebAuthnCredential | None:
+        result = await db.execute(
+            select(WebAuthnCredential)
+            .where(WebAuthnCredential.credential_id == credential_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_active_credential_by_credential_id_for_update(
+        self, db: AsyncSession, *, credential_id: bytes
+    ) -> WebAuthnCredential | None:
+        """認証中のsign count更新競合を防ぐためcredential行をロックする。"""
+        result = await db.execute(
+            select(WebAuthnCredential)
+            .where(WebAuthnCredential.credential_id == credential_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def update_authentication_use(
+        self, db: AsyncSession, *, credential_id: bytes, sign_count: int
+    ) -> WebAuthnCredential | None:
+        result = await db.execute(
+            update(WebAuthnCredential)
+            .where(WebAuthnCredential.credential_id == credential_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+            .values(sign_count=sign_count, last_used_at=func.now())
+            .returning(WebAuthnCredential)
+        )
+        return result.scalar_one_or_none()
 
     async def get_active_credentials_for_update(
         self, db: AsyncSession, *, staff_id: uuid.UUID
