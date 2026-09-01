@@ -28,6 +28,7 @@ from app.api.v1.endpoints import (
     billing,
     push_subscriptions,
     e2e_cleanup,
+    webauthn,
 )
 
 api_router = APIRouter()
@@ -39,6 +40,7 @@ api_router.include_router(staffs.router, prefix="/staffs", tags=["staffs"])
 api_router.include_router(offices.router, prefix="/offices", tags=["offices"])
 api_router.include_router(office_staff.router, prefix="/staff", tags=["staff-office"])
 api_router.include_router(mfa.router, prefix="/auth", tags=["mfa"])
+api_router.include_router(webauthn.router, prefix="/auth", tags=["webauthn"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(welfare_recipients.router, prefix="/welfare-recipients", tags=["welfare-recipients"])
 api_router.include_router(support_plans.router, prefix="/support-plans", tags=["support-plans"])
