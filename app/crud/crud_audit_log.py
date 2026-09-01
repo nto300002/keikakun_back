@@ -57,6 +57,9 @@ RETENTION_POLICIES = {
             "staff.logout",
             "mfa.enabled",
             "mfa.disabled",
+            "webauthn.credential_registered",
+            "webauthn.credential_renamed",
+            "webauthn.credential_revoked",
         ]
     },
 }

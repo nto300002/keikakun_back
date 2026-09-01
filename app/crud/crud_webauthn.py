@@ -4,11 +4,15 @@ import datetime
 import uuid
 from typing import Optional
 
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.webauthn import hash_challenge
-from app.models.webauthn import WebAuthnCeremony, WebAuthnChallenge
+from app.models.webauthn import (
+    WebAuthnCeremony,
+    WebAuthnChallenge,
+    WebAuthnCredential,
+)
 
 
 MAX_CHALLENGE_TTL = datetime.timedelta(minutes=5)
@@ -61,6 +65,68 @@ class CRUDWebAuthn:
             .returning(WebAuthnChallenge)
         )
         result = await db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_active_credentials(
+        self, db: AsyncSession, *, staff_id: uuid.UUID
+    ) -> list[WebAuthnCredential]:
+        """本人の有効なcredentialだけを作成日時順で返す。"""
+        result = await db.execute(
+            select(WebAuthnCredential)
+            .where(WebAuthnCredential.staff_id == staff_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+            .order_by(WebAuthnCredential.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_active_credentials_for_update(
+        self, db: AsyncSession, *, staff_id: uuid.UUID
+    ) -> list[WebAuthnCredential]:
+        """失効判定中の競合を防ぐため、本人の有効credentialを行ロックして返す。"""
+        result = await db.execute(
+            select(WebAuthnCredential)
+            .where(WebAuthnCredential.staff_id == staff_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+            .order_by(WebAuthnCredential.created_at.asc())
+            .with_for_update()
+        )
+        return list(result.scalars().all())
+
+    async def revoke_credential(
+        self,
+        db: AsyncSession,
+        *,
+        staff_id: uuid.UUID,
+        credential_id: uuid.UUID,
+    ) -> WebAuthnCredential | None:
+        """本人所有かつ有効なcredentialだけを論理削除する。"""
+        result = await db.execute(
+            update(WebAuthnCredential)
+            .where(WebAuthnCredential.id == credential_id)
+            .where(WebAuthnCredential.staff_id == staff_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+            .values(revoked_at=func.now())
+            .returning(WebAuthnCredential)
+        )
+        return result.scalar_one_or_none()
+
+    async def update_display_name(
+        self,
+        db: AsyncSession,
+        *,
+        staff_id: uuid.UUID,
+        credential_id: uuid.UUID,
+        display_name: str,
+    ) -> WebAuthnCredential | None:
+        """本人所有かつ有効なcredentialの表示名だけを更新する。"""
+        result = await db.execute(
+            update(WebAuthnCredential)
+            .where(WebAuthnCredential.id == credential_id)
+            .where(WebAuthnCredential.staff_id == staff_id)
+            .where(WebAuthnCredential.revoked_at.is_(None))
+            .values(display_name=display_name)
+            .returning(WebAuthnCredential)
+        )
         return result.scalar_one_or_none()
 
 

@@ -97,6 +97,13 @@ MFA_INCORRECT_PASSWORD = "パスワードが正しくありません"
 MFA_DISABLED_SUCCESS = "2段階認証を無効にしました"
 MFA_ENABLED_SUCCESS = "2段階認証を有効にしました"
 MFA_APP_ADMIN_SELF_SERVICE_ONLY = "アプリ管理者の2段階認証は本人のみ操作できます"
+WEBAUTHN_UNAVAILABLE = "パスキー登録を現在利用できません"
+WEBAUTHN_CHALLENGE_EXPIRED = "パスキー登録画面の有効期限が切れました。もう一度やり直してください"
+WEBAUTHN_REGISTRATION_INVALID = "パスキーの登録を確認できませんでした"
+WEBAUTHN_USER_VERIFICATION_REQUIRED = "端末での本人確認が必要です"
+WEBAUTHN_REGISTRATION_DATA_INVALID = "パスキー登録データの形式が正しくありません"
+WEBAUTHN_CREDENTIAL_NOT_FOUND = "パスキーが見つかりません"
+WEBAUTHN_LAST_CREDENTIAL_REVOKE_FORBIDDEN = "最後の有効なパスキーは無効化できません"
 
 # ==========================================
 # 福祉受給者関連 (welfare_recipients.py)
