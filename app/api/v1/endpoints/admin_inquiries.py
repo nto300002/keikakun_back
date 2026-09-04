@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_app_admin
+from app.api.deps import get_db, require_app_admin, require_step_up_if_enforced, validate_csrf
 from app.models.staff import Staff
 from app.models.enums import InquiryStatus, InquiryPriority
 from app.crud.crud_inquiry import crud_inquiry
@@ -185,6 +185,8 @@ async def update_inquiry(
     *,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
+    _: Staff = Depends(require_step_up_if_enforced),
+    __: None = Depends(validate_csrf),
     inquiry_id: UUID,
     inquiry_in: InquiryUpdate
 ) -> InquiryUpdateResponse:
@@ -230,6 +232,8 @@ async def reply_to_inquiry(
     *,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
+    _: Staff = Depends(require_step_up_if_enforced),
+    __: None = Depends(validate_csrf),
     inquiry_id: UUID,
     reply_in: InquiryReply
 ) -> InquiryReplyResponse:
@@ -288,6 +292,8 @@ async def delete_inquiry(
     *,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
+    _: Staff = Depends(require_step_up_if_enforced),
+    __: None = Depends(validate_csrf),
     inquiry_id: UUID
 ) -> InquiryDeleteResponse:
     """

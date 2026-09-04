@@ -7,15 +7,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.core.limiter import limiter
+from app.core.auth_cookie import build_access_cookie_options
+from app.core.security import create_access_token, create_refresh_token
 from app.messages import ja
 from app.models.staff import Staff
 from app.schemas.webauthn import (
     WebAuthnCredentialDisplayNameUpdateRequest,
     WebAuthnCredentialResponse,
+    WebAuthnAuthenticationOptionsRequest,
+    WebAuthnAuthenticationOptionsResponse,
+    WebAuthnAuthenticationVerifyRequest,
     WebAuthnRegistrationOptionsResponse,
     WebAuthnRegistrationVerifyRequest,
 )
 from app.services.webauthn_registration import webauthn_registration_service
+from app.services.webauthn_authentication import webauthn_authentication_service
+from app.services.passkey_enforcement import passkey_enforcement_service
 
 
 router = APIRouter()
@@ -23,6 +30,9 @@ router = APIRouter()
 REGISTRATION_OPTIONS_RATE_LIMIT = "5/minute"
 REGISTRATION_VERIFY_RATE_LIMIT = "5/minute"
 CREDENTIAL_MANAGEMENT_RATE_LIMIT = "30/minute"
+AUTHENTICATION_OPTIONS_RATE_LIMIT = "5/minute"
+AUTHENTICATION_VERIFY_RATE_LIMIT = "5/minute"
+STEP_UP_RATE_LIMIT = "5/minute"
 
 
 def _get_session_id(request: Request) -> bytes:
@@ -37,6 +47,96 @@ def _get_session_id(request: Request) -> bytes:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="認証情報を確認できません",
     )
+
+
+@router.post("/webauthn/authentication/options", response_model=WebAuthnAuthenticationOptionsResponse)
+@limiter.limit(AUTHENTICATION_OPTIONS_RATE_LIMIT)
+async def begin_authentication(
+    request: Request,
+    payload: WebAuthnAuthenticationOptionsRequest,
+    db: AsyncSession = Depends(deps.get_db),
+) -> WebAuthnAuthenticationOptionsResponse:
+    options = await webauthn_authentication_service.begin_authentication(
+        db, pending_token=payload.pending_token
+    )
+    return WebAuthnAuthenticationOptionsResponse(publicKey=options)
+
+
+@router.post("/webauthn/authentication/verify")
+@limiter.limit(AUTHENTICATION_VERIFY_RATE_LIMIT)
+async def verify_authentication(
+    request: Request,
+    payload: WebAuthnAuthenticationVerifyRequest,
+    response: Response,
+    db: AsyncSession = Depends(deps.get_db),
+) -> dict:
+    staff = await webauthn_authentication_service.verify_authentication(
+        db, pending_token=payload.pending_token, credential=payload.credential
+    )
+    session_duration = 3600
+    access_token = create_access_token(
+        subject=str(staff.id), expires_delta_seconds=session_duration, session_type="standard"
+    )
+    refresh_token = create_refresh_token(
+        subject=str(staff.id), session_duration=session_duration, session_type="standard"
+    )
+    response.set_cookie(**build_access_cookie_options(value=access_token, max_age=session_duration))
+    return {
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "session_duration": session_duration,
+        "session_type": "standard",
+    }
+
+
+@router.post("/webauthn/enforce")
+@limiter.limit(CREDENTIAL_MANAGEMENT_RATE_LIMIT)
+async def enforce_passkey(
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: Staff = Depends(deps.require_app_admin),
+    __: Staff = Depends(deps.require_step_up),
+    _: None = Depends(deps.validate_csrf),
+) -> dict:
+    await passkey_enforcement_service.enforce(db, staff=current_user)
+    return {"passkey_enforced": True, "passkey_enforced_at": current_user.passkey_enforced_at}
+
+
+@router.post("/webauthn/step-up/options")
+@limiter.limit(STEP_UP_RATE_LIMIT)
+async def begin_step_up(
+    request: Request,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: Staff = Depends(deps.require_app_admin),
+    _: None = Depends(deps.validate_csrf),
+) -> dict:
+    pending_token, options = await webauthn_authentication_service.begin_step_up(
+        db, staff=current_user
+    )
+    return {"webauthn_pending_token": pending_token, "publicKey": options}
+
+
+@router.post("/webauthn/step-up/verify")
+@limiter.limit(STEP_UP_RATE_LIMIT)
+async def verify_step_up(
+    request: Request,
+    payload: WebAuthnAuthenticationVerifyRequest,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: Staff = Depends(deps.require_app_admin),
+    _: None = Depends(deps.validate_csrf),
+) -> dict:
+    staff = await webauthn_authentication_service.verify_authentication(
+        db,
+        pending_token=payload.pending_token,
+        credential=payload.credential,
+        expected_purpose="step_up",
+    )
+    if staff.id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="認証情報を確認できません")
+    token = create_access_token(
+        subject=str(staff.id), expires_delta_seconds=300, session_type="step_up"
+    )
+    return {"step_up_token": token, "expires_in": 300, "token_type": "bearer"}
 
 
 @router.post(
@@ -123,7 +223,8 @@ async def revoke_credential(
     credential_id: uuid.UUID,
     db: AsyncSession = Depends(deps.get_db),
     current_user: Staff = Depends(deps.require_app_admin),
-    _: None = Depends(deps.validate_csrf),
+    _: Staff = Depends(deps.require_step_up_if_enforced),
+    __: None = Depends(deps.validate_csrf),
 ) -> Response:
     revoked = await webauthn_registration_service.revoke_credential(
         db, staff=current_user, credential_id=credential_id

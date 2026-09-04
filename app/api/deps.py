@@ -253,6 +253,46 @@ async def require_app_admin(
     return current_staff
 
 
+async def require_step_up_if_enforced(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_staff: Staff = Depends(require_app_admin),
+) -> Staff:
+    """強制化済みapp_adminの高リスク操作に短命step-upを要求する。"""
+    if current_staff.passkey_enforced_at is None:
+        return current_staff
+
+    return await require_step_up(request=request, current_staff=current_staff)
+
+
+async def require_step_up(
+    request: Request,
+    current_staff: Staff = Depends(require_app_admin),
+) -> Staff:
+    """有効な短命step-up JWTを現在のapp_adminへ紐づける。"""
+
+    step_up_token = request.headers.get("X-Step-Up-Token")
+    payload = decode_access_token(step_up_token) if step_up_token else None
+    if not payload or payload.get("session_type") != "step_up":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="追加のパスキー認証が必要です",
+        )
+    try:
+        step_up_staff_id = uuid.UUID(str(payload.get("sub")))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="追加のパスキー認証が必要です",
+        )
+    if step_up_staff_id != current_staff.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="追加のパスキー認証が必要です",
+        )
+    return current_staff
+
+
 async def check_employee_restriction(
     db: AsyncSession,
     current_staff: Staff,

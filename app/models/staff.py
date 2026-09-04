@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.models.office import Office, OfficeStaff
     from app.models.terms_agreement import TermsAgreement
     from app.models.push_subscription import PushSubscription
-    from app.models.webauthn import WebAuthnChallenge, WebAuthnCredential
+    from app.models.webauthn import WebAuthnAuthenticationSession, WebAuthnChallenge, WebAuthnCredential
 
 class Staff(Base):
     """スタッフ"""
@@ -57,6 +57,11 @@ class Staff(Base):
         DateTime(timezone=True),
         nullable=True,
         comment="合言葉の最終変更日時"
+    )
+    passkey_enforced_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="パスキーをapp_adminの必須認証要素として強制した日時",
     )
 
     # 論理削除関連（スタッフ削除機能用）
@@ -112,6 +117,10 @@ class Staff(Base):
         cascade="all, delete-orphan",
     )
     webauthn_challenges: Mapped[List["WebAuthnChallenge"]] = relationship(
+        back_populates="staff",
+        cascade="all, delete-orphan",
+    )
+    webauthn_authentication_sessions: Mapped[List["WebAuthnAuthenticationSession"]] = relationship(
         back_populates="staff",
         cascade="all, delete-orphan",
     )
