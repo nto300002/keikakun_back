@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db, require_app_admin, validate_csrf
+from app.api.deps import get_db, require_app_admin, require_step_up_if_enforced, validate_csrf
 from app.models.office import OfficeStaff
 from app.models.staff import Staff
 from app.models.message import Message
@@ -81,6 +81,7 @@ async def send_announcement_to_all(
     *,
     db: AsyncSession = Depends(get_db),
     current_user: Staff = Depends(require_app_admin),
+    __: Staff = Depends(require_step_up_if_enforced),
     message_in: MessageAnnouncementCreate,
     _: None = Depends(validate_csrf)
 ):

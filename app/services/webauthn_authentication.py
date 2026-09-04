@@ -19,9 +19,11 @@ from app.models.webauthn import WebAuthnCeremony, WebAuthnCredential
 class WebAuthnAuthenticationService:
     """パスワード後の短命状態から、WebAuthn認証を完了する。"""
 
-    async def begin_pending_login(self, db: AsyncSession, *, staff: Staff) -> str:
+    async def begin_pending_login(self, db: AsyncSession, *, staff: Staff, purpose: str = "login") -> str:
         token = secrets.token_bytes(32)
-        await crud_webauthn.create_authentication_session(db, staff_id=staff.id, token=token)
+        await crud_webauthn.create_authentication_session(
+            db, staff_id=staff.id, token=token, purpose=purpose
+        )
         try:
             await db.commit()
         except Exception:
@@ -41,8 +43,13 @@ class WebAuthnAuthenticationService:
         if not credentials:
             raise self._invalid()
         challenge = secrets.token_bytes(32)
+        ceremony = (
+            WebAuthnCeremony.step_up
+            if pending.purpose == "step_up"
+            else WebAuthnCeremony.authentication
+        )
         await crud_webauthn.create_challenge(
-            db, staff_id=pending.staff_id, ceremony=WebAuthnCeremony.authentication,
+            db, staff_id=pending.staff_id, ceremony=ceremony,
             challenge=challenge, session_id=token,
         )
         try:
@@ -56,8 +63,14 @@ class WebAuthnAuthenticationService:
             allow_credentials=[PublicKeyCredentialDescriptor(id=item.credential_id) for item in credentials],
         )))
 
+    async def begin_step_up(self, db: AsyncSession, *, staff: Staff) -> tuple[str, dict]:
+        """現在の通常セッションに紐づく、短命なstep-up ceremonyを開始する。"""
+        pending_token = await self.begin_pending_login(db, staff=staff, purpose="step_up")
+        return pending_token, await self.begin_authentication(db, pending_token=pending_token)
+
     async def verify_authentication(
-        self, db: AsyncSession, *, pending_token: str, credential: dict
+        self, db: AsyncSession, *, pending_token: str, credential: dict,
+        expected_purpose: str = "login",
     ) -> Staff:
         """assertionを検証し、成功した一回だけ通常ログインを許可する。
 
@@ -74,7 +87,12 @@ class WebAuthnAuthenticationService:
         stored = await crud_webauthn.get_active_credential_by_credential_id_for_update(
             db, credential_id=credential_id
         )
-        if pending is None or stored is None or stored.staff_id != pending.staff_id:
+        if (
+            pending is None
+            or pending.purpose != expected_purpose
+            or stored is None
+            or stored.staff_id != pending.staff_id
+        ):
             raise self._invalid()
         try:
             verified = verify_authentication_response(
@@ -84,6 +102,7 @@ class WebAuthnAuthenticationService:
                 expected_origin=list(settings.webauthn_allowed_origins),
                 credential_public_key=stored.public_key,
                 credential_current_sign_count=stored.sign_count,
+                require_user_presence=True,
                 require_user_verification=True,
             )
             if not verified.user_verified:
@@ -94,8 +113,13 @@ class WebAuthnAuthenticationService:
 
         # 暗号学的検証に成功した assertion だけを単回消費する。
         # 同時実行時は先に消費したリクエスト以外を拒否する。
+        ceremony = (
+            WebAuthnCeremony.step_up
+            if pending.purpose == "step_up"
+            else WebAuthnCeremony.authentication
+        )
         consumed_challenge = await crud_webauthn.consume_challenge(
-            db, staff_id=pending.staff_id, ceremony=WebAuthnCeremony.authentication,
+            db, staff_id=pending.staff_id, ceremony=ceremony,
             challenge=challenge, session_id=token,
         )
         consumed_pending = await crud_webauthn.consume_authentication_session(db, token=token)

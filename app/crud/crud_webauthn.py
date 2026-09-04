@@ -44,11 +44,12 @@ class CRUDWebAuthn:
         return record
 
     async def create_authentication_session(
-        self, db: AsyncSession, *, staff_id: uuid.UUID, token: bytes
+        self, db: AsyncSession, *, staff_id: uuid.UUID, token: bytes, purpose: str = "login"
     ) -> WebAuthnAuthenticationSession:
         record = WebAuthnAuthenticationSession(
             staff_id=staff_id,
             token_hash=hash_challenge(token),
+            purpose=purpose,
             expires_at=datetime.datetime.now(datetime.timezone.utc) + MAX_CHALLENGE_TTL,
         )
         db.add(record)

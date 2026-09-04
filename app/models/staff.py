@@ -58,6 +58,11 @@ class Staff(Base):
         nullable=True,
         comment="合言葉の最終変更日時"
     )
+    passkey_enforced_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="パスキーをapp_adminの必須認証要素として強制した日時",
+    )
 
     # 論理削除関連（スタッフ削除機能用）
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)

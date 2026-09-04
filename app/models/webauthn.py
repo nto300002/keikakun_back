@@ -30,6 +30,7 @@ class WebAuthnCeremony(str, Enum):
 
     registration = "registration"
     authentication = "authentication"
+    step_up = "step_up"
 
 
 class WebAuthnCredential(Base):
@@ -75,12 +76,16 @@ class WebAuthnAuthenticationSession(Base):
     """パスワード検証後、assertion完了までだけ有効なサーバー側保留状態。"""
 
     __tablename__ = "webauthn_authentication_sessions"
+    __table_args__ = (
+        CheckConstraint("purpose IN ('login', 'step_up')", name="ck_webauthn_auth_sessions_purpose"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
     staff_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("staffs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False, server_default="login")
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(

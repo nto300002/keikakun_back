@@ -232,30 +232,39 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # app_adminの場合は合言葉検証
+    # app_adminの場合は、強制化前だけ合言葉を検証する。
+    # 強制化後はパスキーが唯一の追加認証要素であり、合言葉をログイン判断に使わない。
     if user.role == StaffRole.app_admin:
-        # 合言葉が設定されているか確認
-        if not user.hashed_passphrase:
+        credentials = await crud_webauthn.get_active_credentials(db, staff_id=user.id)
+        if user.passkey_enforced_at is not None and not credentials:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=ja.AUTH_PASSPHRASE_NOT_SET,
+                detail=ja.AUTH_INCORRECT_CREDENTIALS,
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        # 合言葉が入力されているか確認
-        if not passphrase:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ja.AUTH_PASSPHRASE_REQUIRED,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        # 合言葉を検証
-        if not verify_password(passphrase, user.hashed_passphrase):
-            logger.warning("[LOGIN] Invalid passphrase attempt for app_admin")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ja.AUTH_INVALID_PASSPHRASE,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        if user.passkey_enforced_at is None:
+            # 合言葉が設定されているか確認
+            if not user.hashed_passphrase:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=ja.AUTH_PASSPHRASE_NOT_SET,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            # 合言葉が入力されているか確認
+            if not passphrase:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=ja.AUTH_PASSPHRASE_REQUIRED,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            # 合言葉を検証
+            if not verify_password(passphrase, user.hashed_passphrase):
+                logger.warning("[LOGIN] Invalid passphrase attempt for app_admin")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=ja.AUTH_INVALID_PASSPHRASE,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
     # セッション期間を常に1時間に固定
     session_duration = 3600  # 1時間（秒）
