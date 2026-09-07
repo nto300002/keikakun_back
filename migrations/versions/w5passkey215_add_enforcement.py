@@ -21,8 +21,11 @@ def upgrade() -> None:
         "webauthn_authentication_sessions",
         sa.Column("purpose", sa.String(length=20), server_default="login", nullable=False),
     )
-    op.drop_constraint(
-        "ck_webauthn_challenges_ceremony", "webauthn_challenges", type_="check"
+    # 一部の既存環境では基盤migrationがstamp済みでも制約が欠落しているため、
+    # 制約の存在に依存せず最新の許可値へ再作成する。
+    op.execute(
+        "ALTER TABLE webauthn_challenges "
+        "DROP CONSTRAINT IF EXISTS ck_webauthn_challenges_ceremony"
     )
     op.create_check_constraint(
         "ck_webauthn_challenges_ceremony",
@@ -32,8 +35,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "ck_webauthn_challenges_ceremony", "webauthn_challenges", type_="check"
+    op.execute(
+        "ALTER TABLE webauthn_challenges "
+        "DROP CONSTRAINT IF EXISTS ck_webauthn_challenges_ceremony"
     )
     op.create_check_constraint(
         "ck_webauthn_challenges_ceremony",
