@@ -102,7 +102,6 @@ class WebAuthnAuthenticationService:
                 expected_origin=list(settings.webauthn_allowed_origins),
                 credential_public_key=stored.public_key,
                 credential_current_sign_count=stored.sign_count,
-                require_user_presence=True,
                 require_user_verification=True,
             )
             if not verified.user_verified:

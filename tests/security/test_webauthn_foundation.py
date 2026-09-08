@@ -62,6 +62,18 @@ def test_webauthn_configuration_parses_exact_origin_allowlist():
     )
 
 
+def test_development_allows_localhost_http_origin_for_browser_webauthn():
+    settings = Settings(
+        **settings_values(
+            ENVIRONMENT="development",
+            WEBAUTHN_RP_ID="localhost",
+            WEBAUTHN_ALLOWED_ORIGINS="http://localhost:3000",
+        )
+    )
+
+    assert settings.webauthn_allowed_origins == ("http://localhost:3000",)
+
+
 def test_webauthn_configuration_rejects_origin_outside_rp_id():
     with pytest.raises(ValidationError, match="WEBAUTHN_RP_ID"):
         Settings(

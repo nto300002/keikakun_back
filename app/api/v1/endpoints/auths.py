@@ -136,16 +136,18 @@ async def register_staff(
     return user
 
 
-@router.get("/verify-email")
+@router.post("/verify-email")
+@limiter.limit("30/minute")
 async def verify_email(
-    token: str,
+    data: schemas.token.VerifyEmailRequest,
+    request: Request,
     db: AsyncSession = Depends(deps.get_db),
     staff_crud=Depends(get_staff_crud),
 ):
     """
     メール確認トークンを検証し、ユーザーを有効化します。
     """
-    email = verify_email_verification_token(token)
+    email = verify_email_verification_token(data.token)
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -775,39 +777,6 @@ async def forgot_password(
     return schemas.token.PasswordResetResponse(
         message=ja.AUTH_PASSWORD_RESET_EMAIL_SENT
     )
-
-
-@router.get(
-    "/verify-reset-token",
-    response_model=schemas.token.TokenValidityResponse,
-    status_code=status.HTTP_200_OK,
-)
-@limiter.limit("30/minute")
-async def verify_reset_token(
-    token: str,
-    request: Request,
-    db: AsyncSession = Depends(deps.get_db),
-):
-    """
-    パスワードリセットトークンの有効性を確認します。
-
-    Phase 4: データベース統合実装完了
-    """
-    from app.crud import password_reset as crud_password_reset
-
-    # トークンの有効性を確認
-    db_token = await crud_password_reset.get_valid_token(db, token=token)
-
-    if db_token:
-        return schemas.token.TokenValidityResponse(
-            valid=True,
-            message=ja.AUTH_RESET_TOKEN_VALID
-        )
-    else:
-        return schemas.token.TokenValidityResponse(
-            valid=False,
-            message=ja.AUTH_RESET_TOKEN_INVALID_OR_EXPIRED
-        )
 
 
 @router.post(

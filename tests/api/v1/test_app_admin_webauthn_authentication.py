@@ -174,6 +174,60 @@ async def test_passkey_login_issues_session_only_after_verified_assertion(
 
 
 @pytest.mark.asyncio
+async def test_real_assertion_verification_issues_cookie(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    app_admin_user_factory,
+    monkeypatch,
+):
+    """実署名assertionがライブラリの現行APIで検証できる。"""
+    from app.services import webauthn_authentication
+
+    app_admin = await app_admin_user_factory()
+    app_admin.hashed_passphrase = get_password_hash("passphrase")
+    credential_id = os.urandom(16)
+    private_key, _, public_key = _real_credential(b"unused", credential_id)
+    db_session.add(WebAuthnCredential(
+        staff_id=app_admin.id,
+        credential_id=credential_id,
+        public_key=public_key,
+        display_name="Touch ID",
+        transports=["internal"],
+    ))
+    await db_session.commit()
+    monkeypatch.setattr(webauthn_authentication.settings, "WEBAUTHN_RP_ID", "test.local")
+    monkeypatch.setattr(webauthn_authentication.settings, "WEBAUTHN_ALLOWED_ORIGINS", "https://test.local")
+
+    login_response = await async_client.post(
+        "/api/v1/auth/token",
+        data={
+            "username": app_admin.email,
+            "password": "a-very-secure-password",
+            "passphrase": "passphrase",
+        },
+    )
+    pending_token = login_response.json()["webauthn_pending_token"]
+    options_response = await async_client.post(
+        "/api/v1/auth/webauthn/authentication/options",
+        json={"pending_token": pending_token},
+    )
+    challenge = base64url_decode(options_response.json()["publicKey"]["challenge"])
+    _, assertion, _ = _real_credential(
+        challenge,
+        credential_id,
+        private_key=private_key,
+    )
+
+    verify_response = await async_client.post(
+        "/api/v1/auth/webauthn/authentication/verify",
+        json={"pending_token": pending_token, "credential": assertion},
+    )
+
+    assert verify_response.status_code == 200
+    assert verify_response.cookies.get("access_token")
+
+
+@pytest.mark.asyncio
 async def test_passkey_pending_token_cannot_be_replayed(
     async_client: AsyncClient,
     app_admin_user_factory,

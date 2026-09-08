@@ -110,6 +110,10 @@ class Settings(BaseSettings):
             parsed = urlsplit(origin)
             if (
                 parsed.scheme != "https"
+                and not (
+                    parsed.scheme == "http"
+                    and parsed.hostname == "localhost"
+                )
                 or not parsed.netloc
                 or parsed.path
                 or parsed.query
@@ -117,7 +121,10 @@ class Settings(BaseSettings):
                 or parsed.username
                 or parsed.password
             ):
-                raise ValueError("WebAuthn originはパスを含まないHTTPS originで指定してください")
+                raise ValueError(
+                    "WebAuthn originはパスを含まないHTTPS originで指定してください"
+                    "（開発環境のlocalhostを除く）"
+                )
         return ",".join(origins)
 
     @property
@@ -165,7 +172,10 @@ class Settings(BaseSettings):
             raise ValueError("WEBAUTHN_RP_IDはschemeやpathを含まないホスト名で指定してください")
 
         for origin in self.webauthn_allowed_origins:
-            origin_host = urlsplit(origin).hostname
+            parsed_origin = urlsplit(origin)
+            if parsed_origin.scheme != "https":
+                raise ValueError("productionのWebAuthn originはHTTPSで指定してください")
+            origin_host = parsed_origin.hostname
             if origin_host is None or (
                 origin_host.lower() != rp_id
                 and not origin_host.lower().endswith(f".{rp_id}")

@@ -100,8 +100,9 @@ class TestVerifyResetTokenEndpoint:
         token = "dummy-token-12345"
 
         # Act
-        response = await async_client.get(
-            f"/api/v1/auth/verify-reset-token?token={token}"
+        response = await async_client.post(
+            "/api/v1/auth/verify-reset-token",
+            json={"token": token},
         )
 
         # Assert: エンドポイントが存在し、404ではないことを確認
@@ -115,9 +116,16 @@ class TestVerifyResetTokenEndpoint:
         token = "dummy-token-12345"
 
         # Act
-        response = await async_client.get(
+        response = await async_client.post(
+            "/api/v1/auth/verify-reset-token",
+            json={"token": token},
+        )
+
+        # Query string経由は廃止し、tokenをURLに残さない
+        query_response = await async_client.get(
             f"/api/v1/auth/verify-reset-token?token={token}"
         )
+        assert query_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
         # Assert: レスポンス構造を確認
         data = response.json()
