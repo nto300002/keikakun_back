@@ -509,7 +509,7 @@ async def test_verify_email_success(async_client: AsyncClient, db_session: Async
     token = create_email_verification_token(user.email)
 
     # Act: メール確認エンドポイントを叩く
-    response = await async_client.get(f"/api/v1/auth/verify-email?token={token}")
+    response = await async_client.post("/api/v1/auth/verify-email", json={"token": token})
 
     # Assert
     assert response.status_code == 200
@@ -526,11 +526,31 @@ async def test_verify_email_invalid_token(async_client: AsyncClient):
     invalid_token = "this-is-a-bad-token"
 
     # Act
-    response = await async_client.get(f"/api/v1/auth/verify-email?token={invalid_token}")
+    response = await async_client.post("/api/v1/auth/verify-email", json={"token": invalid_token})
 
     # Assert
     assert response.status_code == 400
     assert "確認リンクが無効または期限切れです" in response.json()["detail"]
+
+
+async def test_verify_email_query_token_is_rejected(async_client: AsyncClient):
+    response = await async_client.get("/api/v1/auth/verify-email?token=token-in-query")
+
+    assert response.status_code == 405
+
+
+async def test_verify_email_rate_limit(async_client: AsyncClient):
+    """公開メール確認APIは短時間の大量試行を制限する"""
+    responses = [
+        await async_client.post(
+            "/api/v1/auth/verify-email",
+            json={"token": f"invalid-token-{index}"},
+        )
+        for index in range(31)
+    ]
+
+    assert all(response.status_code == 400 for response in responses[:30])
+    assert responses[30].status_code == 429
 
 
 

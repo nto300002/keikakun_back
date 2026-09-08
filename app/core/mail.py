@@ -54,7 +54,7 @@ async def send_verification_email(recipient_email: str, token: str) -> None:
     メールアドレス確認用のメールを送信します。
     """
     subject = "【ケイカくん】メールアドレスの確認をお願いします"
-    verification_url = f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+    verification_url = f"{settings.FRONTEND_URL}/auth/verify-email#token={token}"
 
     context = {
         "title": subject,
@@ -86,7 +86,7 @@ async def send_email_change_verification(
         verification_token: 確認トークン
     """
     subject = "【ケイカくん】メールアドレス変更の確認"
-    verification_url = f"{settings.FRONTEND_URL}/auth/verify-email-change?token={verification_token}"
+    verification_url = f"{settings.FRONTEND_URL}/auth/verify-email-change#token={verification_token}"
 
     context = {
         "title": subject,

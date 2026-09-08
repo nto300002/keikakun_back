@@ -86,9 +86,9 @@ class TestPasswordResetFlow:
         await db_session.commit()
 
         # 3. トークン検証
-        response = await async_client.get(
+        response = await async_client.post(
             f"{settings.API_V1_STR}/auth/verify-reset-token",
-            params={"token": raw_token}
+            json={"token": raw_token}
         )
         assert response.status_code == 200
         assert response.json()["valid"] is True
@@ -230,9 +230,9 @@ class TestPasswordResetFlow:
     ):
         """無効なトークンの検証"""
         invalid_token = str(uuid.uuid4())
-        response = await async_client.get(
+        response = await async_client.post(
             f"{settings.API_V1_STR}/auth/verify-reset-token",
-            params={"token": invalid_token}
+            json={"token": invalid_token}
         )
         assert response.status_code == 200
         assert response.json()["valid"] is False

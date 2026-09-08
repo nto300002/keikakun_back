@@ -91,6 +91,11 @@ class VerifyResetTokenRequest(BaseModel):
     token: str
 
 
+class VerifyEmailRequest(BaseModel):
+    """メールアドレス確認トークン検証"""
+    token: str
+
+
 class PasswordResetResponse(BaseModel):
     """パスワードリセットレスポンス"""
     message: str
