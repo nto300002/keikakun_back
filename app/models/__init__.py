@@ -12,6 +12,13 @@ from .enums import (
 from .office import Office, OfficeStaff, OfficeAuditLog
 from .billing import Billing
 from .webhook_event import WebhookEvent
+# Staff側の文字列relationshipをmapper設定時に解決できるよう、依存モデルを先に登録する。
+from .push_subscription import PushSubscription
+from .webauthn import (
+    WebAuthnAuthenticationSession,
+    WebAuthnChallenge,
+    WebAuthnCredential,
+)
 from .staff import Staff, PasswordResetToken, PasswordResetAuditLog
 from .staff_profile import AuditLog, EmailChangeRequest, PasswordHistory
 from .mfa import MFABackupCode, MFAAuditLog

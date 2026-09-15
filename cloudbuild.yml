@@ -24,28 +24,28 @@ steps:
 
 # 3. 本番DBがbaseline以降としてAlembic管理されていることを確認する
 - name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$SHORT_SHA'
-  entrypoint: python
-  env:
-    - 'DATABASE_URL=${_PROD_DATABASE_URL}'
-    - 'ALEMBIC_BASELINE_REVISION=baseline_20260701'
+  entrypoint: sh
+  secretEnv:
+    - 'PROD_DATABASE_URL'
   args:
-    - 'scripts/alembic_baseline_guard.py'
+    - '-c'
+    - 'export DATABASE_URL="$$PROD_DATABASE_URL"; export ALEMBIC_BASELINE_REVISION=baseline_20260701; exec python scripts/alembic_baseline_guard.py'
 
 # 4. 本番TEST DBがbaseline以降としてAlembic管理されていることを確認する
 - name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$SHORT_SHA'
-  entrypoint: python
-  env:
-    - 'DATABASE_URL=${_PROD_TEST_DATABASE_URL}'
-    - 'ALEMBIC_BASELINE_REVISION=baseline_20260701'
+  entrypoint: sh
+  secretEnv:
+    - 'PROD_TEST_DATABASE_URL'
   args:
-    - 'scripts/alembic_baseline_guard.py'
+    - '-c'
+    - 'export DATABASE_URL="$$PROD_TEST_DATABASE_URL"; export ALEMBIC_BASELINE_REVISION=baseline_20260701; exec python scripts/alembic_baseline_guard.py'
 
 # 5. Cloud Runに反映する前に、本番DBと本番TEST DBへAlembic migrationを適用する
 - name: 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/k-back-repo/k-back:$SHORT_SHA'
   entrypoint: python
-  env:
-    - 'PROD_DATABASE_URL=${_PROD_DATABASE_URL}'
-    - 'PROD_TEST_DATABASE_URL=${_PROD_TEST_DATABASE_URL}'
+  secretEnv:
+    - 'PROD_DATABASE_URL'
+    - 'PROD_TEST_DATABASE_URL'
   args:
     - 'scripts/run_alembic_for_pair.py'
     - '--env'
@@ -97,8 +97,41 @@ steps:
     # =====================================
     # 環境変数設定
     # =====================================
+    - '--set-secrets'
+    - '^##^DATABASE_URL=prod-database-url:1##SECRET_KEY=prod-secret-key:1##ENCRYPTION_KEY=prod-encryption-key:1##AWS_ACCESS_KEY_ID=prod-aws-access-key-id:1##AWS_SECRET_ACCESS_KEY=prod-aws-secret-access-key:1##S3_ACCESS_KEY=prod-s3-access-key:1##S3_SECRET_KEY=prod-s3-secret-key:1##MAIL_USERNAME=prod-mail-username:1##MAIL_PASSWORD=prod-mail-password:1##STRIPE_SECRET_KEY=prod-stripe-secret-key:2##STRIPE_WEBHOOK_SECRET=prod-stripe-webhook-secret:1##VAPID_PRIVATE_KEY=prod-vapid-private-key:1##CALENDAR_ENCRYPTION_KEY=prod-calendar-encryption-key:1'
     - '--update-env-vars'
-    - '^##^DATABASE_URL=${_PROD_DATABASE_URL}##SECRET_KEY=${_PROD_SECRET_KEY}##ENCRYPTION_KEY=${_ENCRYPTION_KEY}##AWS_ACCESS_KEY_ID=${_AWS_ACCESS_KEY_ID}##AWS_SECRET_ACCESS_KEY=${_AWS_SECRET_ACCESS_KEY}##AWS_REGION=${_AWS_REGION}##S3_ACCESS_KEY=${_S3_ACCESS_KEY}##S3_SECRET_KEY=${_S3_SECRET_KEY}##S3_REGION=${_S3_REGION}##S3_BUCKET_NAME=${_S3_BUCKET_NAME}##MAIL_FROM=${_SENDER_EMAIL}##MAIL_USERNAME=${_MAIL_USERNAME}##MAIL_PASSWORD=${_MAIL_PASSWORD}##MAIL_SERVER=${_MAIL_SERVER}##MAIL_PORT=${_MAIL_PORT}##FRONTEND_URL=${_FRONTEND_URL}##WEBAUTHN_RP_ID=www.keikakun.com##WEBAUTHN_RP_NAME=Keikakun##WEBAUTHN_ALLOWED_ORIGINS=https://www.keikakun.com##CALENDAR_ENCRYPTION_KEY=${_CALENDAR_ENCRYPTION_KEY}##ENVIRONMENT=${_ENVIRONMENT}##COOKIE_SECURE=${_COOKIE_SECURE}##COOKIE_DOMAIN=${_COOKIE_DOMAIN}##COOKIE_SAMESITE=${_COOKIE_SAMESITE}##PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=${_PASSWORD_RESET_TOKEN_EXPIRE_MINUTES}##RATE_LIMIT_FORGOT_PASSWORD=${_RATE_LIMIT_FORGOT_PASSWORD}##RATE_LIMIT_RESEND_EMAIL=${_RATE_LIMIT_RESEND_EMAIL}##STRIPE_SECRET_KEY=${_STRIPE_SECRET_KEY}##STRIPE_PUBLISHABLE_KEY=${_STRIPE_PUBLISHABLE_KEY}##STRIPE_WEBHOOK_SECRET=${_STRIPE_WEBHOOK_SECRET}##STRIPE_PRICE_ID=${_STRIPE_PRICE_ID}##VAPID_PRIVATE_KEY=${_VAPID_PRIVATE_KEY}##VAPID_PUBLIC_KEY=${_VAPID_PUBLIC_KEY}##VAPID_SUBJECT=${_VAPID_SUBJECT}##MAIL_STARTTLS=True##MAIL_SSL_TLS=False##MAIL_DEBUG=0'
+    - '^##^AWS_REGION=${_AWS_REGION}##S3_REGION=${_S3_REGION}##S3_BUCKET_NAME=${_S3_BUCKET_NAME}##MAIL_FROM=${_SENDER_EMAIL}##MAIL_SERVER=${_MAIL_SERVER}##MAIL_PORT=${_MAIL_PORT}##FRONTEND_URL=${_FRONTEND_URL}##WEBAUTHN_RP_ID=www.keikakun.com##WEBAUTHN_RP_NAME=Keikakun##WEBAUTHN_ALLOWED_ORIGINS=https://www.keikakun.com##ENVIRONMENT=${_ENVIRONMENT}##COOKIE_SECURE=${_COOKIE_SECURE}##COOKIE_DOMAIN=${_COOKIE_DOMAIN}##COOKIE_SAMESITE=${_COOKIE_SAMESITE}##PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=${_PASSWORD_RESET_TOKEN_EXPIRE_MINUTES}##RATE_LIMIT_FORGOT_PASSWORD=${_RATE_LIMIT_FORGOT_PASSWORD}##RATE_LIMIT_RESEND_EMAIL=${_RATE_LIMIT_RESEND_EMAIL}##STRIPE_PUBLISHABLE_KEY=${_STRIPE_PUBLISHABLE_KEY}##STRIPE_PRICE_ID=${_STRIPE_PRICE_ID}##VAPID_PUBLIC_KEY=${_VAPID_PUBLIC_KEY}##VAPID_SUBJECT=${_VAPID_SUBJECT}##MAIL_STARTTLS=True##MAIL_SSL_TLS=False##MAIL_DEBUG=0'
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/prod-database-url/versions/1
+      env: PROD_DATABASE_URL
+    - versionName: projects/$PROJECT_ID/secrets/prod-test-database-url/versions/1
+      env: PROD_TEST_DATABASE_URL
+    - versionName: projects/$PROJECT_ID/secrets/prod-secret-key/versions/1
+      env: SECRET_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-encryption-key/versions/1
+      env: ENCRYPTION_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-aws-access-key-id/versions/1
+      env: AWS_ACCESS_KEY_ID
+    - versionName: projects/$PROJECT_ID/secrets/prod-aws-secret-access-key/versions/1
+      env: AWS_SECRET_ACCESS_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-s3-access-key/versions/1
+      env: S3_ACCESS_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-s3-secret-key/versions/1
+      env: S3_SECRET_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-mail-username/versions/1
+      env: MAIL_USERNAME
+    - versionName: projects/$PROJECT_ID/secrets/prod-mail-password/versions/1
+      env: MAIL_PASSWORD
+    - versionName: projects/$PROJECT_ID/secrets/prod-stripe-secret-key/versions/2
+      env: STRIPE_SECRET_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-stripe-webhook-secret/versions/1
+      env: STRIPE_WEBHOOK_SECRET
+    - versionName: projects/$PROJECT_ID/secrets/prod-vapid-private-key/versions/1
+      env: VAPID_PRIVATE_KEY
+    - versionName: projects/$PROJECT_ID/secrets/prod-calendar-encryption-key/versions/1
+      env: CALENDAR_ENCRYPTION_KEY
 
 # ビルドしたイメージを保存する（全タグを明示的に指定して長期保持）
 images:
