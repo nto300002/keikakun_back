@@ -75,10 +75,36 @@ def test_jwt_and_mfa_encryption_do_not_use_known_production_fallbacks():
     assert "get_mfa_encryption_key_source()" in security_source
 
 
-def test_cloud_run_deploy_sets_mfa_encryption_key():
+def test_cloud_run_deploy_uses_secret_manager_for_sensitive_configuration():
     cloudbuild_source = read_app_source("cloudbuild.yml")
 
-    assert "ENCRYPTION_KEY=${_ENCRYPTION_KEY}" in cloudbuild_source
+    assert "availableSecrets:" in cloudbuild_source
+    assert "secretEnv:" in cloudbuild_source
+    assert "--set-secrets" in cloudbuild_source
+    assert "ENCRYPTION_KEY=prod-encryption-key:1" in cloudbuild_source
+    assert "DATABASE_URL=prod-database-url:1" in cloudbuild_source
+    assert "SECRET_KEY=${_PROD_SECRET_KEY}" not in cloudbuild_source
+    assert "DATABASE_URL=${_PROD_DATABASE_URL}" not in cloudbuild_source
+
+
+def test_cloud_run_deploy_does_not_accept_secret_value_substitutions():
+    cloudbuild_source = read_app_source("cloudbuild.yml")
+    forbidden_substitutions = [
+        "${_PROD_DATABASE_URL}",
+        "${_PROD_TEST_DATABASE_URL}",
+        "${_PROD_SECRET_KEY}",
+        "${_ENCRYPTION_KEY}",
+        "${_AWS_SECRET_ACCESS_KEY}",
+        "${_S3_SECRET_KEY}",
+        "${_MAIL_PASSWORD}",
+        "${_STRIPE_SECRET_KEY}",
+        "${_STRIPE_WEBHOOK_SECRET}",
+        "${_VAPID_PRIVATE_KEY}",
+        "${_CALENDAR_ENCRYPTION_KEY}",
+    ]
+
+    for substitution in forbidden_substitutions:
+        assert substitution not in cloudbuild_source
 
 
 def test_app_adds_security_headers_in_frontend_and_backend():
