@@ -108,30 +108,6 @@ availableSecrets:
       env: PROD_DATABASE_URL
     - versionName: projects/$PROJECT_ID/secrets/prod-test-database-url/versions/1
       env: PROD_TEST_DATABASE_URL
-    - versionName: projects/$PROJECT_ID/secrets/prod-secret-key/versions/1
-      env: SECRET_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-encryption-key/versions/1
-      env: ENCRYPTION_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-aws-access-key-id/versions/1
-      env: AWS_ACCESS_KEY_ID
-    - versionName: projects/$PROJECT_ID/secrets/prod-aws-secret-access-key/versions/1
-      env: AWS_SECRET_ACCESS_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-s3-access-key/versions/1
-      env: S3_ACCESS_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-s3-secret-key/versions/1
-      env: S3_SECRET_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-mail-username/versions/1
-      env: MAIL_USERNAME
-    - versionName: projects/$PROJECT_ID/secrets/prod-mail-password/versions/1
-      env: MAIL_PASSWORD
-    - versionName: projects/$PROJECT_ID/secrets/prod-stripe-secret-key/versions/2
-      env: STRIPE_SECRET_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-stripe-webhook-secret/versions/1
-      env: STRIPE_WEBHOOK_SECRET
-    - versionName: projects/$PROJECT_ID/secrets/prod-vapid-private-key/versions/1
-      env: VAPID_PRIVATE_KEY
-    - versionName: projects/$PROJECT_ID/secrets/prod-calendar-encryption-key/versions/1
-      env: CALENDAR_ENCRYPTION_KEY
 
 # ビルドしたイメージを保存する（全タグを明示的に指定して長期保持）
 images:
