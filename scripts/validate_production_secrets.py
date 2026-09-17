@@ -8,7 +8,7 @@ import sys
 from urllib.parse import urlsplit
 
 
-REQUIRED_PRODUCTION_SECRETS = (
+REQUIRED_PRODUCTION_CONFIGURATION_NAMES = (
     "DATABASE_URL",
     "SECRET_KEY",
     "ENCRYPTION_KEY",
@@ -31,7 +31,7 @@ def validate_secret_values(values: dict[str, str | None]) -> list[str]:
     """Return safe, value-free validation errors for production secrets."""
 
     errors: list[str] = []
-    for name in REQUIRED_PRODUCTION_SECRETS:
+    for name in REQUIRED_PRODUCTION_CONFIGURATION_NAMES:
         value = values.get(name)
         if value is None or not value.strip():
             errors.append(f"{name}: empty")
@@ -61,16 +61,19 @@ def _is_database_url(value: str) -> bool:
 
 def main() -> int:
     errors = validate_secret_values(
-        {name: os.environ.get(name) for name in REQUIRED_PRODUCTION_SECRETS}
+        {
+            name: os.environ.get(name)
+            for name in REQUIRED_PRODUCTION_CONFIGURATION_NAMES
+        }
     )
     if errors:
         for error in errors:
-            print(f"FAIL secret value: {error}", file=sys.stderr)
+            print(f"FAIL production configuration: {error}", file=sys.stderr)
         return 1
 
     print(
-        "PASS secret values: "
-        f"{len(REQUIRED_PRODUCTION_SECRETS)} required values validated"
+        "PASS production configuration: "
+        f"{len(REQUIRED_PRODUCTION_CONFIGURATION_NAMES)} required values validated"
     )
     return 0
 

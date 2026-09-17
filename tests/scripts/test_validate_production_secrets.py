@@ -3,7 +3,7 @@ import base64
 import pytest
 
 from scripts.validate_production_secrets import (
-    REQUIRED_PRODUCTION_SECRETS,
+    REQUIRED_PRODUCTION_CONFIGURATION_NAMES,
     validate_secret_values,
 )
 
@@ -11,12 +11,12 @@ from scripts.validate_production_secrets import (
 def _valid_values() -> dict[str, str]:
     return {
         name: f"configured-{name.lower()}"
-        for name in REQUIRED_PRODUCTION_SECRETS
+        for name in REQUIRED_PRODUCTION_CONFIGURATION_NAMES
     }
 
 
 def test_all_production_secret_names_are_checked():
-    assert set(REQUIRED_PRODUCTION_SECRETS) == {
+    assert set(REQUIRED_PRODUCTION_CONFIGURATION_NAMES) == {
         "DATABASE_URL",
         "SECRET_KEY",
         "ENCRYPTION_KEY",
@@ -42,7 +42,7 @@ def test_valid_production_secret_values_pass():
     assert validate_secret_values(values) == []
 
 
-@pytest.mark.parametrize("secret_name", list(REQUIRED_PRODUCTION_SECRETS))
+@pytest.mark.parametrize("secret_name", list(REQUIRED_PRODUCTION_CONFIGURATION_NAMES))
 def test_missing_or_empty_secret_is_rejected(secret_name):
     values = _valid_values()
     values[secret_name] = ""
