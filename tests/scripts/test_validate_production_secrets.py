@@ -42,6 +42,15 @@ def test_valid_production_secret_values_pass():
     assert validate_secret_values(values) == []
 
 
+def test_restricted_stripe_secret_key_is_valid():
+    values = _valid_values()
+    values["DATABASE_URL"] = "postgresql+psycopg://user:password@example.com/app"
+    values["STRIPE_SECRET_KEY"] = "rk_live_restricted_example"
+    values["STRIPE_WEBHOOK_SECRET"] = "whsec_example"
+
+    assert validate_secret_values(values) == []
+
+
 @pytest.mark.parametrize("secret_name", list(REQUIRED_PRODUCTION_CONFIGURATION_NAMES))
 def test_missing_or_empty_secret_is_rejected(secret_name):
     values = _valid_values()

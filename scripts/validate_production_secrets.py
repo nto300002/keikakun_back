@@ -44,7 +44,7 @@ def validate_secret_values(values: dict[str, str | None]) -> list[str]:
         errors.append("DATABASE_URL: invalid URL scheme or host")
 
     stripe_secret_key = values.get("STRIPE_SECRET_KEY")
-    if stripe_secret_key and not stripe_secret_key.startswith("sk_"):
+    if stripe_secret_key and not stripe_secret_key.startswith(("sk_", "rk_")):
         errors.append("STRIPE_SECRET_KEY: invalid prefix")
 
     webhook_secret = values.get("STRIPE_WEBHOOK_SECRET")
