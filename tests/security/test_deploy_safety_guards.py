@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -126,6 +127,13 @@ def test_cloud_build_has_post_deploy_smoke_test():
     assert "Smoke test" in cloudbuild_source
     assert "--no-traffic" in cloudbuild_source
     assert "--tag=preflight" in cloudbuild_source
+
+
+def test_cloud_build_does_not_map_one_secret_version_to_multiple_env_names():
+    cloudbuild_source = read_app_source("cloudbuild.yml")
+    version_names = re.findall(r"^\s+- versionName: (.+)$", cloudbuild_source, re.MULTILINE)
+
+    assert len(version_names) == len(set(version_names))
 
 
 def test_cloud_run_deploy_does_not_accept_secret_value_substitutions():
