@@ -87,6 +87,47 @@ def test_cloud_run_deploy_uses_secret_manager_for_sensitive_configuration():
     assert "DATABASE_URL=${_PROD_DATABASE_URL}" not in cloudbuild_source
 
 
+def test_all_runtime_sensitive_values_use_secret_manager_references():
+    cloudbuild_source = read_app_source("cloudbuild.yml")
+    expected_references = {
+        "DATABASE_URL": "prod-database-url:1",
+        "SECRET_KEY": "prod-secret-key:1",
+        "ENCRYPTION_KEY": "prod-encryption-key:1",
+        "AWS_ACCESS_KEY_ID": "prod-aws-access-key-id:1",
+        "AWS_SECRET_ACCESS_KEY": "prod-aws-secret-access-key:1",
+        "S3_ACCESS_KEY": "prod-s3-access-key:1",
+        "S3_SECRET_KEY": "prod-s3-secret-key:1",
+        "MAIL_USERNAME": "prod-mail-username:1",
+        "MAIL_PASSWORD": "prod-mail-password:1",
+        "STRIPE_SECRET_KEY": "prod-stripe-secret-key:2",
+        "STRIPE_WEBHOOK_SECRET": "prod-stripe-webhook-secret:1",
+        "VAPID_PRIVATE_KEY": "prod-vapid-private-key:1",
+        "CALENDAR_ENCRYPTION_KEY": "prod-calendar-encryption-key:1",
+    }
+
+    for env_name, secret_reference in expected_references.items():
+        assert f"{env_name}={secret_reference}" in cloudbuild_source
+
+
+def test_cloud_build_runs_secret_preflight_before_database_migrations():
+    cloudbuild_source = read_app_source("cloudbuild.yml")
+
+    assert "validate_secret_manager_metadata.sh" in cloudbuild_source
+    assert "validate_production_secrets.py" in cloudbuild_source
+    assert cloudbuild_source.index("validate_production_secrets.py") < cloudbuild_source.index(
+        "run_alembic_for_pair.py"
+    )
+
+
+def test_cloud_build_has_post_deploy_smoke_test():
+    cloudbuild_source = read_app_source("cloudbuild.yml")
+
+    assert "api/v1/csrf-token" in cloudbuild_source
+    assert "Smoke test" in cloudbuild_source
+    assert "--no-traffic" in cloudbuild_source
+    assert "--tag=preflight" in cloudbuild_source
+
+
 def test_cloud_run_deploy_does_not_accept_secret_value_substitutions():
     cloudbuild_source = read_app_source("cloudbuild.yml")
     forbidden_substitutions = [
