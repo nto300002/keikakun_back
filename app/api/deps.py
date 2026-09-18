@@ -83,7 +83,7 @@ async def _get_current_user(
         user_id = uuid.UUID(token_data.sub)
         logger.debug("Credential subject UUID parsed")
     except ValueError as e:
-        logger.warning("ValueError parsing UUID: %s", e)
+        logger.warning("UUID parsing failed error_type=%s", type(e).__name__)
         raise credentials_exception
 
     from sqlalchemy import select

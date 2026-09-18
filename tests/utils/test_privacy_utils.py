@@ -16,6 +16,8 @@ from app.utils.privacy_utils import (
     mask_webhook_payload_for_display,
     sanitize_log_value,
     sanitize_audit_log_details_for_storage,
+    hash_user_agent,
+    mask_ip_address,
 )
 
 
@@ -234,6 +236,62 @@ def test_email_failure_audit_details_use_storage_allowlist():
         "subject": "<redacted>",
         "error": "<redacted>",
     }
+
+
+def test_email_failure_unknown_keys_are_not_saved():
+    result = sanitize_audit_log_details_for_storage(
+        {"unexpected_email@example.com": "private note", "retry_count": 1},
+        action="email_send_failed",
+    )
+
+    assert result == {"retry_count": 1, "redacted_details": "<redacted>"}
+
+
+def test_unknown_audit_action_defaults_to_redacted_details():
+    result = sanitize_audit_log_details_for_storage(
+        {
+            "business_note": "利用者の機微な相談内容",
+            "nested": {"email": "user@example.com", "count": 3},
+        },
+        action="future.unknown_action",
+    )
+
+    assert result == {"redacted_details": "<redacted>"}
+
+
+def test_allowlisted_audit_values_are_bounded_and_unknown_keys_are_not_saved():
+    result = sanitize_audit_log_details_for_storage(
+        {
+            "source": "webhook\nsecret",
+            "event_type": "invoice.payment_succeeded",
+            "unexpected_email@example.com": "private note",
+        },
+        action="billing.payment_succeeded",
+    )
+
+    assert result == {
+        "source": "<redacted>",
+        "event_type": "invoice.payment_succeeded",
+        "redacted_details": "<redacted>",
+    }
+    assert "unexpected_email@example.com" not in result
+
+
+def test_nested_unknown_keys_are_not_saved():
+    result = sanitize_audit_log_details_for_storage(
+        {"changes": {"safe_count": 2, "private@example.com": "private note"}},
+        action="staff.sensitive_storage_test",
+    )
+
+    assert result == {
+        "changes": {"safe_count": 2, "redacted_details": "<redacted>"},
+    }
+
+
+def test_audit_ip_and_user_agent_storage_policy_is_non_raw():
+    assert mask_ip_address("203.0.113.42") == "203.0.113.0/24"
+    assert mask_ip_address("2001:db8::1234") == "2001:db8::/64"
+    assert hash_user_agent("Mozilla/5.0 Secret-Device") == "ua:c02c8b419a8d74e6"
 
 
 def test_mask_webhook_payload_for_display_uses_allowlist_and_masks_sensitive_values():

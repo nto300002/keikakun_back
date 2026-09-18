@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base import CRUDBase
 from app.models.staff_profile import AuditLog
-from app.utils.privacy_utils import sanitize_audit_log_details_for_storage
+from app.utils.privacy_utils import (
+    hash_user_agent,
+    mask_ip_address,
+    sanitize_audit_log_details_for_storage,
+)
 
 
 # アクション別の保持期間設定（日数）
@@ -131,8 +135,8 @@ class CRUDAuditLog(CRUDBase[AuditLog, Dict[str, Any], Dict[str, Any]]):
             target_type=target_type,
             target_id=target_id,
             office_id=office_id,
-            ip_address=ip_address,
-            user_agent=user_agent,
+            ip_address=mask_ip_address(ip_address),
+            user_agent=hash_user_agent(user_agent),
             details=sanitized_details,
             is_test_data=is_test_data
         )

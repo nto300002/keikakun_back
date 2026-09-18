@@ -200,14 +200,9 @@ async def send_and_log_email(
     if not result["success"]:
         from app.crud.crud_audit_log import audit_log
 
-        # システム送信のため、actor_idはダミーのUUIDを使用
-        # TODO: システムアカウントのUUIDを設定する
-        import uuid
-        system_actor_id = uuid.UUID('00000000-0000-0000-0000-000000000000')
-
         await audit_log.create_log(
             db=db,
-            actor_id=system_actor_id,
+            actor_id=None,
             action="email_send_failed",
             target_type="inquiry_detail",
             target_id=inquiry_detail_id,

@@ -72,8 +72,9 @@ class TestBillingAuditLog:
 
         assert audit_log.details["old_status"] == "free"
         assert audit_log.details["new_status"] == "active"
-        assert audit_log.details["reason"] == "manual repair"
-        assert audit_log.details["raw_payload"] == "<redacted>"
+        assert audit_log.details["reason"] == "<redacted>"
+        assert audit_log.details["redacted_details"] == "<redacted>"
+        assert "raw_payload" not in audit_log.details
         assert audit_log.details["stripe_customer_id"] == "<present>"
         assert "payer@example.com" not in str(audit_log.details)
         assert "cus_1234567890abcdef" not in str(audit_log.details)

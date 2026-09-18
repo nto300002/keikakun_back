@@ -52,6 +52,62 @@ def run():
     assert "indirect_exception_value" in findings[0].reason
 
 
+def test_static_check_does_not_treat_unrelated_safe_marker_as_whole_call_safe(tmp_path):
+    source_path = write_source(
+        tmp_path,
+        """
+import logging
+logger = logging.getLogger(__name__)
+
+def run(token, error):
+    logger.error("token=%s error_type=%s", token, type(error).__name__)
+""",
+    )
+
+    findings = scan_paths([source_path])
+
+    assert len(findings) == 1
+    assert "token" in findings[0].reason
+
+
+def test_static_check_tracks_fstring_attribute_and_dict_exception_flow(tmp_path):
+    source_path = write_source(
+        tmp_path,
+        """
+import logging
+logger = logging.getLogger(__name__)
+
+def run(exc):
+    message = f"delivery failed: {exc}"
+    details = {"message": message}
+    logger.error("delivery details=%s", details)
+""",
+    )
+
+    findings = scan_paths([source_path])
+
+    assert len(findings) == 1
+    assert "indirect_exception_value" in findings[0].reason
+
+
+def test_static_check_detects_model_dump_in_logger_argument(tmp_path):
+    source_path = write_source(
+        tmp_path,
+        """
+import logging
+logger = logging.getLogger(__name__)
+
+def run(model):
+    logger.error("payload=%s", model.model_dump())
+""",
+    )
+
+    findings = scan_paths([source_path])
+
+    assert len(findings) == 1
+    assert "model_dump" in findings[0].reason
+
+
 def test_static_check_detects_sensitive_print_arguments(tmp_path):
     source_path = write_source(
         tmp_path,
