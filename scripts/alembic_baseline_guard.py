@@ -38,16 +38,7 @@ def revision_includes_baseline(
             )
             for revision in revisions
         )
-    except Exception as exc:
-        # TODO(security): baseline検証の原因調査完了後に一時診断ログを削除する。
-        # Secret、接続URL、SQL、例外全文はCloud Buildログへ出力しない。
-        filename = getattr(exc, "filename", None)
-        safe_filename = os.path.basename(filename) if filename else "<unknown>"
-        print(
-            "[TEMPORARY] Alembic revision inspection failed: "
-            f"type={type(exc).__name__} file={safe_filename}",
-            file=sys.stderr,
-        )
+    except Exception:
         return False
 
 
@@ -118,8 +109,6 @@ def main() -> int:
             baseline_revision,
         )
     except Exception as exc:
-        # TODO(security): baseline検証の原因調査完了後に一時診断ログを削除する。
-        # 接続URLや例外全文にはSecretが含まれる可能性があるため出力しない。
         print(
             "Alembic baseline check failed: "
             f"type={type(exc).__name__}",
