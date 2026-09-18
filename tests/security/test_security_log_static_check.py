@@ -30,6 +30,28 @@ def run(token, stripe_customer_id):
     assert "stripe_customer_id" in findings[0].reason
 
 
+def test_static_check_detects_indirect_exception_value(tmp_path):
+    source_path = write_source(
+        tmp_path,
+        """
+import logging
+logger = logging.getLogger(__name__)
+
+def run():
+    try:
+        raise RuntimeError("smtp password=secret")
+    except Exception as exc:
+        exception_message = str(exc)
+        logger.error("email delivery failed: %s", exception_message)
+""",
+    )
+
+    findings = scan_paths([source_path])
+
+    assert len(findings) == 1
+    assert "indirect_exception_value" in findings[0].reason
+
+
 def test_static_check_detects_sensitive_print_arguments(tmp_path):
     source_path = write_source(
         tmp_path,

@@ -12,6 +12,7 @@ PII（個人識別情報）をマスキングする関数群
     >>> mask_name("山田 太郎")
     '山田 *'
 """
+import re
 from typing import Any, Optional
 
 
@@ -49,6 +50,7 @@ REDACT_DETAIL_KEYS = {
     "response_body",
 }
 AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
+    "email_send_failed": {"email_type", "error_type", "retry_count"},
     "inquiry.replied": {"send_email_requested", "email_queued"},
     "billing.status_changed": {
         "old_status",
@@ -327,6 +329,12 @@ def sanitize_audit_log_details_for_storage(value: Any, *, action: Optional[str] 
     保存前に明らかな機微情報を除去し、表示時マスクだけに依存しない。
     非機微な件数・状態などの監査に必要な値は保持する。
     """
+    if action == "email_send_failed" and isinstance(value, dict):
+        return {
+            key: _sanitize_email_failure_detail(key, item)
+            for key, item in value.items()
+        }
+
     sanitized = mask_sensitive_details_for_display(value)
     if not isinstance(sanitized, dict) or not action:
         return sanitized
@@ -339,6 +347,19 @@ def sanitize_audit_log_details_for_storage(value: Any, *, action: Optional[str] 
         key: item if key in allowed_keys else REDACTED
         for key, item in sanitized.items()
     }
+
+
+def _sanitize_email_failure_detail(key: str, value: Any) -> Any:
+    if key in {"recipient", "subject", "error"}:
+        return REDACTED if value not in (None, "") else None
+    if key == "error_type":
+        return value if isinstance(value, str) and value.isidentifier() else REDACTED
+    if key == "email_type":
+        normalized = str(value or "")
+        return normalized if re.fullmatch(r"[a-z0-9_.-]{1,64}", normalized) else REDACTED
+    if key == "retry_count":
+        return value if isinstance(value, int) and 0 <= value <= 100 else REDACTED
+    return REDACTED
 
 
 def _mask_detail_value(key: str, value: Any) -> Any:

@@ -146,12 +146,31 @@ class _SensitiveLogVisitor(ast.NodeVisitor):
         self.path = path
         self.source = source
         self.findings: list[Finding] = []
+        self.exception_derived_names: set[str] = set()
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if _is_exception_string_conversion(node.value):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.exception_derived_names.add(target.id)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if isinstance(node.target, ast.Name) and _is_exception_string_conversion(node.value):
+            self.exception_derived_names.add(node.target.id)
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         call_type = _get_sensitive_call_type(node)
         if call_type:
             call_source = ast.get_source_segment(self.source, node) or ""
             reason_terms = _unsafe_sensitive_terms(call_source)
+            if call_type.startswith("logger.") and any(
+                isinstance(argument, ast.Name)
+                and argument.id in self.exception_derived_names
+                for argument in node.args
+            ):
+                reason_terms.append("indirect_exception_value")
             if reason_terms:
                 self.findings.append(
                     Finding(
@@ -165,6 +184,20 @@ class _SensitiveLogVisitor(ast.NodeVisitor):
                 )
 
         self.generic_visit(node)
+
+
+def _is_exception_string_conversion(node: ast.AST | None) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "str"
+        and bool(node.args)
+        and isinstance(node.args[0], ast.Name)
+        and (
+            node.args[0].id in {"e", "exc", "exception", "error"}
+            or "exception" in node.args[0].id.lower()
+        )
+    )
 
 
 def _get_sensitive_call_type(node: ast.Call) -> str | None:
