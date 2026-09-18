@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud
 from app.models.staff import Staff
 from app.models.enums import StaffRole
-from app.utils.privacy_utils import mask_email
+from app.utils.privacy_utils import hash_user_agent, mask_ip_address
 
 pytestmark = pytest.mark.asyncio
 
@@ -267,8 +267,11 @@ class TestStaffAuditLogCRUDCreateAuditLog:
         assert audit_log.target_id == target_staff.id
         assert audit_log.action == "staff.deleted"
         assert audit_log.staff_id == performer.id
-        assert audit_log.ip_address == "192.168.1.1"
-        assert audit_log.user_agent == "Mozilla/5.0..."
-        assert audit_log.details["deleted_staff_email"] == mask_email(target_staff.email)
+        assert audit_log.ip_address == mask_ip_address("192.168.1.1")
+        assert audit_log.user_agent == hash_user_agent("Mozilla/5.0...")
+        assert "deleted_staff_email" not in audit_log.details
+        assert "deleted_staff_name" not in audit_log.details
+        assert audit_log.details["redacted_details"] == "<redacted>"
+        assert audit_log.details["deleted_staff_role"] == target_staff.role.value
         assert audit_log.timestamp is not None
         assert audit_log.timestamp.tzinfo is not None  # タイムゾーン情報あり
