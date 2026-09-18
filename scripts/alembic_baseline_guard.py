@@ -109,7 +109,11 @@ def main() -> int:
             baseline_revision,
         )
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        print(
+            "Alembic baseline check failed: "
+            f"type={type(exc).__name__}",
+            file=sys.stderr,
+        )
         return 1
 
     print(

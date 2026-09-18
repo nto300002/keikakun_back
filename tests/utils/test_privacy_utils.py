@@ -15,6 +15,7 @@ from app.utils.privacy_utils import (
     mask_sensitive_details_for_display,
     mask_webhook_payload_for_display,
     sanitize_log_value,
+    sanitize_audit_log_details_for_storage,
 )
 
 
@@ -209,6 +210,29 @@ def test_mask_sensitive_details_for_display_recursively_masks_known_sensitive_ke
             "recipient": "r***@example.com",
             "safe_count": 2,
         },
+    }
+
+
+def test_email_failure_audit_details_use_storage_allowlist():
+    result = sanitize_audit_log_details_for_storage(
+        {
+            "error_type": "RuntimeError",
+            "retry_count": 3,
+            "email_type": "inquiry_reply",
+            "recipient": "user@example.com",
+            "subject": "秘密の件名",
+            "error": "SMTP password=super-secret",
+        },
+        action="email_send_failed",
+    )
+
+    assert result == {
+        "error_type": "RuntimeError",
+        "retry_count": 3,
+        "email_type": "inquiry_reply",
+        "recipient": "<redacted>",
+        "subject": "<redacted>",
+        "error": "<redacted>",
     }
 
 

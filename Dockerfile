@@ -27,7 +27,8 @@ RUN addgroup --system --gid 1001 pythonuser && \
 USER pythonuser
 
 # アプリケーションのソースコードをコピー
-COPY . .
+# 非rootユーザーでもmigrationとアプリケーションコードを読めるよう所有者を付与する。
+COPY --chown=pythonuser:pythonuser . .
 
 # Cloud Runがデフォルトでリッスンするポート番号 (8080)
 EXPOSE 8080

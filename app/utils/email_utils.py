@@ -5,13 +5,35 @@
 """
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Callable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.privacy_utils import REDACTED, mask_email
+
 logger = logging.getLogger(__name__)
+
+_SAFE_EMAIL_TYPE = re.compile(r"^[a-z0-9_.-]{1,64}$")
+
+
+def _safe_error_type(error: Any) -> Optional[str]:
+    """Return only an exception/type identifier, never an exception message."""
+    if error is None:
+        return None
+    if isinstance(error, str) and error.isidentifier() and len(error) <= 80:
+        return error
+    if isinstance(error, BaseException):
+        return type(error).__name__
+    return "EmailDeliveryError"
+
+
+def _safe_email_type(email_type: Any) -> str:
+    """Keep only the fixed-format delivery category in a log entry."""
+    normalized = str(email_type or "general")
+    return normalized if _SAFE_EMAIL_TYPE.fullmatch(normalized) else REDACTED
 
 
 async def send_email_with_retry(
@@ -68,11 +90,11 @@ async def send_email_with_retry(
             return result
 
         except Exception as e:
-            last_error = str(e) or type(e).__name__
+            last_error = type(e).__name__
             result["retry_count"] = attempt
 
             logger.warning(
-                "メール送信失敗（試行 %s/%s）: %s",
+                "メール送信失敗（試行 %s/%s） error_type=%s",
                 attempt + 1,
                 max_retries + 1,
                 last_error,
@@ -86,7 +108,7 @@ async def send_email_with_retry(
                 # すべてのリトライが失敗
                 result["error"] = last_error
                 logger.error(
-                    "メール送信失敗（すべてのリトライ失敗）: %s",
+                    "メール送信失敗（すべてのリトライ失敗） error_type=%s",
                     last_error,
                 )
 
@@ -113,11 +135,11 @@ def create_delivery_log_entry(
     """
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "recipient": recipient,
-        "subject": subject,
-        "email_type": email_type,
+        "recipient": mask_email(recipient),
+        "subject": REDACTED,
+        "email_type": _safe_email_type(email_type),
         "success": result["success"],
-        "error": result.get("error"),
+        "error": _safe_error_type(result.get("error")),
         "retry_count": result["retry_count"],
         "sent_at": result.get("sent_at")
     }
@@ -190,10 +212,8 @@ async def send_and_log_email(
             target_type="inquiry_detail",
             target_id=inquiry_detail_id,
             details={
-                "recipient": recipient,
-                "subject": subject,
                 "email_type": email_type,
-                "error": result["error"],
+                "error_type": _safe_error_type(result["error"]),
                 "retry_count": result["retry_count"]
             }
         )

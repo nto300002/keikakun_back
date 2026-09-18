@@ -58,7 +58,7 @@ class TestSendEmailWithRetry:
         assert mock_asyncio_sleep.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_all_retries_fail(self, mock_asyncio_sleep):
+    async def test_all_retries_fail(self, mock_asyncio_sleep, caplog):
         """すべてのリトライが失敗する場合"""
         # すべて失敗
         mock_email_func = AsyncMock(
@@ -73,11 +73,13 @@ class TestSendEmailWithRetry:
 
         # 検証
         assert result["success"] is False
-        assert result["error"] == "Permanent failure"
+        assert result["error"] == "Exception"
         assert result["retry_count"] == 3
         assert result["sent_at"] is None
         assert mock_email_func.call_count == 4  # 初回 + 3回リトライ
         assert mock_asyncio_sleep.call_count == 3
+        assert "Permanent failure" not in caplog.text
+        assert "error_type=Exception" in caplog.text
 
     @pytest.mark.asyncio
     async def test_exponential_backoff(self, mock_asyncio_sleep):
@@ -143,8 +145,8 @@ class TestCreateDeliveryLogEntry:
         )
 
         # 検証
-        assert entry["recipient"] == "user@example.com"
-        assert entry["subject"] == "テスト件名"
+        assert entry["recipient"] == "u***@example.com"
+        assert entry["subject"] == "<redacted>"
         assert entry["email_type"] == "inquiry_received"
         assert entry["success"] is True
         assert entry["error"] is None
@@ -170,7 +172,7 @@ class TestCreateDeliveryLogEntry:
 
         # 検証
         assert entry["success"] is False
-        assert entry["error"] == "Connection timeout"
+        assert entry["error"] == "EmailDeliveryError"
         assert entry["retry_count"] == 3
         assert entry["sent_at"] is None
 
@@ -212,7 +214,7 @@ class TestSendAndLogEmail:
         assert inquiry_detail.delivery_log is not None
         assert len(inquiry_detail.delivery_log) == 1
         assert inquiry_detail.delivery_log[0]["success"] is True
-        assert inquiry_detail.delivery_log[0]["recipient"] == "user@example.com"
+        assert inquiry_detail.delivery_log[0]["recipient"] == "u***@example.com"
 
     @pytest.mark.asyncio
     async def test_send_and_log_failure(
@@ -249,7 +251,7 @@ class TestSendAndLogEmail:
             assert inquiry_detail.delivery_log is not None
             assert len(inquiry_detail.delivery_log) == 1
             assert inquiry_detail.delivery_log[0]["success"] is False
-            assert inquiry_detail.delivery_log[0]["error"] == "Send failed"
+            assert inquiry_detail.delivery_log[0]["error"] == "Exception"
             assert inquiry_detail.delivery_log[0]["retry_count"] == 2
 
             # 監査ログ作成が呼ばれたことを確認
@@ -258,7 +260,9 @@ class TestSendAndLogEmail:
             assert call_kwargs["action"] == "email_send_failed"
             assert call_kwargs["target_type"] == "inquiry_detail"
             assert call_kwargs["target_id"] == inquiry_detail.id
-            assert call_kwargs["details"]["error"] == "Send failed"
+            assert call_kwargs["details"]["error_type"] == "Exception"
+            assert "recipient" not in call_kwargs["details"]
+            assert "subject" not in call_kwargs["details"]
             assert call_kwargs["details"]["retry_count"] == 2
 
     @pytest.mark.asyncio
@@ -297,5 +301,5 @@ class TestSendAndLogEmail:
         # 検証
         await db_session.refresh(inquiry_detail)
         assert len(inquiry_detail.delivery_log) == 2
-        assert inquiry_detail.delivery_log[0]["recipient"] == "user1@example.com"
-        assert inquiry_detail.delivery_log[1]["recipient"] == "user2@example.com"
+        assert inquiry_detail.delivery_log[0]["recipient"] == "u***@example.com"
+        assert inquiry_detail.delivery_log[1]["recipient"] == "u***@example.com"
