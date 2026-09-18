@@ -48,8 +48,9 @@ class TestAuditLogCreate:
         assert log.ip_address == "192.168.1.0/24"
         assert log.user_agent == "ua:54500370aa1391c9"
         assert log.details["changed_field"] == "name"
-        assert log.details["old_value"] == "<redacted>"
-        assert log.details["new_value"] == "<redacted>"
+        assert "old_value" not in log.details
+        assert "new_value" not in log.details
+        assert log.details["redacted_details"] == "<redacted>"
         assert log.is_test_data is False
 
     async def test_create_audit_log_with_actor_role(

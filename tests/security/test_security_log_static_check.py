@@ -90,6 +90,24 @@ def run(exc):
     assert "indirect_exception_value" in findings[0].reason
 
 
+def test_static_check_detects_model_dump_in_logger_argument(tmp_path):
+    source_path = write_source(
+        tmp_path,
+        """
+import logging
+logger = logging.getLogger(__name__)
+
+def run(model):
+    logger.error("payload=%s", model.model_dump())
+""",
+    )
+
+    findings = scan_paths([source_path])
+
+    assert len(findings) == 1
+    assert "model_dump" in findings[0].reason
+
+
 def test_static_check_detects_sensitive_print_arguments(tmp_path):
     source_path = write_source(
         tmp_path,

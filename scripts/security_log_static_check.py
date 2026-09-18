@@ -226,6 +226,8 @@ def _sensitive_argument_terms(node: ast.Call) -> list[str]:
     for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
         if _is_safe_expression(argument):
             continue
+        if _contains_model_serialization(argument):
+            terms.add("model_dump")
         for child in _iter_sensitive_name_nodes(argument):
             if not isinstance(child, ast.Name):
                 continue
@@ -234,6 +236,16 @@ def _sensitive_argument_terms(node: ast.Call) -> list[str]:
                 continue
             terms.update(term for term in SENSITIVE_TERMS if term in normalized)
     return sorted(terms)
+
+
+def _contains_model_serialization(node: ast.AST) -> bool:
+    """Detect model/dict serializers before they reach a log call."""
+    return any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr in {"model_dump", "model_dump_json", "dict", "asdict"}
+        for child in ast.walk(node)
+    )
 
 
 def _iter_sensitive_name_nodes(node: ast.AST) -> Iterable[ast.AST]:

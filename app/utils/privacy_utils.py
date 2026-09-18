@@ -20,6 +20,8 @@ from typing import Any, Optional
 
 REDACTED = "<redacted>"
 PRESENT = "<present>"
+REDACTED_DETAIL_KEY = "redacted_details"
+SAFE_AUDIT_STRING_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+\-]{0,127}$")
 
 EMAIL_DETAIL_KEYS = {"email", "mail", "email_address", "new_email", "old_email", "recipient"}
 NAME_DETAIL_KEYS = {"name", "full_name", "first_name", "last_name", "staff_name", "recipient_name"}
@@ -30,6 +32,11 @@ PRESENT_ONLY_DETAIL_KEYS = {
     "customer_id",
     "subscription_id",
     "payment_method_id",
+}
+NESTED_AUDIT_ALLOWED_SCALAR_KEYS = {
+    "count", "total", "safe_count", "success_count", "failed_count",
+    "device_count", "renewal_alert_count", "assessment_alert_count",
+    "push_sent_count", "push_failed_count", "email_queued", "send_email_requested",
 }
 REDACT_DETAIL_KEYS = {
     "address",
@@ -84,7 +91,7 @@ AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
     "employment.created": {"recipient_id", "employment_id", "changes"},
     "employment.updated": {"recipient_id", "employment_id", "changes"},
     "terms.agreed": {"terms_version", "privacy_version", "agreed_at"},
-    "privacy.unmask_viewed": {"field_group", "approval_id", "expires_at", "result"},
+    "privacy.unmask_viewed": {"field_group", "approval_id", "expires_at", "result", "reason"},
     "billing.status_changed": {
         "old_status",
         "new_status",
@@ -414,27 +421,34 @@ def sanitize_audit_log_details_for_storage(value: Any, *, action: Optional[str] 
         return _redact_unknown_details(value)
 
     if action == "email_send_failed" and isinstance(value, dict):
-        return {
-            key: _sanitize_email_failure_detail(key, item)
-            if key in {"recipient", "subject", "error", "error_type", "email_type", "retry_count"}
-            else REDACTED
-            for key, item in value.items()
+        allowed_email_keys = {
+            "recipient", "subject", "error", "error_type", "email_type", "retry_count",
         }
+        sanitized = {
+            key: _sanitize_email_failure_detail(key, item)
+            for key, item in value.items()
+            if key in allowed_email_keys
+        }
+        if len(sanitized) != len(value):
+            sanitized[REDACTED_DETAIL_KEY] = REDACTED
+        return sanitized
 
     if not isinstance(value, dict):
         return REDACTED if value not in (None, "") else None
 
-    return {
+    sanitized = {
         key: _sanitize_allowed_audit_detail(key, item)
-        if key in allowed_keys
-        else REDACTED
         for key, item in value.items()
+        if key in allowed_keys
     }
+    if len(sanitized) != len(value):
+        sanitized[REDACTED_DETAIL_KEY] = REDACTED
+    return sanitized
 
 
 def _redact_unknown_details(value: Any) -> Any:
     if isinstance(value, dict):
-        return {str(key): REDACTED for key in value}
+        return {REDACTED_DETAIL_KEY: REDACTED} if value else {}
     return REDACTED if value not in (None, "") else None
 
 
@@ -450,7 +464,20 @@ def _sanitize_allowed_audit_detail(key: str, value: Any) -> Any:
         return REDACTED if value not in (None, "") else None
     if isinstance(value, (dict, list)):
         return _sanitize_nested_audit_value(value)
-    return value
+    return _sanitize_allowed_scalar(value)
+
+
+def _sanitize_allowed_scalar(value: Any) -> Any:
+    """Keep only bounded, control-character-free audit scalar values."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value if -(10**12) <= value <= 10**12 else REDACTED
+    if isinstance(value, float):
+        return value if value == value and abs(value) <= 10**12 else REDACTED
+    if isinstance(value, str):
+        return value if SAFE_AUDIT_STRING_PATTERN.fullmatch(value) else REDACTED
+    return REDACTED
 
 
 def _sanitize_nested_audit_value(value: Any) -> Any:
@@ -461,6 +488,7 @@ def _sanitize_nested_audit_value(value: Any) -> Any:
         return value if isinstance(value, (bool, int, float)) else REDACTED
 
     sanitized: dict[str, Any] = {}
+    unknown_key_found = False
     for key, item in value.items():
         normalized_key = str(key).lower()
         if _matches_detail_key(normalized_key, EMAIL_DETAIL_KEYS):
@@ -476,8 +504,12 @@ def _sanitize_nested_audit_value(value: Any) -> Any:
             sanitized[key] = PRESENT if item not in (None, "") else None
         elif _matches_detail_key(normalized_key, REDACT_DETAIL_KEYS):
             sanitized[key] = REDACTED if item not in (None, "") else None
+        elif normalized_key in NESTED_AUDIT_ALLOWED_SCALAR_KEYS:
+            sanitized[key] = _sanitize_allowed_scalar(item)
         else:
-            sanitized[key] = _sanitize_nested_audit_value(item)
+            unknown_key_found = True
+    if unknown_key_found:
+        sanitized[REDACTED_DETAIL_KEY] = REDACTED
     return sanitized
 
 

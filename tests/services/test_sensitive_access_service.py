@@ -130,7 +130,7 @@ async def test_create_unmask_audit_log_records_required_fields(
     assert audit_log.target_type == "audit_log"
     assert audit_log.target_id == target_id
     assert audit_log.details["field_group"] == SensitiveFieldGroup.audit_log_details.value
-    assert audit_log.details["reason"] == "問い合わせ調査のため監査ログ詳細を確認する"
-    assert audit_log.details["approval_id"] == str(approval_id)
+    assert audit_log.details["reason"] == "<redacted>"
+    assert audit_log.details["approval_id"] == "<present>"
     assert audit_log.details["result"] == "allowed"
     assert audit_log.details["expires_at"] == expires_at.isoformat()

@@ -238,6 +238,15 @@ def test_email_failure_audit_details_use_storage_allowlist():
     }
 
 
+def test_email_failure_unknown_keys_are_not_saved():
+    result = sanitize_audit_log_details_for_storage(
+        {"unexpected_email@example.com": "private note", "retry_count": 1},
+        action="email_send_failed",
+    )
+
+    assert result == {"retry_count": 1, "redacted_details": "<redacted>"}
+
+
 def test_unknown_audit_action_defaults_to_redacted_details():
     result = sanitize_audit_log_details_for_storage(
         {
@@ -247,9 +256,35 @@ def test_unknown_audit_action_defaults_to_redacted_details():
         action="future.unknown_action",
     )
 
+    assert result == {"redacted_details": "<redacted>"}
+
+
+def test_allowlisted_audit_values_are_bounded_and_unknown_keys_are_not_saved():
+    result = sanitize_audit_log_details_for_storage(
+        {
+            "source": "webhook\nsecret",
+            "event_type": "invoice.payment_succeeded",
+            "unexpected_email@example.com": "private note",
+        },
+        action="billing.payment_succeeded",
+    )
+
     assert result == {
-        "business_note": "<redacted>",
-        "nested": "<redacted>",
+        "source": "<redacted>",
+        "event_type": "invoice.payment_succeeded",
+        "redacted_details": "<redacted>",
+    }
+    assert "unexpected_email@example.com" not in result
+
+
+def test_nested_unknown_keys_are_not_saved():
+    result = sanitize_audit_log_details_for_storage(
+        {"changes": {"safe_count": 2, "private@example.com": "private note"}},
+        action="staff.sensitive_storage_test",
+    )
+
+    assert result == {
+        "changes": {"safe_count": 2, "redacted_details": "<redacted>"},
     }
 
 
