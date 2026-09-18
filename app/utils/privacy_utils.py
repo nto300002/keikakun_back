@@ -12,6 +12,8 @@ PII（個人識別情報）をマスキングする関数群
     >>> mask_name("山田 太郎")
     '山田 *'
 """
+import hashlib
+import ipaddress
 import re
 from typing import Any, Optional
 
@@ -52,6 +54,37 @@ REDACT_DETAIL_KEYS = {
 AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
     "email_send_failed": {"email_type", "error_type", "retry_count"},
     "inquiry.replied": {"send_email_requested", "email_queued"},
+    "staff.deleted": {"deleted_staff_id", "deleted_staff_role"},
+    "staff.updated": {"changed_field"},
+    "office.updated": {"old_values", "new_values"},
+    "withdrawal.requested": {"withdrawal_type", "affected_staff_count", "target_staff_id"},
+    "withdrawal.approved": {"withdrawal_type", "execution_result"},
+    "withdrawal.rejected": {"withdrawal_type"},
+    "staff.soft_deleted": {"archive_id", "withdrawal_request_id", "deletion_type"},
+    "office.deleted": {"deleted_staff_count", "withdrawal_request_id"},
+    "billing.canceled_on_withdrawal": {"reason", "stripe_cancellation"},
+    "deadline_notification_sent": {
+        "recipient_email", "office_name", "renewal_alert_count",
+        "assessment_alert_count", "staff_name", "email_threshold_days",
+    },
+    "push_notification_sent": {
+        "recipient_email", "office_name", "staff_name", "push_sent_count",
+        "push_failed_count", "device_count", "renewal_alert_count",
+        "assessment_alert_count",
+    },
+    "billing.payment_succeeded": {"event_id", "event_type", "source"},
+    "billing.payment_failed": {"event_id", "event_type", "source"},
+    "billing.subscription_created": {"event_id", "event_type", "source"},
+    "billing.subscription_updated": {
+        "event_id", "event_type", "cancel_at_period_end", "cancel_at", "source",
+    },
+    "billing.subscription_deleted": {
+        "event_id", "event_type", "has_recent_payment_failed", "source",
+    },
+    "employment.created": {"recipient_id", "employment_id", "changes"},
+    "employment.updated": {"recipient_id", "employment_id", "changes"},
+    "terms.agreed": {"terms_version", "privacy_version", "agreed_at"},
+    "privacy.unmask_viewed": {"field_group", "approval_id", "expires_at", "result"},
     "billing.status_changed": {
         "old_status",
         "new_status",
@@ -62,6 +95,28 @@ AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS = {
         "stripe_customer_id",
         "stripe_subscription_id",
     },
+    "backup_used": set(),
+    "requested": set(),
+    "completed": set(),
+    "enabled": set(),
+    "disabled": set(),
+    "UPDATE_NAME": set(),
+    "CHANGE_PASSWORD": set(),
+    "ATTEMPT_CHANGE_PASSWORD": set(),
+    "UPDATE_EMAIL": set(),
+    "staff.sensitive_storage_test": {
+        "email", "full_name", "access_token", "stripe_customer_id", "changes",
+    },
+    "webauthn.credential_registered": set(),
+    "webauthn.credential_revoked": set(),
+    "webauthn.credential_renamed": set(),
+}
+
+AUDIT_PRESENCE_ONLY_DETAIL_KEYS = {
+    "actor_id", "archive_id", "approval_id", "customer_id", "deleted_staff_id",
+    "employment_id", "event_id", "office_id", "recipient_id", "request_id",
+    "stripe_customer_id", "stripe_subscription_id", "target_id", "target_staff_id",
+    "withdrawal_request_id",
 }
 
 WEBHOOK_TOP_LEVEL_KEYS = {
@@ -206,6 +261,28 @@ def mask_external_id(value: Optional[Any]) -> Optional[str]:
     return PRESENT if value not in (None, "") else None
 
 
+def mask_ip_address(value: Optional[str]) -> Optional[str]:
+    """Mask an audit IP to a network prefix without retaining the host address."""
+    if not value:
+        return value
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return REDACTED
+
+    prefix = 24 if address.version == 4 else 64
+    network = ipaddress.ip_network(f"{address}/{prefix}", strict=False)
+    return f"{network.network_address}/{prefix}"
+
+
+def hash_user_agent(value: Optional[str]) -> Optional[str]:
+    """Store a short correlation hash rather than the raw User-Agent."""
+    if not value:
+        return value
+    digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"ua:{digest}"
+
+
 def sanitize_log_value(value: Any) -> Any:
     """
     ログ出力用に値を安全な表現へ変換する。
@@ -329,24 +406,79 @@ def sanitize_audit_log_details_for_storage(value: Any, *, action: Optional[str] 
     保存前に明らかな機微情報を除去し、表示時マスクだけに依存しない。
     非機微な件数・状態などの監査に必要な値は保持する。
     """
+    if not action:
+        return _redact_unknown_details(value)
+
+    allowed_keys = AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS.get(action)
+    if allowed_keys is None:
+        return _redact_unknown_details(value)
+
     if action == "email_send_failed" and isinstance(value, dict):
         return {
             key: _sanitize_email_failure_detail(key, item)
+            if key in {"recipient", "subject", "error", "error_type", "email_type", "retry_count"}
+            else REDACTED
             for key, item in value.items()
         }
 
-    sanitized = mask_sensitive_details_for_display(value)
-    if not isinstance(sanitized, dict) or not action:
-        return sanitized
-
-    allowed_keys = AUDIT_LOG_ACTION_ALLOWED_DETAIL_KEYS.get(action)
-    if not allowed_keys:
-        return sanitized
+    if not isinstance(value, dict):
+        return REDACTED if value not in (None, "") else None
 
     return {
-        key: item if key in allowed_keys else REDACTED
-        for key, item in sanitized.items()
+        key: _sanitize_allowed_audit_detail(key, item)
+        if key in allowed_keys
+        else REDACTED
+        for key, item in value.items()
     }
+
+
+def _redact_unknown_details(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): REDACTED for key in value}
+    return REDACTED if value not in (None, "") else None
+
+
+def _sanitize_allowed_audit_detail(key: str, value: Any) -> Any:
+    normalized_key = key.lower()
+    if normalized_key in AUDIT_PRESENCE_ONLY_DETAIL_KEYS or normalized_key == "id" or normalized_key.endswith("_id"):
+        return PRESENT if value not in (None, "") else None
+    if _matches_detail_key(normalized_key, EMAIL_DETAIL_KEYS):
+        return mask_email(str(value)) if value is not None else "***"
+    if _matches_detail_key(normalized_key, NAME_DETAIL_KEYS):
+        return mask_name(str(value)) if value is not None else "***"
+    if _matches_detail_key(normalized_key, REDACT_DETAIL_KEYS):
+        return REDACTED if value not in (None, "") else None
+    if isinstance(value, (dict, list)):
+        return _sanitize_nested_audit_value(value)
+    return value
+
+
+def _sanitize_nested_audit_value(value: Any) -> Any:
+    """Keep only non-string metrics and known masked fields in nested details."""
+    if isinstance(value, list):
+        return [_sanitize_nested_audit_value(item) for item in value]
+    if not isinstance(value, dict):
+        return value if isinstance(value, (bool, int, float)) else REDACTED
+
+    sanitized: dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = str(key).lower()
+        if _matches_detail_key(normalized_key, EMAIL_DETAIL_KEYS):
+            sanitized[key] = mask_email(str(item)) if item is not None else "***"
+        elif _matches_detail_key(normalized_key, NAME_DETAIL_KEYS):
+            sanitized[key] = mask_name(str(item)) if item is not None else "***"
+        elif (
+            normalized_key in AUDIT_PRESENCE_ONLY_DETAIL_KEYS
+            or normalized_key == "id"
+            or normalized_key.endswith("_id")
+            or _matches_detail_key(normalized_key, PRESENT_ONLY_DETAIL_KEYS)
+        ):
+            sanitized[key] = PRESENT if item not in (None, "") else None
+        elif _matches_detail_key(normalized_key, REDACT_DETAIL_KEYS):
+            sanitized[key] = REDACTED if item not in (None, "") else None
+        else:
+            sanitized[key] = _sanitize_nested_audit_value(item)
+    return sanitized
 
 
 def _sanitize_email_failure_detail(key: str, value: Any) -> Any:

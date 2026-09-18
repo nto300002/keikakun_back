@@ -32,19 +32,6 @@ SENSITIVE_TERMS = {
     "stripe_subscription_id",
 }
 
-SAFE_MARKERS = {
-    "_present",
-    "_count",
-    "has_",
-    "error_type",
-    "type(",
-    ".__name__",
-    "mask_",
-    "sanitize_",
-    "redact",
-    "bool(",
-}
-
 LOGGER_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
 CONSOLE_METHODS = {"log", "debug", "warn", "error"}
 DEFAULT_SCAN_PATHS = (Path("app"), Path("scripts"))
@@ -149,14 +136,17 @@ class _SensitiveLogVisitor(ast.NodeVisitor):
         self.exception_derived_names: set[str] = set()
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if _is_exception_string_conversion(node.value):
+        if _contains_exception_source(node.value, self.exception_derived_names):
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     self.exception_derived_names.add(target.id)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if isinstance(node.target, ast.Name) and _is_exception_string_conversion(node.value):
+        if (
+            isinstance(node.target, ast.Name)
+            and _contains_exception_source(node.value, self.exception_derived_names)
+        ):
             self.exception_derived_names.add(node.target.id)
         self.generic_visit(node)
 
@@ -164,11 +154,10 @@ class _SensitiveLogVisitor(ast.NodeVisitor):
         call_type = _get_sensitive_call_type(node)
         if call_type:
             call_source = ast.get_source_segment(self.source, node) or ""
-            reason_terms = _unsafe_sensitive_terms(call_source)
+            reason_terms = _sensitive_argument_terms(node)
             if call_type.startswith("logger.") and any(
-                isinstance(argument, ast.Name)
-                and argument.id in self.exception_derived_names
-                for argument in node.args
+                _contains_exception_source(argument, self.exception_derived_names)
+                for argument in [*node.args, *(keyword.value for keyword in node.keywords)]
             ):
                 reason_terms.append("indirect_exception_value")
             if reason_terms:
@@ -184,6 +173,75 @@ class _SensitiveLogVisitor(ast.NodeVisitor):
                 )
 
         self.generic_visit(node)
+
+
+def _contains_exception_source(
+    node: ast.AST | None,
+    exception_derived_names: set[str],
+) -> bool:
+    if node is None or _is_safe_expression(node):
+        return False
+
+    if isinstance(node, ast.Name):
+        return node.id in exception_derived_names or node.id in {"e", "exc", "exception"}
+
+    if isinstance(node, ast.Call):
+        return any(_contains_exception_source(argument, exception_derived_names) for argument in node.args)
+
+    if isinstance(node, ast.JoinedStr):
+        return any(
+            _contains_exception_source(value.value, exception_derived_names)
+            for value in node.values
+            if isinstance(value, ast.FormattedValue)
+        )
+
+    if isinstance(node, ast.Attribute):
+        if node.attr in {"status_code", "code", "errno"}:
+            return False
+        return _contains_exception_source(node.value, exception_derived_names)
+
+    if isinstance(node, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
+        return any(
+            _contains_exception_source(child, exception_derived_names)
+            for child in ast.iter_child_nodes(node)
+        )
+
+    return False
+
+
+def _is_safe_expression(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        return node.func.id in {"bool", "len", "mask_external_id", "sanitize_log_value", "redact"}
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Call):
+        return (
+            isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "type"
+            and node.attr == "__name__"
+        )
+    return False
+
+
+def _sensitive_argument_terms(node: ast.Call) -> list[str]:
+    terms: set[str] = set()
+    for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
+        if _is_safe_expression(argument):
+            continue
+        for child in _iter_sensitive_name_nodes(argument):
+            if not isinstance(child, ast.Name):
+                continue
+            normalized = child.id.lower()
+            if normalized.startswith("has_") or normalized.endswith(("_count", "_present")):
+                continue
+            terms.update(term for term in SENSITIVE_TERMS if term in normalized)
+    return sorted(terms)
+
+
+def _iter_sensitive_name_nodes(node: ast.AST) -> Iterable[ast.AST]:
+    if isinstance(node, ast.IfExp):
+        yield from _iter_sensitive_name_nodes(node.body)
+        yield from _iter_sensitive_name_nodes(node.orelse)
+        return
+    yield from ast.walk(node)
 
 
 def _is_exception_string_conversion(node: ast.AST | None) -> bool:
@@ -216,14 +274,7 @@ def _unsafe_sensitive_terms(call_source: str) -> list[str]:
     if not found_terms:
         return []
 
-    if _is_safe_log_call(normalized):
-        return []
-
     return found_terms
-
-
-def _is_safe_log_call(normalized_call_source: str) -> bool:
-    return any(marker in normalized_call_source for marker in SAFE_MARKERS)
 
 
 def _format_findings(findings: Sequence[Finding]) -> str:
