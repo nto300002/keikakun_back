@@ -275,7 +275,12 @@ def mask_ip_address(value: Optional[str]) -> Optional[str]:
     try:
         address = ipaddress.ip_address(value)
     except ValueError:
-        return REDACTED
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except ValueError:
+            return REDACTED
+        prefix = 24 if network.version == 4 else 64
+        return f"{network.network_address}/{prefix}"
 
     prefix = 24 if address.version == 4 else 64
     network = ipaddress.ip_network(f"{address}/{prefix}", strict=False)
@@ -288,6 +293,8 @@ def hash_user_agent(value: Optional[str]) -> Optional[str]:
         return value
     if value == REDACTED:
         return REDACTED
+    if re.fullmatch(r"ua:[0-9a-f]{16}", value):
+        return value
     digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()[:16]
     return f"ua:{digest}"
 

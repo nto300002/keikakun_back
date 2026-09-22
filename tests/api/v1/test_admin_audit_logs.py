@@ -109,7 +109,8 @@ async def test_get_audit_logs_success(
     legacy_log = staff_deleted_logs[0]
     assert legacy_log["ip_address"] == mask_ip_address("192.168.1.1")
     assert legacy_log["user_agent"] == hash_user_agent("Mozilla/5.0")
-    assert legacy_log["details"]["reason"] == "<redacted>"
+    assert "reason" not in legacy_log["details"]
+    assert legacy_log["details"]["redacted_details"] == "<redacted>"
 
 
 async def test_get_audit_logs_resolves_actor_and_office_names(
@@ -293,13 +294,7 @@ async def test_get_audit_logs_masks_sensitive_details_for_display(
     assert "raw-access-token-value" not in serialized_details
     assert "東京都新宿区1-2-3" not in serialized_details
     assert "090-1234-5678" not in serialized_details
-    assert target_log["details"]["email"] == "s***@example.com"
-    assert target_log["details"]["full_name"] == "山田 *"
-    assert target_log["details"]["stripe_customer_id"] == "<present>"
-    assert target_log["details"]["access_token"] == "<redacted>"
-    assert target_log["details"]["changes"]["address"] == "<redacted>"
-    assert target_log["details"]["changes"]["phone_number"] == "<redacted>"
-    assert target_log["details"]["changes"]["safe_count"] == 2
+    assert target_log["details"] == {"redacted_details": "<redacted>"}
 
 
 async def test_filter_by_target_type_staff(
