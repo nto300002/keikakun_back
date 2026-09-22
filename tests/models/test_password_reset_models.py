@@ -361,7 +361,7 @@ class TestPasswordResetAuditLogModel:
         persisted_log = result.scalar_one_or_none()
         assert persisted_log is not None
         assert persisted_log.staff_id is None
-        assert persisted_log.email == "audit_delete_test@example.com"
+        assert persisted_log.email == "a***@example.com"
 
     @pytest.mark.asyncio
     async def test_audit_log_ipv6_address(self, db_session: AsyncSession, test_staff: Staff):
@@ -382,7 +382,7 @@ class TestPasswordResetAuditLogModel:
         await db_session.refresh(audit_log)
 
         # Assert
-        assert audit_log.ip_address == ipv6_address
+        assert audit_log.ip_address == "2001:db8:85a3::/64"
 
     @pytest.mark.asyncio
     async def test_audit_log_different_actions(self, db_session: AsyncSession, test_staff: Staff):

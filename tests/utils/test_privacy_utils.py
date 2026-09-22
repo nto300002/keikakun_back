@@ -8,6 +8,7 @@ PII保護ユーティリティのテスト
 import pytest
 
 from app.utils.privacy_utils import (
+    REDACTED,
     mask_email,
     mask_employee_action_request_data_for_display,
     mask_external_id,
@@ -293,6 +294,8 @@ def test_audit_ip_and_user_agent_storage_policy_is_non_raw():
     assert mask_ip_address("2001:db8::1234") == "2001:db8::/64"
     assert hash_user_agent("Mozilla/5.0 Secret-Device") == "ua:c02c8b419a8d74e6"
     assert hash_user_agent(REDACTED) == REDACTED
+    assert mask_ip_address("203.0.113.0/24") == "203.0.113.0/24"
+    assert hash_user_agent("ua:c02c8b419a8d74e6") == "ua:c02c8b419a8d74e6"
 
 
 def test_mask_webhook_payload_for_display_uses_allowlist_and_masks_sensitive_values():
