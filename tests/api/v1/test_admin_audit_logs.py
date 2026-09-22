@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.staff_profile import AuditLog
 from app.models.enums import AuditLogTargetType
+from app.utils.privacy_utils import hash_user_agent, mask_ip_address
 
 pytestmark = pytest.mark.asyncio
 
@@ -105,6 +106,10 @@ async def test_get_audit_logs_success(
     # 最新のログ（staff.deleted）が含まれていることを確認
     staff_deleted_logs = [log for log in data["logs"] if log["action"] == "staff.deleted"]
     assert len(staff_deleted_logs) >= 1
+    legacy_log = staff_deleted_logs[0]
+    assert legacy_log["ip_address"] == mask_ip_address("192.168.1.1")
+    assert legacy_log["user_agent"] == hash_user_agent("Mozilla/5.0")
+    assert legacy_log["details"]["reason"] == "<redacted>"
 
 
 async def test_get_audit_logs_resolves_actor_and_office_names(

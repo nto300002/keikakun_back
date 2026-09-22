@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from app.models.staff import Staff, PasswordResetToken, PasswordResetAuditLog
+from app.utils.privacy_utils import REDACTED, hash_user_agent, mask_email, mask_ip_address
 from app.models.enums import StaffRole
 
 
@@ -272,9 +273,9 @@ class TestPasswordResetAuditLogModel:
         assert audit_log.id is not None
         assert audit_log.staff_id == test_staff.id
         assert audit_log.action == "requested"
-        assert audit_log.email == test_staff.email
-        assert audit_log.ip_address == "192.168.1.1"
-        assert audit_log.user_agent == "Mozilla/5.0"
+        assert audit_log.email == mask_email(test_staff.email)
+        assert audit_log.ip_address == mask_ip_address("192.168.1.1")
+        assert audit_log.user_agent == hash_user_agent("Mozilla/5.0")
         assert audit_log.success is True
         assert audit_log.error_message is None
         assert audit_log.created_at is not None
@@ -318,9 +319,9 @@ class TestPasswordResetAuditLogModel:
 
         # Assert
         assert audit_log.staff_id is None
-        assert audit_log.email == "nonexistent@example.com"
+        assert audit_log.email == mask_email("nonexistent@example.com")
         assert audit_log.success is False
-        assert audit_log.error_message == "User not found"
+        assert audit_log.error_message == REDACTED
 
     @pytest.mark.asyncio
     async def test_audit_log_set_null_on_staff_deletion(self, db_session: AsyncSession):

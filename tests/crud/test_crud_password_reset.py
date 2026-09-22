@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud import password_reset as crud_password_reset
 from app.models.staff import Staff
+from app.utils.privacy_utils import REDACTED, hash_user_agent, mask_email, mask_ip_address
 from app.core.security import hash_reset_token
 
 
@@ -227,3 +228,24 @@ class TestCRUDPasswordReset:
         assert audit_log.staff_id == test_staff.id
         assert audit_log.action == 'requested'
         assert audit_log.success is True
+        assert audit_log.email == mask_email(test_staff.email)
+        assert audit_log.ip_address == mask_ip_address('192.168.1.1')
+        assert audit_log.user_agent == hash_user_agent('Mozilla/5.0')
+
+    @pytest.mark.asyncio
+    async def test_create_audit_log_redacts_error_message(self, db_session: AsyncSession):
+        audit_log = await crud_password_reset.create_audit_log(
+            db_session,
+            action='failed',
+            email='person@example.com',
+            ip_address='2001:db8::1234',
+            user_agent='SensitiveAgent/1.0',
+            success=False,
+            error_message='SMTP failure for person@example.com',
+        )
+        await db_session.commit()
+
+        assert audit_log.email == mask_email('person@example.com')
+        assert audit_log.ip_address == '2001:db8::/64'
+        assert audit_log.user_agent == hash_user_agent('SensitiveAgent/1.0')
+        assert audit_log.error_message == REDACTED

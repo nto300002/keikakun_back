@@ -286,6 +286,8 @@ def hash_user_agent(value: Optional[str]) -> Optional[str]:
     """Store a short correlation hash rather than the raw User-Agent."""
     if not value:
         return value
+    if value == REDACTED:
+        return REDACTED
     digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()[:16]
     return f"ua:{digest}"
 

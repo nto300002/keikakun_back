@@ -188,7 +188,8 @@ class TestPasswordResetSecurity:
 
         assert audit_log is not None
         assert audit_log.ip_address is not None
-        assert audit_log.user_agent == "TestAgent/1.0"
+        assert audit_log.ip_address != "127.0.0.1"
+        assert audit_log.user_agent != "TestAgent/1.0"
 
     @pytest.mark.asyncio
     async def test_breached_password_rejected(

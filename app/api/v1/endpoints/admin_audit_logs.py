@@ -10,7 +10,11 @@ from app.api.deps import get_db, require_app_admin
 from app.models.staff import Staff
 from app.models.office import Office
 from app.crud.crud_audit_log import audit_log as crud_audit_log
-from app.utils.privacy_utils import mask_sensitive_details_for_display
+from app.utils.privacy_utils import (
+    hash_user_agent,
+    mask_ip_address,
+    sanitize_audit_log_details_for_storage,
+)
 
 router = APIRouter()
 
@@ -71,9 +75,10 @@ async def get_audit_logs(
             "target_id": log.target_id,
             "office_id": log.office_id,
             "office_name": office_names.get(log.office_id),
-            "ip_address": log.ip_address,
-            "user_agent": log.user_agent,
-            "details": mask_sensitive_details_for_display(log.details),
+            # 旧データにも読取時の秘匿化を適用する。
+            "ip_address": mask_ip_address(log.ip_address),
+            "user_agent": hash_user_agent(log.user_agent),
+            "details": sanitize_audit_log_details_for_storage(log.details, action=log.action),
             "timestamp": log.timestamp,
             "created_at": log.timestamp,
             "is_test_data": log.is_test_data
