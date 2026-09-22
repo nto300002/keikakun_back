@@ -273,7 +273,7 @@ class TestPasswordResetFlow:
         audit_log = result.scalar_one_or_none()
 
         assert audit_log is not None
-        assert audit_log.email == test_staff.email
+        assert audit_log.email != test_staff.email
         assert audit_log.success is True
 
     @pytest.mark.asyncio

@@ -4,10 +4,11 @@ from typing import List, Optional, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, String, DateTime, UUID, ForeignKey, Enum as SQLAlchemyEnum, Boolean, Integer, select, delete, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.db.base import Base
 from app.models.enums import StaffRole
+from app.utils.privacy_utils import REDACTED, hash_user_agent, mask_email, mask_ip_address
 
 if TYPE_CHECKING:
     from app.models.office import Office, OfficeStaff
@@ -379,6 +380,22 @@ class PasswordResetAuditLog(Base):
 
     # リレーション
     staff: Mapped[Optional["Staff"]] = relationship("Staff", back_populates="password_reset_audit_logs")
+
+    @validates("email")
+    def _mask_email(self, _key: str, value: Optional[str]) -> Optional[str]:
+        return mask_email(value) if value else None
+
+    @validates("ip_address")
+    def _mask_ip_address(self, _key: str, value: Optional[str]) -> Optional[str]:
+        return mask_ip_address(value)
+
+    @validates("user_agent")
+    def _hash_user_agent(self, _key: str, value: Optional[str]) -> Optional[str]:
+        return hash_user_agent(value)
+
+    @validates("error_message")
+    def _redact_error_message(self, _key: str, value: Optional[str]) -> Optional[str]:
+        return REDACTED if value else None
 
 
 class RefreshTokenBlacklist(Base):

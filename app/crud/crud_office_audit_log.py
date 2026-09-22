@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from sqlalchemy import desc
 
 from app.models.office import OfficeAuditLog
+from app.utils.privacy_utils import sanitize_audit_log_details_for_storage
 
 
 class CRUDOfficeAuditLog:
@@ -27,11 +28,11 @@ class CRUDOfficeAuditLog:
         事務所情報変更の監査ログを作成
         - flush のみ実行（commit は endpoint で実行）
         """
-        # 変更内容を JSON 形式で保存
-        details = json.dumps({
+        # 統合AuditLogと同じdefault-deny方針で保存する。
+        details = json.dumps(sanitize_audit_log_details_for_storage({
             "old_values": old_values,
             "new_values": new_values
-        }, ensure_ascii=False)
+        }, action="office.updated"), ensure_ascii=False)
 
         audit_log = OfficeAuditLog(
             office_id=office_id,

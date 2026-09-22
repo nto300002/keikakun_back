@@ -490,7 +490,7 @@ class TestTransactionBoundary:
 
         assert audit_log is not None, "監査ログが存在すること"
         assert audit_log.success is True, "監査ログのsuccessがTrueであること"
-        assert audit_log.email == staff.email, "監査ログにメールアドレスが記録されていること"
+        assert audit_log.email != staff.email, "監査ログに生メールアドレスを保存しないこと"
 
     async def test_token_creation_and_email_send_are_separate_transactions(
         self, db_session: AsyncSession
