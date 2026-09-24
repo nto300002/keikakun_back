@@ -14,6 +14,7 @@ from tests.utils.safe_cleanup import SafeTestDataCleanup
 
 
 @pytest.mark.asyncio
+@pytest.mark.serial_db_cleanup
 class TestSafeTestDataCleanupWithFlag:
     """is_test_data フラグベースのクリーンアップ動作を確認"""
 

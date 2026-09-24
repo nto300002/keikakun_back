@@ -9,10 +9,13 @@ from typing import Iterable
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 
 BASELINE_REVISION = "baseline_20260701"
+REQUIRED_FOREIGN_KEY_DELETE_RULES = {
+    "office_staffs_office_id_fkey": "c",  # CASCADE
+}
 
 
 def normalize_database_url(database_url: str) -> str:
@@ -91,6 +94,35 @@ def get_current_heads(database_url: str, alembic_config_path: str) -> tuple[str,
         return tuple(context.get_current_heads())
 
 
+def validate_required_foreign_key_delete_rules(connection: object) -> None:
+    """Ensure baseline-managed foreign keys still have their required action."""
+    rows = connection.execute(
+        text(
+            "SELECT conname, confdeltype FROM pg_constraint "
+            "WHERE conname = ANY(:constraint_names)"
+        ),
+        {"constraint_names": list(REQUIRED_FOREIGN_KEY_DELETE_RULES)},
+    ).fetchall()
+    actual_rules = dict(rows)
+    invalid_constraints = [
+        name
+        for name, expected_rule in REQUIRED_FOREIGN_KEY_DELETE_RULES.items()
+        if actual_rules.get(name) != expected_rule
+    ]
+    if invalid_constraints:
+        raise RuntimeError(
+            "Required foreign-key delete rule check failed: "
+            + ", ".join(sorted(invalid_constraints))
+        )
+
+
+def validate_schema_constraints(database_url: str) -> None:
+    """Validate required physical constraints without exposing connection details."""
+    engine = create_engine(normalize_database_url(database_url))
+    with engine.connect() as connection:
+        validate_required_foreign_key_delete_rules(connection)
+
+
 def main() -> int:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -108,6 +140,8 @@ def main() -> int:
             script,
             baseline_revision,
         )
+        if os.getenv("VERIFY_SCHEMA_CONSTRAINTS") == "1":
+            validate_schema_constraints(database_url)
     except Exception as exc:
         print(
             "Alembic baseline check failed: "

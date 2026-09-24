@@ -7,6 +7,7 @@ from scripts.alembic_baseline_guard import (
     normalize_database_url,
     revision_includes_baseline,
     validate_current_heads,
+    validate_required_foreign_key_delete_rules,
 )
 
 
@@ -35,6 +36,14 @@ class LazyFailScript:
             yield
 
         return fail_on_iteration()
+
+
+class FakeConnection:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, statement, parameters):
+        return SimpleNamespace(fetchall=lambda: self.rows)
 
 
 def test_normalize_database_url_converts_asyncpg_url():
@@ -107,3 +116,17 @@ def test_validate_current_heads_rejects_empty_current():
 
     with pytest.raises(RuntimeError, match="current revision is empty"):
         validate_current_heads([], script)
+
+
+def test_validate_required_foreign_key_delete_rules_accepts_cascade():
+    connection = FakeConnection([("office_staffs_office_id_fkey", "c")])
+
+    validate_required_foreign_key_delete_rules(connection)
+
+
+@pytest.mark.parametrize("rows", [[], [("office_staffs_office_id_fkey", "a")]])
+def test_validate_required_foreign_key_delete_rules_rejects_missing_or_wrong_rule(rows):
+    connection = FakeConnection(rows)
+
+    with pytest.raises(RuntimeError, match="office_staffs_office_id_fkey"):
+        validate_required_foreign_key_delete_rules(connection)
