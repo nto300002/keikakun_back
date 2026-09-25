@@ -11,6 +11,7 @@ from app.services.calendar.calendar_event_ledger_service import CalendarEventLed
 from app.services.calendar.calendar_sync_result_service import CalendarSyncResultService
 from app.services.calendar.google_calendar_account_service import GoogleCalendarAccountService
 from app.services.calendar.google_calendar_gateway import GoogleCalendarGateway
+from app.services.calendar.error_codes import CALENDAR_SYNC_FAILED
 
 
 class GoogleCalendarSyncService:
@@ -83,14 +84,14 @@ class GoogleCalendarSyncService:
             failed_count += await self.sync_result_service.mark_many_failed(
                 db=db,
                 events=events,
-                message=type(exc).__name__,
+                message=CALENDAR_SYNC_FAILED,
             )
             return {"synced": synced_count, "failed": failed_count}
         except Exception as exc:
             failed_count += await self.sync_result_service.mark_many_failed(
                 db=db,
                 events=events,
-                message=f"カレンダー連携の認証に失敗しました: {type(exc).__name__}",
+                message=CALENDAR_SYNC_FAILED,
             )
             return {"synced": synced_count, "failed": failed_count}
 
@@ -114,7 +115,7 @@ class GoogleCalendarSyncService:
                 await self.sync_result_service.mark_failed(
                     db=db,
                     event=event,
-                    message=str(exc) or type(exc).__name__,
+                    message=CALENDAR_SYNC_FAILED,
                 )
                 failed_count += 1
 

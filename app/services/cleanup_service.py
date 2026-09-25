@@ -106,15 +106,10 @@ class CleanupService:
         if not staff_to_delete:
             return 0
 
-        # 監査ログに記録（物理削除前）
+        # 削除対象のIDはログに出さない。件数だけを呼び出し元で記録する。
         staff_ids_to_delete = []
         for staff in staff_to_delete:
             staff_ids_to_delete.append(staff.id)
-            logger.info(
-                "Physically deleting staff: id=%s, deleted_at=%s",
-                staff.id,
-                staff.deleted_at,
-            )
 
         # 関連するOfficeStaffレコードを先に削除
         if staff_ids_to_delete:
@@ -164,14 +159,10 @@ class CleanupService:
         if not offices_to_delete:
             return 0
 
-        # 監査ログに記録（物理削除前）
+        # 削除対象のID・名称はログに出さない。件数だけを呼び出し元で記録する。
         office_ids_to_delete = []
         for office in offices_to_delete:
             office_ids_to_delete.append(office.id)
-            logger.info(
-                f"Physically deleting office: id={office.id}, "
-                f"name={office.name}, deleted_at={office.deleted_at}"
-            )
 
         # 関連するOfficeStaffレコードを先に削除
         if office_ids_to_delete:

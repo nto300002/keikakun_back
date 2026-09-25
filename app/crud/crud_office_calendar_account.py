@@ -7,6 +7,10 @@ from sqlalchemy import select, update
 from app.crud.base import CRUDBase
 from app.models.calendar_account import OfficeCalendarAccount
 from app.models.enums import CalendarConnectionStatus
+from app.services.calendar.error_codes import (
+    CALENDAR_CONNECTION_FAILED,
+    sanitize_calendar_error_code,
+)
 from app.schemas.calendar_account import (
     OfficeCalendarAccountCreate,
     OfficeCalendarAccountUpdate
@@ -50,7 +54,14 @@ class CRUDOfficeCalendarAccount(CRUDBase[OfficeCalendarAccount, OfficeCalendarAc
         """連携状態を更新"""
         update_data = {
             "connection_status": status,
-            "last_error_message": error_message  # Noneの場合はNULLに更新される
+            "last_error_message": (
+                sanitize_calendar_error_code(
+                    error_message,
+                    default=CALENDAR_CONNECTION_FAILED,
+                )
+                if error_message is not None
+                else None
+            ),
         }
 
         await db.execute(

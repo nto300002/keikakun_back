@@ -41,6 +41,7 @@ from app.services.google_calendar_client import (
 )
 from app.services.calendar.calendar_event_ledger_service import CalendarEventLedgerService
 from app.services.calendar.google_calendar_gateway import GoogleCalendarGateway
+from app.services.calendar.error_codes import CALENDAR_CONNECTION_FAILED
 from app.services.calendar.google_calendar_sync_service import GoogleCalendarSyncService
 from app.messages import ja
 
@@ -341,15 +342,13 @@ class CalendarService:
             return True
 
         except (GoogleCalendarAuthenticationError, GoogleCalendarAPIError, Exception) as e:
-            # 接続エラー
-            error_message = str(e)
             logger.error("カレンダー接続テスト失敗: %s", type(e).__name__)
 
             await crud_office_calendar_account.update_connection_status(
                 db=db,
                 account_id=account_id,
                 status=CalendarConnectionStatus.error,
-                error_message=error_message
+                error_message=CALENDAR_CONNECTION_FAILED
             )
 
             return False

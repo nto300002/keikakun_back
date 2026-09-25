@@ -65,9 +65,7 @@ class CleanupScheduler:
                 )
 
                 if errors:
-                    logger.error(f"{len(errors)}件のエラーが発生しました:")
-                    for error in errors:
-                        logger.error(f"  - {error}")
+                    logger.error("物理削除クリーンアップで失敗が発生 count=%s", len(errors))
                 elif deleted_staff == 0 and deleted_offices == 0:
                     logger.info("物理削除対象のレコードはありませんでした")
 

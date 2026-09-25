@@ -679,7 +679,7 @@ class TestCalendarService:
             await db_session.refresh(event)
             assert event.sync_status == CalendarSyncStatus.failed
             assert event.google_event_id is None
-            assert "API Error" in event.last_error_message
+            assert event.last_error_message == "calendar_sync_failed"
 
     async def test_delete_office_calendar_success(
         self,

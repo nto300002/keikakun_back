@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud.crud_calendar_event import crud_calendar_event
 from app.models.enums import CalendarSyncStatus
 from app.schemas.calendar_event import CalendarEventUpdate
+from app.services.calendar.error_codes import (
+    CALENDAR_SYNC_FAILED,
+    sanitize_calendar_error_code,
+)
 
 
 class CalendarSyncResultService:
@@ -24,7 +28,10 @@ class CalendarSyncResultService:
     async def mark_failed(self, db: AsyncSession, event, message: str) -> None:
         update_data = CalendarEventUpdate(
             sync_status=CalendarSyncStatus.failed,
-            last_error_message=message,
+            last_error_message=sanitize_calendar_error_code(
+                message,
+                default=CALENDAR_SYNC_FAILED,
+            ),
             last_sync_at=datetime.now(),
         )
         await crud_calendar_event.update(db=db, db_obj=event, obj_in=update_data)

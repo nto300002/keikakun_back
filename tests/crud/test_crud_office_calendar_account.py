@@ -158,7 +158,7 @@ async def test_update_office_calendar_account_connection_status_with_error(
     )
 
     assert updated_account.connection_status == CalendarConnectionStatus.error
-    assert updated_account.last_error_message == error_message
+    assert updated_account.last_error_message == "calendar_connection_failed"
 
 
 async def test_update_office_calendar_account_with_encryption(
@@ -359,7 +359,7 @@ async def test_update_connection_status_clears_error_message(
     )
 
     assert error_account.connection_status == CalendarConnectionStatus.error
-    assert error_account.last_error_message == error_message
+    assert error_account.last_error_message == "calendar_connection_failed"
 
     # ステップ2: 再接続成功時にerror_message=Noneで更新
     success_account = await crud.office_calendar_account.update_connection_status(
