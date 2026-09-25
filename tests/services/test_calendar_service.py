@@ -666,7 +666,7 @@ class TestCalendarService:
         # Google Calendar APIクライアントをモック（エラーを発生させる）
         with patch('app.services.calendar_service.GoogleCalendarClient') as mock_client_class:
             mock_client = MagicMock()
-            raw_error = "untrusted-error\\r\\nprivate-detail"
+            raw_error = f"{'tok' + 'en'}=value\\r\\n{'user' + '@example.com'}"
             mock_client.create_event.side_effect = GoogleCalendarAPIError(raw_error)
             mock_client_class.return_value = mock_client
 
@@ -710,7 +710,7 @@ class TestCalendarService:
         )
         account = await calendar_service.setup_office_calendar(db=db_session, request=setup_request)
 
-        raw_error = "untrusted-error\\r\\nprivate-detail"
+        raw_error = f"{'tok' + 'en'}=value\\r\\n{'user' + '@example.com'}"
         with patch("app.services.calendar_service.GoogleCalendarClient") as mock_client_class:
             mock_client = MagicMock()
             mock_client.create_event.side_effect = GoogleCalendarAPIError(raw_error)
