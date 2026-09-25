@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 import json
 import os
@@ -595,7 +597,7 @@ class TestCalendarService:
         self,
         db_session: AsyncSession,
         setup_staff_and_office,
-        valid_service_account_json: str
+        valid_service_account_json: str,
     ):
         """異常系: Google Calendar APIエラー時にステータスがfailedになること"""
         from datetime import date, datetime, timedelta
@@ -664,7 +666,8 @@ class TestCalendarService:
         # Google Calendar APIクライアントをモック（エラーを発生させる）
         with patch('app.services.calendar_service.GoogleCalendarClient') as mock_client_class:
             mock_client = MagicMock()
-            mock_client.create_event.side_effect = GoogleCalendarAPIError("API Error")
+            raw_error = "untrusted-error\\r\\nprivate-detail"
+            mock_client.create_event.side_effect = GoogleCalendarAPIError(raw_error)
             mock_client_class.return_value = mock_client
 
             # 同期実行
@@ -680,6 +683,49 @@ class TestCalendarService:
             assert event.sync_status == CalendarSyncStatus.failed
             assert event.google_event_id is None
             assert event.last_error_message == "calendar_sync_failed"
+            assert raw_error not in event.last_error_message
+
+            # DB由来のエラー状態を返すAPI schemaも固定コードだけを返す。
+            from app.schemas.calendar_event import CalendarEventResponse
+
+            response = CalendarEventResponse.model_validate(event)
+            assert response.last_error_message == "calendar_sync_failed"
+            assert raw_error not in response.last_error_message
+
+    async def test_calendar_connection_failure_does_not_store_or_log_raw_error(
+        self,
+        db_session: AsyncSession,
+        setup_staff_and_office,
+        valid_service_account_json: str,
+        caplog,
+    ):
+        """接続失敗の外部例外本文はDB・container logへ転記しない。"""
+        from app.services.google_calendar_client import GoogleCalendarAPIError
+
+        _, _, _, office_id = setup_staff_and_office
+        setup_request = CalendarSetupRequest(
+            office_id=office_id,
+            google_calendar_id=f"test-calendar-{uuid4().hex[:8]}@group.calendar.google.com",
+            service_account_json=valid_service_account_json,
+        )
+        account = await calendar_service.setup_office_calendar(db=db_session, request=setup_request)
+
+        raw_error = "untrusted-error\\r\\nprivate-detail"
+        with patch("app.services.calendar_service.GoogleCalendarClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.create_event.side_effect = GoogleCalendarAPIError(raw_error)
+            mock_client_class.return_value = mock_client
+
+            caplog.set_level(logging.ERROR)
+            assert not await calendar_service.test_calendar_connection(
+                db=db_session,
+                account_id=account.id,
+            )
+
+        await db_session.refresh(account)
+        assert account.last_error_message == "calendar_connection_failed"
+        assert raw_error not in account.last_error_message
+        assert raw_error not in caplog.text
 
     async def test_delete_office_calendar_success(
         self,
