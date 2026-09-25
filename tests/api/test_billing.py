@@ -20,6 +20,15 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture
+def stripe_webhook_secret(mocker):
+    """Webhook の署名検証前提をテスト内だけで満たす。"""
+    mocker.patch(
+        "app.api.v1.endpoints.billing.settings.STRIPE_WEBHOOK_SECRET",
+        SecretStr("test-webhook-secret"),
+    )
+
+
 async def test_get_billing_status_success(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -999,6 +1008,7 @@ async def test_create_checkout_session_existing_customer_with_naive_trial_end(
 @patch('stripe.Webhook.construct_event')
 async def test_webhook_customer_subscription_created(
     mock_construct_event: MagicMock,
+    stripe_webhook_secret,
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory
@@ -1126,6 +1136,7 @@ async def test_webhook_logs_mask_stripe_object_ids(
 @patch('stripe.Webhook.construct_event')
 async def test_webhook_idempotency_duplicate_event_skipped(
     mock_construct_event: MagicMock,
+    stripe_webhook_secret,
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory
@@ -1216,6 +1227,7 @@ async def test_webhook_idempotency_duplicate_event_skipped(
 @patch('stripe.Webhook.construct_event')
 async def test_webhook_idempotency_different_events_both_processed(
     mock_construct_event: MagicMock,
+    stripe_webhook_secret,
     async_client: AsyncClient,
     db_session: AsyncSession,
     employee_user_factory

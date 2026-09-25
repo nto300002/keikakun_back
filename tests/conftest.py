@@ -139,6 +139,14 @@ async def cleanup_database_session():
                 return "dev"
             elif "keikakun_prod" in url:
                 return "prod"
+            elif (
+                TEST_DATABASE_URL_VAR
+                and DATABASE_URL_VAR
+                and TEST_DATABASE_URL_VAR != DATABASE_URL_VAR
+            ):
+                # 接続先名に test を含まない managed DB でも、テスト専用 URL を
+                # 明示的に分離している CI は安全なテスト接続として識別する。
+                return "separate_test_url"
             else:
                 return "unknown"
 
