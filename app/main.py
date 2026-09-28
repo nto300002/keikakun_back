@@ -11,7 +11,6 @@ import logging
 import sys
 import atexit
 import os
-import html
 
 from app.core.limiter import limiter  # 新しいファイルからインポート
 from app.core.config import settings # settingsをインポート
@@ -40,6 +39,27 @@ if settings.ENVIRONMENT == "production" or os.getenv("TESTING") == "1":
 
 logger = logging.getLogger(__name__)
 logger.info(f"Application starting... (Environment: {settings.ENVIRONMENT}, Log Level: {logging.getLevelName(log_level)})")
+
+
+_VALIDATION_ERROR_DETAILS = {
+    "missing": ("validation.required", "必須項目です"),
+    "string_too_short": ("validation.invalid_length", "入力文字数が正しくありません"),
+    "string_too_long": ("validation.invalid_length", "入力文字数が正しくありません"),
+    "bytes_too_short": ("validation.invalid_length", "入力文字数が正しくありません"),
+    "bytes_too_long": ("validation.invalid_length", "入力文字数が正しくありません"),
+    "list_too_short": ("validation.invalid_length", "入力件数が正しくありません"),
+    "list_too_long": ("validation.invalid_length", "入力件数が正しくありません"),
+    "string_pattern_mismatch": ("validation.invalid_format", "入力形式が正しくありません"),
+    "uuid_parsing": ("validation.invalid_format", "入力形式が正しくありません"),
+    "uuid_type": ("validation.invalid_format", "入力形式が正しくありません"),
+    "json_invalid": ("validation.invalid_format", "リクエスト形式が正しくありません"),
+    "enum": ("validation.invalid_value", "選択された値が正しくありません"),
+    "int_parsing": ("validation.invalid_type", "入力値の型が正しくありません"),
+    "float_parsing": ("validation.invalid_type", "入力値の型が正しくありません"),
+    "bool_parsing": ("validation.invalid_type", "入力値の型が正しくありません"),
+}
+_DEFAULT_VALIDATION_ERROR_DETAIL = ("validation.invalid_value", "入力内容が正しくありません")
+_SAFE_VALIDATION_LOCATION_SOURCES = {"body", "query", "path", "header", "cookie"}
 
 app = FastAPI()
 app.state.limiter = limiter
@@ -128,42 +148,21 @@ async def csrf_protect_exception_handler(request: Request, exc: CsrfProtectError
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    バリデーションエラーのカスタムハンドラー
-    XSS攻撃対策として、エラーレスポンスから危険な文字をサニタイズする
-    """
-    def sanitize_value(value):
-        """危険な文字をHTMLエスケープ"""
-        if isinstance(value, str):
-            return html.escape(value)
-        elif isinstance(value, dict):
-            return {k: sanitize_value(v) for k, v in value.items()}
-        elif isinstance(value, list):
-            return [sanitize_value(v) for v in value]
-        elif isinstance(value, Exception):
-            # Exception オブジェクトは文字列に変換
-            return str(value)
-        return value
-
-    # エラー詳細をサニタイズ
+    """Return a stable 422 contract without copying request values or exceptions."""
     errors = []
     for error in exc.errors():
-        sanitized_error = {}
-        for key, value in error.items():
-            if key == "input":
-                sanitized_error[key] = sanitize_value(value)
-            elif key == "ctx" and isinstance(value, dict):
-                # ctx 内の error オブジェクトを文字列化
-                sanitized_ctx = {}
-                for ctx_key, ctx_value in value.items():
-                    if isinstance(ctx_value, Exception):
-                        sanitized_ctx[ctx_key] = str(ctx_value)
-                    else:
-                        sanitized_ctx[ctx_key] = sanitize_value(ctx_value)
-                sanitized_error[key] = sanitized_ctx
-            else:
-                sanitized_error[key] = value
-        errors.append(sanitized_error)
+        code, message = _VALIDATION_ERROR_DETAILS.get(
+            error.get("type"), _DEFAULT_VALIDATION_ERROR_DETAIL
+        )
+        location = error.get("loc", ())
+        if not isinstance(location, (list, tuple)):
+            location = ()
+        # Never copy ``input``, ``ctx`` or framework-provided ``msg``: each can
+        # contain request values or exception details.
+        # A nested location can contain a client-controlled map key. Only the
+        # framework-defined input source is useful to callers and safe to expose.
+        safe_location = [location[0]] if location and location[0] in _SAFE_VALIDATION_LOCATION_SOURCES else []
+        errors.append({"loc": safe_location, "code": code, "message": message})
 
     return JSONResponse(
         status_code=422,

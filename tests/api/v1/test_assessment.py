@@ -1652,7 +1652,10 @@ class TestIssueAnalysisEndpoints:
         # Assert: バリデーションエラー
         assert response.status_code == 422
         error_detail = response.json()["detail"]
-        assert any("1000 characters" in str(err).lower() for err in error_detail)
+        assert any(
+            error["code"] == "validation.invalid_length"
+            for error in error_detail
+        )
 
     async def test_upsert_employment_desired_tasks_on_asobe_success(
         self,

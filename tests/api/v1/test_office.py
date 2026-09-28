@@ -139,15 +139,15 @@ class TestSetupOffice:
 
     @pytest.mark.parametrize("mock_current_user", ["owner_user_without_office"], indirect=True)
     @pytest.mark.parametrize(
-        "invalid_payload, expected_detail_part",
+        "invalid_payload, expected_error_code",
         [
-            ({"name": "短"}, "String should have at least 5 characters"),
-            ({"office_type": "invalid_type"}, "Input should be"),
-            ({"name": "a" * 101}, "String should have at most 100 characters"),
-            ({}, "Field required"),
+            ({"name": "短"}, "validation.invalid_length"),
+            ({"office_type": "invalid_type"}, "validation.invalid_value"),
+            ({"name": "a" * 101}, "validation.invalid_length"),
+            ({}, "validation.required"),
         ]
     )
-    async def test_setup_office_invalid_data(self, async_client: AsyncClient, mock_current_user: Staff, invalid_payload, expected_detail_part):
+    async def test_setup_office_invalid_data(self, async_client: AsyncClient, mock_current_user: Staff, invalid_payload, expected_error_code):
         """異常系: 不正なデータでの事務所登録が失敗する (422 Unprocessable Entity)"""
         # Arrange
         payload = {"name": "有効な事務所名", "office_type": "type_A_office"}
@@ -165,7 +165,10 @@ class TestSetupOffice:
 
         # Assert
         assert response.status_code == 422
-        assert expected_detail_part in str(response.json()["detail"])
+        assert any(
+            error["code"] == expected_error_code
+            for error in response.json()["detail"]
+        )
 
     async def test_setup_office_unauthorized(self, async_client: AsyncClient):
         """異常系: 認証なしで事務所登録ができない (401 Unauthorized)"""

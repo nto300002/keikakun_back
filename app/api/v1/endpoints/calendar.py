@@ -140,14 +140,14 @@ async def setup_calendar(
         # HTTPException はそのまま再raise
         raise
 
-    except Exception as e:
+    except Exception:
         # エラー時はロールバック
         await db.rollback()
 
         # その他の予期しないエラー
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.CALENDAR_SETUP_ERROR.format(error=str(e))
+            detail=ja.CALENDAR_SETUP_ERROR
         )
 
 
@@ -364,14 +364,14 @@ async def update_calendar(
         # HTTPException はそのまま再raise
         raise
 
-    except Exception as e:
+    except Exception:
         # エラー時はロールバック
         await db.rollback()
 
         # その他の予期しないエラー
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.CALENDAR_UPDATE_ERROR.format(error=str(e))
+            detail=ja.CALENDAR_UPDATE_ERROR
         )
 
 
@@ -424,14 +424,14 @@ async def delete_calendar(
         # HTTPException はそのまま再raise
         raise
 
-    except Exception as e:
+    except Exception:
         # エラー時はロールバック
         await db.rollback()
 
         # その他の予期しないエラー
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.CALENDAR_DELETE_ERROR.format(error=str(e))
+            detail=ja.CALENDAR_DELETE_ERROR
         )
 
 
@@ -469,11 +469,11 @@ async def sync_pending_events(
             "failed": result["failed"]
         }
 
-    except Exception as e:
+    except Exception:
         # エラー時はロールバック
         await db.rollback()
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ja.CALENDAR_SYNC_ERROR.format(error=str(e))
+            detail=ja.CALENDAR_SYNC_ERROR
         )

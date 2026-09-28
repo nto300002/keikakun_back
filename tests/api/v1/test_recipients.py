@@ -143,7 +143,7 @@ async def test_create_recipient_empty_disability_category_bad_request(
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     data = response.json()
-    assert data["detail"][0]["type"] == "enum"
+    assert data["detail"][0]["code"] == "validation.invalid_value"
 
 
 @pytest.mark.asyncio
