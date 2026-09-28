@@ -37,20 +37,23 @@ async def test_get_audit_logs_success(
     office = await office_factory(name="Test Office")
     await db_session.commit()
 
-    # サンプル監査ログを作成（最新のタイムスタンプを使用）
+    # Shared CI databases can contain more than one page of audit logs from
+    # other tests. Keep these records deterministically on the first page.
     now = datetime.now(timezone.utc)
+    staff_target_id = uuid.uuid4()
+    page_timestamp = now + timedelta(days=1)
     logs = [
         AuditLog(
             staff_id=app_admin.id,
             actor_role="app_admin",
             action="staff.deleted",
             target_type=AuditLogTargetType.staff.value,
-            target_id=uuid.uuid4(),
+            target_id=staff_target_id,
             office_id=office.id,
             ip_address="192.168.1.1",
             user_agent="Mozilla/5.0",
             details={"reason": "test deletion"},
-            timestamp=now,
+            timestamp=page_timestamp,
             is_test_data=False
         ),
         AuditLog(
@@ -63,7 +66,7 @@ async def test_get_audit_logs_success(
             ip_address="192.168.1.1",
             user_agent="Mozilla/5.0",
             details={"changes": {"name": "Updated Name"}},
-            timestamp=now - timedelta(minutes=10),
+            timestamp=page_timestamp - timedelta(microseconds=1),
             is_test_data=False
         ),
     ]
@@ -98,15 +101,18 @@ async def test_get_audit_logs_success(
     assert len(data["logs"]) >= 2  # 最低2件
     assert data["total"] >= 2
 
-    # 作成したログが含まれていることを確認
-    actions = [log["action"] for log in data["logs"]]
-    assert "staff.deleted" in actions
-    assert "office.updated" in actions
-
-    # 最新のログ（staff.deleted）が含まれていることを確認
-    staff_deleted_logs = [log for log in data["logs"] if log["action"] == "staff.deleted"]
-    assert len(staff_deleted_logs) >= 1
-    legacy_log = staff_deleted_logs[0]
+    # 作成したログをtarget_idまで含めて確認する。既存ログの同じactionを
+    # 誤って検証対象にしないため、actionだけでは照合しない。
+    legacy_log = next(
+        log
+        for log in data["logs"]
+        if log["action"] == "staff.deleted"
+        and log["target_id"] == str(staff_target_id)
+    )
+    assert any(
+        log["action"] == "office.updated" and log["target_id"] == str(office.id)
+        for log in data["logs"]
+    )
     assert legacy_log["ip_address"] == mask_ip_address("192.168.1.1")
     assert legacy_log["user_agent"] == hash_user_agent("Mozilla/5.0")
     assert "reason" not in legacy_log["details"]
