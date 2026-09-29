@@ -16,9 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.staff_profile import AuditLog
 from app.models.enums import AuditLogTargetType
+from app.schemas.audit_log import AuditLogResponse
 from app.utils.privacy_utils import hash_user_agent, mask_ip_address
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_audit_log_response_schema_omits_internal_uuids():
+    assert not {
+        "staff_id", "actor_id", "target_id", "office_id"
+    }.intersection(AuditLogResponse.model_fields)
 
 
 async def test_get_audit_logs_success(
@@ -101,16 +108,20 @@ async def test_get_audit_logs_success(
     assert len(data["logs"]) >= 2  # 最低2件
     assert data["total"] >= 2
 
-    # 作成したログをtarget_idまで含めて確認する。既存ログの同じactionを
-    # 誤って検証対象にしないため、actionだけでは照合しない。
+    # timestampでテスト作成ログを特定する。内部UUIDはAPIへ返さない。
     legacy_log = next(
         log
         for log in data["logs"]
         if log["action"] == "staff.deleted"
-        and log["target_id"] == str(staff_target_id)
+        and log["timestamp"] == page_timestamp.isoformat()
+    )
+    assert all(
+        not {"staff_id", "actor_id", "target_id", "office_id"}.intersection(log)
+        for log in data["logs"]
     )
     assert any(
-        log["action"] == "office.updated" and log["target_id"] == str(office.id)
+        log["action"] == "office.updated"
+        and log["timestamp"] == (page_timestamp - timedelta(microseconds=1)).isoformat()
         for log in data["logs"]
     )
     assert legacy_log["ip_address"] == mask_ip_address("192.168.1.1")

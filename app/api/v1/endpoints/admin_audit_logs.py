@@ -66,14 +66,10 @@ async def get_audit_logs(
     for log in logs:
         log_dict = {
             "id": log.id,
-            "staff_id": log.staff_id,
-            "actor_id": log.staff_id,
             "actor_name": staff_names.get(log.staff_id),
             "actor_role": log.actor_role,
             "action": log.action,
             "target_type": log.target_type,
-            "target_id": log.target_id,
-            "office_id": log.office_id,
             "office_name": office_names.get(log.office_id),
             # 旧データにも読取時の秘匿化を適用する。
             "ip_address": mask_ip_address(log.ip_address),

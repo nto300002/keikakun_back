@@ -69,13 +69,12 @@ class TestOfficeCalendarAccountSchema:
         assert account_update.auto_invite_staff is False
 
     def test_office_calendar_account_update_partial(self):
-        """部分的な更新データでOfficeCalendarAccountUpdateモデルが作成できることをテスト"""
+        """last_error_messageを更新入力として受け付けないことをテスト"""
         update_data = {
             "last_error_message": "認証エラーが発生しました",
         }
-        account_update = OfficeCalendarAccountUpdate(**update_data)
-        assert account_update.last_error_message == "認証エラーが発生しました"
-        assert account_update.calendar_name is None
+        with pytest.raises(ValidationError):
+            OfficeCalendarAccountUpdate(**update_data)
 
     def test_office_calendar_account_response_valid(self):
         """正常なデータでOfficeCalendarAccountResponseモデルが作成できることをテスト"""

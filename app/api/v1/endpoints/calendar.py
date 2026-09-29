@@ -18,6 +18,10 @@ from app.schemas.calendar_account import (
 )
 from app.schemas.calendar_event import CalendarEventResponse
 from app.messages import ja
+from app.services.calendar.error_codes import (
+    CALENDAR_CONNECTION_FAILED,
+    sanitize_calendar_error_code,
+)
 
 router = APIRouter()
 
@@ -113,7 +117,9 @@ async def setup_calendar(
             auto_invite_staff=account.auto_invite_staff,
             default_reminder_minutes=account.default_reminder_minutes,
             last_sync_at=account.last_sync_at,
-            last_error_message=account.last_error_message,
+            last_error_message=sanitize_calendar_error_code(
+                account.last_error_message, default=CALENDAR_CONNECTION_FAILED
+            ),
             created_at=account.created_at,
             updated_at=account.updated_at
         )
@@ -182,7 +188,12 @@ async def get_calendar_by_office(
             detail=ja.CALENDAR_NOT_FOUND_FOR_OFFICE.format(office_id=office_id),
         )
 
-    return OfficeCalendarAccountResponse.model_validate(account)
+    response = OfficeCalendarAccountResponse.model_validate(account)
+    return response.model_copy(update={
+        "last_error_message": sanitize_calendar_error_code(
+            account.last_error_message, default=CALENDAR_CONNECTION_FAILED
+        )
+    })
 
 
 @router.get("/events", response_model=list[CalendarEventResponse])
@@ -272,7 +283,12 @@ async def get_calendar_by_id(
             detail=ja.CALENDAR_ACCOUNT_NOT_FOUND.format(account_id=account_id),
         )
 
-    return OfficeCalendarAccountResponse.model_validate(account)
+    response = OfficeCalendarAccountResponse.model_validate(account)
+    return response.model_copy(update={
+        "last_error_message": sanitize_calendar_error_code(
+            account.last_error_message, default=CALENDAR_CONNECTION_FAILED
+        )
+    })
 
 
 @router.put("/{account_id}", response_model=CalendarSetupResponse)
@@ -337,7 +353,9 @@ async def update_calendar(
             auto_invite_staff=account.auto_invite_staff,
             default_reminder_minutes=account.default_reminder_minutes,
             last_sync_at=account.last_sync_at,
-            last_error_message=account.last_error_message,
+            last_error_message=sanitize_calendar_error_code(
+                account.last_error_message, default=CALENDAR_CONNECTION_FAILED
+            ),
             created_at=account.created_at,
             updated_at=account.updated_at
         )

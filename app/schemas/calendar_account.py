@@ -47,7 +47,8 @@ class OfficeCalendarAccountUpdate(BaseModel):
     connection_status: Optional[CalendarConnectionStatus] = None
     auto_invite_staff: Optional[bool] = None
     default_reminder_minutes: Optional[int] = Field(default=None, ge=0, description="リマインダー分数（0以上）")
-    last_error_message: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class OfficeCalendarAccountResponse(OfficeCalendarAccountBase):

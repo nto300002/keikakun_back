@@ -109,6 +109,12 @@ class CRUDOfficeCalendarAccount(CRUDBase[OfficeCalendarAccount, OfficeCalendarAc
         update_data = obj_in.model_dump(exclude_unset=True)
         service_account_key = update_data.pop('service_account_key', None)
 
+        if "last_error_message" in update_data:
+            update_data["last_error_message"] = sanitize_calendar_error_code(
+                update_data["last_error_message"],
+                default=CALENDAR_CONNECTION_FAILED,
+            )
+
         # 通常の更新処理
         for field, value in update_data.items():
             setattr(db_obj, field, value)

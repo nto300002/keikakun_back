@@ -10,14 +10,10 @@ from pydantic import BaseModel, Field, field_serializer
 class AuditLogResponse(BaseModel):
     """監査ログレスポンス"""
     id: UUID
-    staff_id: UUID
-    actor_id: Optional[UUID] = None
     actor_name: Optional[str] = None
     actor_role: Optional[str] = None
     action: str
     target_type: str
-    target_id: Optional[UUID] = None
-    office_id: Optional[UUID] = None
     office_name: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None

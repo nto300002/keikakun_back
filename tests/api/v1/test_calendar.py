@@ -494,6 +494,14 @@ class TestGetCalendarByOffice:
         headers = {"Authorization": f"Bearer {access_token}"}
         await async_client.post("/api/v1/calendar/setup", json=setup_payload, headers=headers)
 
+        account = await db_session.scalar(
+            select(OfficeCalendarAccount).where(
+                OfficeCalendarAccount.office_id == office.id
+            )
+        )
+        account.last_error_message = "provider response with private details"
+        await db_session.commit()
+
         # Act: 取得
         response = await async_client.get(f"/api/v1/calendar/office/{office.id}", headers=headers)
 
@@ -502,6 +510,7 @@ class TestGetCalendarByOffice:
         data = response.json()
         assert data["google_calendar_id"] == "test-calendar@group.calendar.google.com"
         assert data["calendar_name"] == "取得テスト用カレンダー"
+        assert data["last_error_message"] == "calendar_connection_failed"
         assert "service_account_key" not in data  # 暗号化キーは返さない
 
     @pytest.mark.parametrize("mock_current_user", ["owner_user_with_office"], indirect=True)

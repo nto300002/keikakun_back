@@ -4,6 +4,7 @@ TDD方式でテストを先に作成
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 import pytest
+from types import SimpleNamespace
 
 from app import crud
 from app.models.enums import CalendarConnectionStatus
@@ -200,6 +201,32 @@ async def test_update_office_calendar_account_with_encryption(
     assert updated_account.service_account_email == "new@test.iam.gserviceaccount.com"
     # 暗号化されていることを確認（暗号化されたキーは元のキーと異なる）
     assert updated_account.service_account_key is not None
+
+
+async def test_update_with_encryption_sanitizes_untrusted_error_value(
+    db_session: AsyncSession,
+    employee_user_factory,
+) -> None:
+    """CRUD境界でもスキーマ外から渡された例外文字列を固定コード化する。"""
+    staff = await employee_user_factory()
+    office = staff.office_associations[0].office
+    account = await crud.office_calendar_account.create_with_encryption(
+        db=db_session,
+        obj_in=OfficeCalendarAccountCreate(office_id=office.id),
+    )
+    update_payload = SimpleNamespace(
+        model_dump=lambda **kwargs: {
+            "last_error_message": "provider response with private details"
+        }
+    )
+
+    updated_account = await crud.office_calendar_account.update_with_encryption(
+        db=db_session,
+        db_obj=account,
+        obj_in=update_payload,
+    )
+
+    assert updated_account.last_error_message == "calendar_connection_failed"
 
 
 async def test_get_connected_accounts(
