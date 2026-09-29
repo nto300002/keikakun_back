@@ -234,12 +234,13 @@ class TestSetupCalendar:
 
         # Assert
         assert response.status_code == 422
-        # Pydanticのバリデーションエラーをチェック
+        # 固定形式の安全なバリデーションエラーをチェック
         data = response.json()
-        assert "detail" in data
-        # エラーメッセージに必須フィールドの欠落が含まれていることを確認
-        error_str = str(data)
-        assert "設定ファイルに必要な項目がありません" in error_str
+        assert data["detail"] == [{
+            "loc": ["body"],
+            "code": "validation.invalid_value",
+            "message": "入力内容が正しくありません",
+        }]
 
     async def test_setup_calendar_unauthorized(
         self,

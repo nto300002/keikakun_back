@@ -2008,7 +2008,11 @@ class TestEmploymentValidationEnhanced:
 
         # Assert: バリデーションエラーを期待
         assert response.status_code == 422
-        assert "employment_other_text" in response.text.lower() or "その他" in response.text
+        assert response.json()["detail"] == [{
+            "loc": ["body"],
+            "code": "validation.invalid_value",
+            "message": "入力内容が正しくありません",
+        }]
 
     async def test_empty_string_converted_to_none(
         self,

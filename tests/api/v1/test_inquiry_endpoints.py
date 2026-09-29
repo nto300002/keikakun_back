@@ -994,7 +994,11 @@ class TestAdminInquiryReplyEndpoint:
 
         # Assert
         assert response.status_code == 422
-        assert "返信内容は空にできません" in str(response.json())
+        assert response.json()["detail"] == [{
+            "loc": ["body"],
+            "code": "validation.invalid_value",
+            "message": "入力内容が正しくありません",
+        }]
 
     async def test_reply_as_non_admin_fails(
         self,

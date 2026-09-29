@@ -274,16 +274,13 @@ async def test_validation_error_detailed_messages(
     data = response.json()
     assert "detail" in data
 
-    # エラーが配列形式で返される
-    if isinstance(data["detail"], list):
-        errors = data["detail"]
-        assert len(errors) >= 2  # 少なくとも2つのエラーがある
-
-        # 各エラーにフィールド情報とメッセージが含まれる
-        for error in errors:
-            assert "loc" in error  # エラーの場所
-            assert "msg" in error  # エラーメッセージ
-            assert "type" in error  # エラータイプ
+    errors = data["detail"]
+    assert len(errors) >= 2
+    for error in errors:
+        assert set(error) == {"loc", "code", "message"}
+        assert error["loc"] == ["body"]
+        assert error["code"] == "validation.invalid_value"
+        assert error["message"] == "入力内容が正しくありません"
 
 
 # 未認証エラーの処理

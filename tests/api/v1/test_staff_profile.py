@@ -7,6 +7,16 @@ from app.models.staff import Staff
 
 pytestmark = pytest.mark.asyncio
 
+SAFE_VALIDATION_ERROR = {
+    "loc": ["body"],
+    "code": "validation.invalid_value",
+    "message": "入力内容が正しくありません",
+}
+
+
+def assert_safe_validation_errors(response, count: int = 1) -> None:
+    assert response.json()["detail"] == [SAFE_VALIDATION_ERROR] * count
+
 
 # --- 名前変更機能のテスト ---
 
@@ -130,7 +140,7 @@ async def test_update_staff_name_validation_empty(
     )
 
     assert response.status_code == 422
-    assert "名前は必須です" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -154,7 +164,7 @@ async def test_update_staff_name_validation_too_long(
     )
 
     assert response.status_code == 422
-    assert "50文字以内" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -178,7 +188,7 @@ async def test_update_staff_name_validation_invalid_chars_in_name(
     )
 
     assert response.status_code == 422
-    assert "使用できない文字" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -202,7 +212,7 @@ async def test_update_staff_name_validation_furigana_not_hiragana(
     )
 
     assert response.status_code == 422
-    assert "ひらがなで入力" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -226,7 +236,7 @@ async def test_update_staff_name_validation_numbers_only(
     )
 
     assert response.status_code == 422
-    assert "数字のみは使用できません" in response.text
+    assert_safe_validation_errors(response, count=2)
 
 
 async def test_update_staff_name_no_auth(async_client: AsyncClient):
@@ -365,7 +375,7 @@ async def test_change_password_too_short(
     )
 
     assert response.status_code == 422
-    assert "8文字以上" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -388,7 +398,7 @@ async def test_change_password_no_uppercase(
     )
 
     assert response.status_code == 422
-    assert "大文字" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -411,7 +421,7 @@ async def test_change_password_no_lowercase(
     )
 
     assert response.status_code == 422
-    assert "小文字" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -434,7 +444,7 @@ async def test_change_password_no_digit(
     )
 
     assert response.status_code == 422
-    assert "数字" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -457,7 +467,7 @@ async def test_change_password_no_special_char(
     )
 
     assert response.status_code == 422
-    assert "特殊文字" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -480,7 +490,7 @@ async def test_change_password_repeated_chars(
     )
 
     assert response.status_code == 422
-    assert "連続して使用できません" in response.text
+    assert_safe_validation_errors(response)
 
 
 @pytest.mark.parametrize("mock_current_user", ["test_staff_user"], indirect=True)
@@ -503,7 +513,7 @@ async def test_change_password_common_password(
     )
 
     assert response.status_code == 422
-    assert "一般的すぎる" in response.text
+    assert_safe_validation_errors(response)
 
 
 # --- メールアドレス変更機能のテスト ---
