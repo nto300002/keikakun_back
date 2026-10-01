@@ -1,6 +1,10 @@
 import os
 import uuid
 import logging
+import re
+import time
+from contextlib import contextmanager
+from functools import wraps
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +53,68 @@ async def get_staff_crud():
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class _LoginTiming:
+    """Collect fixed-name login phase durations without request data."""
+
+    def __init__(self) -> None:
+        self.started_at = time.perf_counter()
+        self.phases: dict[str, float] = {}
+
+    @contextmanager
+    def measure(self, phase: str):
+        started_at = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.phases[phase] = (time.perf_counter() - started_at) * 1000
+
+    def log(self, trace_id: str, status_code: int) -> None:
+        phase_values = " ".join(
+            f"{name}_ms={duration:.1f}" for name, duration in self.phases.items()
+        )
+        logger.info(
+            "[LOGIN_TIMING] trace_id=%s status=%d total_ms=%.1f %s",
+            trace_id,
+            status_code,
+            (time.perf_counter() - self.started_at) * 1000,
+            phase_values,
+        )
+
+
+def _measure_login_phases(endpoint):
+    """Log a safe timing summary for each login request, including failures."""
+
+    @wraps(endpoint)
+    async def wrapped(*args, **kwargs):
+        request = kwargs.get("request")
+        timing = _LoginTiming()
+        trace_header = (
+            request.headers.get("x-cloud-trace-context", "") if request else ""
+        )
+        trace_candidate = trace_header.partition("/")[0]
+        trace_id = (
+            trace_candidate
+            if re.fullmatch(r"[0-9a-fA-F]{32}", trace_candidate)
+            else "unavailable"
+        )
+        status_code = 200
+        if request is not None:
+            request.state.login_timing = timing
+
+        try:
+            return await endpoint(*args, **kwargs)
+        except HTTPException as exc:
+            status_code = exc.status_code
+            raise
+        except Exception:
+            status_code = 500
+            raise
+        finally:
+            timing.log(trace_id, status_code)
+
+    return wrapped
 
 
 @router.post(
@@ -176,6 +242,7 @@ async def verify_email(
 
 @router.post("/token") # response_modelを削除
 @limiter.limit("5/minute")
+@_measure_login_phases
 async def login_for_access_token(
     *,
     response: Response,  # Cookie設定のため追加
@@ -191,8 +258,14 @@ async def login_for_access_token(
 
     app_adminの場合は追加で合言葉（passphrase）の検証が必要
     """
-    user = await staff_crud.get_by_email(db, email=username)
-    if not user or not verify_password(password, user.hashed_password):
+    timing: _LoginTiming = request.state.login_timing
+    with timing.measure("user_lookup_db"):
+        user = await staff_crud.get_by_email(db, email=username)
+    with timing.measure("password_verify"):
+        password_valid = bool(
+            user and verify_password(password, user.hashed_password)
+        )
+    if not password_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ja.AUTH_INCORRECT_CREDENTIALS,
@@ -211,8 +284,9 @@ async def login_for_access_token(
         stmt = select(models.Staff).options(
             selectinload(models.Staff.office_associations).selectinload(OfficeStaff.office)
         ).where(models.Staff.id == user.id)
-        result = await db.execute(stmt)
-        user_with_offices = result.scalar_one_or_none()
+        with timing.measure("office_state_db"):
+            result = await db.execute(stmt)
+            user_with_offices = result.scalar_one_or_none()
 
         if user_with_offices and user_with_offices.office_associations:
             # いずれかの事務所が削除済みの場合、ログイン拒否
@@ -237,7 +311,12 @@ async def login_for_access_token(
     # app_adminの場合は、強制化前だけ合言葉を検証する。
     # 強制化後はパスキーが唯一の追加認証要素であり、合言葉をログイン判断に使わない。
     if user.role == StaffRole.app_admin:
-        credentials = await crud_webauthn.get_active_credentials(db, staff_id=user.id)
+        with timing.measure("admin_factor_db_and_verify"):
+            credentials = await crud_webauthn.get_active_credentials(db, staff_id=user.id)
+            if user.passkey_enforced_at is None and user.hashed_passphrase and passphrase:
+                passphrase_valid = verify_password(passphrase, user.hashed_passphrase)
+            else:
+                passphrase_valid = None
         if user.passkey_enforced_at is not None and not credentials:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -260,7 +339,7 @@ async def login_for_access_token(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             # 合言葉を検証
-            if not verify_password(passphrase, user.hashed_passphrase):
+            if not passphrase_valid:
                 logger.warning("[LOGIN] Invalid passphrase attempt for app_admin")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -273,9 +352,13 @@ async def login_for_access_token(
     session_type = "standard"
 
     if user.role == StaffRole.app_admin:
-        credentials = await crud_webauthn.get_active_credentials(db, staff_id=user.id)
+        with timing.measure("admin_challenge_db"):
+            credentials = await crud_webauthn.get_active_credentials(db, staff_id=user.id)
         if credentials:
-            pending_token = await webauthn_authentication_service.begin_pending_login(db, staff=user)
+            with timing.measure("admin_challenge_create"):
+                pending_token = await webauthn_authentication_service.begin_pending_login(
+                    db, staff=user
+                )
             return {
                 "requires_webauthn_verification": True,
                 "webauthn_pending_token": pending_token,
@@ -285,18 +368,20 @@ async def login_for_access_token(
             }
 
     if user.is_mfa_enabled:
-        temporary_token = create_temporary_token(
-            user_id=str(user.id),
-            token_type="mfa_verify",
-            session_duration=session_duration,
-            session_type=session_type
-        )
+        with timing.measure("mfa_challenge_prepare"):
+            temporary_token = create_temporary_token(
+                user_id=str(user.id),
+                token_type="mfa_verify",
+                session_duration=session_duration,
+                session_type=session_type
+            )
 
         # 管理者が設定したが、ユーザーが未検証の場合 → 初回検証フロー
         if not user.is_mfa_verified_by_user:
             try:
-                decrypted_secret = user.get_mfa_secret()
-                qr_code_uri = generate_totp_uri(user.email, decrypted_secret)
+                with timing.measure("mfa_first_setup_prepare"):
+                    decrypted_secret = user.get_mfa_secret()
+                    qr_code_uri = generate_totp_uri(user.email, decrypted_secret)
 
                 return {
                     "requires_mfa_first_setup": True,
@@ -325,20 +410,21 @@ async def login_for_access_token(
             "session_type": session_type,
         }
 
-    access_token = create_access_token(
-        subject=str(user.id),
-        expires_delta_seconds=session_duration,
-        session_type=session_type
-    )
-    refresh_token = create_refresh_token(
-        subject=str(user.id),
-        session_duration=session_duration,
-        session_type=session_type
-    )
+    with timing.measure("token_issue_and_cookie"):
+        access_token = create_access_token(
+            subject=str(user.id),
+            expires_delta_seconds=session_duration,
+            session_type=session_type
+        )
+        refresh_token = create_refresh_token(
+            subject=str(user.id),
+            session_duration=session_duration,
+            session_type=session_type
+        )
 
-    response.set_cookie(
-        **build_access_cookie_options(value=access_token, max_age=session_duration)
-    )
+        response.set_cookie(
+            **build_access_cookie_options(value=access_token, max_age=session_duration)
+        )
 
     # セキュリティ向上: レスポンスボディからaccess_tokenを削除
     # トークンはCookieでのみ送信される（refresh_tokenは保持）
