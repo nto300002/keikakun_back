@@ -53,6 +53,8 @@ async def get_staff_crud():
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+login_timing_logger = logging.getLogger(f"{__name__}.login_timing")
+login_timing_logger.setLevel(logging.INFO)
 
 
 class _LoginTiming:
@@ -74,7 +76,7 @@ class _LoginTiming:
         phase_values = " ".join(
             f"{name}_ms={duration:.1f}" for name, duration in self.phases.items()
         )
-        logger.info(
+        login_timing_logger.info(
             "[LOGIN_TIMING] trace_id=%s status=%d total_ms=%.1f %s",
             trace_id,
             status_code,
